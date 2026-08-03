@@ -38,6 +38,14 @@ class MemoryAgent:
         score = 0.0
         reasons: list[str] = []
 
+        if not pack.match_events:
+            return DiscoveryAssessment(
+                signal_score=0.0,
+                threshold=self.threshold,
+                reasons=["no grounded gameplay events were present"],
+                eligible=False,
+            )
+
         importance_points = {"low": 0.02, "medium": 0.05, "high": 0.10}
         event_score = min(
             sum(importance_points[event.importance.value] for event in pack.match_events), 0.35

@@ -32,3 +32,16 @@ def test_discovery_endpoint_returns_versioned_output() -> None:
     assert body["schema_version"] == "1.0"
     assert body["status"] == "ready"
     assert body["validation"]["passed"] is True
+
+
+def test_local_review_studio_origin_is_allowed() -> None:
+    response = client.options(
+        "/v1/memories/discover",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"

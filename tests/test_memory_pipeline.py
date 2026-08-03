@@ -86,6 +86,16 @@ def test_weak_memory_abstains_without_generating_content() -> None:
     assert result.validation.issues[0].code == "insufficient_memory_signal"
 
 
+def test_human_signals_without_gameplay_evidence_abstain_safely() -> None:
+    pack = load_pack("funny_memory.json").model_copy(update={"match_events": []})
+    result = MemoryPipeline().run(pack)
+
+    assert result.status == PipelineStatus.REJECTED
+    assert result.discovery.eligible is False
+    assert result.discovery.reasons == ["no grounded gameplay events were present"]
+    assert result.memory is None
+
+
 def test_unknown_players_are_rejected_at_the_input_boundary() -> None:
     payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
     payload["match_events"][0]["actor_id"] = "not-a-squad-member"
