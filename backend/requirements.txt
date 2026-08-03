@@ -1,0 +1,3 @@
+# Convenience install path. The canonical dependency list is in pyproject.toml.
+-e ..[dev]
+
