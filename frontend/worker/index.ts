@@ -235,14 +235,20 @@ async function generateStructured(
 
   if (!response.ok) {
     let detail = "The model request could not be completed.";
+    let errorCode = "";
     try {
-      const body = (await response.json()) as { error?: { message?: string } };
+      const body = (await response.json()) as { error?: { message?: string; code?: string; type?: string } };
       if (body.error?.message) detail = body.error.message.slice(0, 220);
+      errorCode = body.error?.code ?? body.error?.type ?? "";
     } catch {
       // Keep the safe generic detail.
     }
     if (response.status === 401) detail = "The AI credential needs to be replaced.";
-    if (response.status === 429) detail = "The AI is busy or the API quota has been reached.";
+    if (response.status === 429 && errorCode === "insufficient_quota") {
+      detail = "This API project has no available credits or has reached its spend limit.";
+    } else if (response.status === 429) {
+      detail = "OpenAI's rate limit was reached. Wait a moment, then run the memory again.";
+    }
     throw new Error(detail);
   }
 
