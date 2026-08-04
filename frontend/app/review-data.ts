@@ -1,4 +1,68 @@
-export type MemoryEngineResult = typeof demoResult;
+export interface MemoryPack {
+  schema_version: "1.0";
+  pack_id: string;
+  player_profile: { player_id: string; preferred_role: string | null };
+  squad: {
+    squad_id: string;
+    members: Array<{ player_id: string; display_name: string; role: string; opted_in: boolean }>;
+    matches_together: number;
+    days_since_full_squad: number;
+  };
+  match: { match_id: string; mode: string; map_name: string; placement: number; played_at: string };
+  match_events: Array<{
+    event_id: string;
+    type: string;
+    actor_id?: string;
+    target_id?: string;
+    timestamp_seconds: number;
+    location: string;
+    importance: "low" | "medium" | "high";
+    details: Record<string, string | number | boolean>;
+  }>;
+  human_memory: { caption: string; tags: string[]; author_player_id: string; confirmed: boolean };
+  reactions: { laugh_count: number; fire_count: number; saved: boolean };
+  current_context: { active_member_ids: string[]; resurfacing_reason: string; original_mode_available: boolean };
+}
+
+export interface MemoryEngineResult {
+  schema_version: "1.0";
+  pack_id: string;
+  status: "ready" | "needs_human_confirmation" | "rejected";
+  discovery: { signal_score: number; threshold: number; reasons: string[]; eligible: boolean };
+  memory: {
+    title: string;
+    memory_type: string;
+    summary: string;
+    confidence: number;
+    evidence: Array<{ event_id: string; event_type: string; significance: string }>;
+    human_confirmed: boolean;
+  };
+  player_perspectives: Array<{
+    player_id: string;
+    display_name: string;
+    message: string;
+    evidence_event_ids: string[];
+  }>;
+  next_chapter: {
+    title: string;
+    mission: string;
+    recipe: "recreate" | "remix" | "resolve";
+    objectives: Array<{
+      objective_id: string;
+      description: string;
+      required: boolean;
+      assigned_player_id?: string | null;
+      source_event_ids?: string[];
+    }>;
+  };
+  validation: {
+    passed: boolean;
+    human_review_required: boolean;
+    scores: Record<string, number>;
+    issues: Array<{ code: string; severity: string; message: string }>;
+  };
+  metadata: { pipeline_version: string; provider: string; model: string; elapsed_ms?: number };
+}
 
 export const demoMemoryPack = {
   schema_version: "1.0",
@@ -25,9 +89,9 @@ export const demoMemoryPack = {
   human_memory: { caption: "Worst plan, best night", tags: ["funny", "chaos"], author_player_id: "amir", confirmed: true },
   reactions: { laugh_count: 12, fire_count: 3, saved: true },
   current_context: { active_member_ids: ["lee", "mei"], resurfacing_reason: "Two original squad members are active and Bermuda is available.", original_mode_available: true },
-} as const;
+} as const satisfies MemoryPack;
 
-export const demoResult = {
+export const demoResult: MemoryEngineResult = {
   schema_version: "1.0",
   pack_id: "memory-pack-worst-plan-001",
   status: "ready",

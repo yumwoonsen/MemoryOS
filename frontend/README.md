@@ -1,8 +1,8 @@
 # MemoryOS Review Studio
 
-The player-facing review experience for MemoryOS. It connects to the Phase 1 FastAPI memory engine,
-shows the evidence behind a candidate, previews each opted-in player's perspective, and lets a
-reviewer confirm, edit, or dismiss the memory.
+The player-facing review experience for MemoryOS. Its Live Memory Lab streams visible progress as
+OpenAI discovers a memory from grounded events, writes distinct player perspectives, creates a
+follow-up quest, and validates its references. A reviewer can then confirm, edit, or dismiss it.
 
 ## Local development
 
@@ -11,9 +11,9 @@ pnpm install
 pnpm run dev
 ```
 
-By default the studio calls `http://127.0.0.1:8000`. If the backend is unavailable, it remains
-usable with the versioned golden-path fixture. Copy `.env.example` to `.env.local` to point the UI
-at a different backend.
+Copy `.env.example` to `.env.local`, add a server-only `OPENAI_API_KEY`, and optionally choose a
+model with `OPENAI_MODEL`. Without a key, the versioned golden-path fixture remains reviewable.
+Never expose the API key through a `NEXT_PUBLIC_` environment variable.
 
 Review decisions are persisted in the deployed site's D1 database. The local development binding
 uses the same schema from `db/schema.ts`.

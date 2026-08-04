@@ -18,6 +18,8 @@ test("server-renders the MemoryOS Review Studio", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>MemoryOS Review Studio<\/title>/i);
+  assert.match(html, /Watch the AI build a memory/i);
+  assert.match(html, /Make this memory live/i);
   assert.match(html, /Does this feel like your squad\?/i);
   assert.match(html, /Worst Plan, Best Night/i);
   assert.match(html, /The next chapter/i);
