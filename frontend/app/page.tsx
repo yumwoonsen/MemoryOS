@@ -180,7 +180,11 @@ export default function Home() {
       setSource("live");
       window.setTimeout(() => document.getElementById("review-result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
     } catch (error) {
-      setGenerationError(error instanceof Error ? error.message : "Live memory generation failed.");
+      const message = error instanceof Error ? error.message : "Live memory generation failed.";
+      setGenerationError(message);
+      setStages((current) => current.map((stage) => stage.status === "working"
+        ? { ...stage, status: "failed", message }
+        : stage));
     } finally {
       setGenerating(false);
     }
@@ -264,7 +268,7 @@ export default function Home() {
               </form>
 
               <div className="stage-panel" aria-live="polite" aria-busy={generating}>
-                <div className="stage-panel-title"><span>AI activity</span><b>{generating ? "RUNNING" : source === "live" ? "COMPLETE" : "READY"}</b></div>
+                <div className="stage-panel-title"><span>AI activity</span><b>{generationError ? "STOPPED" : generating ? "RUNNING" : source === "live" ? "COMPLETE" : "READY"}</b></div>
                 <ol className="stage-timeline">
                   {stages.map((stage, index) => <li className={`stage-card ${stage.status}`} key={stage.stage}><span className="stage-index">{stage.status === "complete" ? "OK" : String(index + 1).padStart(2, "0")}</span><div><strong>{prettyEvent(stage.stage)}</strong><p>{stage.message}</p></div><i aria-hidden="true" /></li>)}
                 </ol>
