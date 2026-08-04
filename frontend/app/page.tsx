@@ -23,6 +23,8 @@ const stageDefaults: StageState[] = [
   { stage: "validation", status: "idle", message: "Evidence and safety checks" },
 ];
 const roleDefaults = ["aggressive_entry", "support_rescuer", "driver", "caller", "scout", "anchor"];
+const configuredLocalApi = process.env.NEXT_PUBLIC_MEMORYOS_API_BASE_URL?.replace(/\/$/, "");
+const localApiBase = configuredLocalApi ?? (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "");
 
 function cloneDemoPack(): MemoryPack {
   return JSON.parse(JSON.stringify(demoMemoryPack)) as MemoryPack;
@@ -105,15 +107,24 @@ export default function Home() {
       },
       match_events: notes.map((note, index) => {
         const normalized = note.toLowerCase();
+        const eventType = inferEventType(note);
         const actor = members.find((member) => normalized.includes(member.display_name.toLowerCase()));
+        const mentionedPlayers = members.filter((member) => normalized.includes(member.display_name.toLowerCase()));
+        const target = eventType === "revive"
+          ? mentionedPlayers.find((member) => member.player_id !== actor?.player_id)
+          : undefined;
+        const details: Record<string, string | number | boolean> = { description: note };
+        if (eventType === "vehicle_escape") details.passengers = Math.max(members.length - 1, 1);
+        if (eventType === "retreat_ping") details.count = Number(normalized.match(/\b\d+\b/)?.[0] ?? 1);
         return {
           event_id: `evt-live-${index + 1}`,
-          type: inferEventType(note),
+          type: eventType,
           ...(actor ? { actor_id: actor.player_id } : {}),
+          ...(target ? { target_id: target.player_id } : {}),
           timestamp_seconds: 600 + index * 30,
           location: location.trim() || mapName.trim() || "Unknown location",
           importance: normalized.includes("reviv") || normalized.includes("surviv") || normalized.includes("escape") ? "high" : "medium",
-          details: { description: note },
+          details,
         };
       }),
       human_memory: {
@@ -145,7 +156,10 @@ export default function Home() {
     setGenerating(true);
     try {
       const pack = buildPack();
-      const response = await fetch("/api/generate-memory", {
+      const generationUrl = localApiBase
+        ? `${localApiBase}/v1/memories/generate-stream`
+        : "/api/generate-memory";
+      const response = await fetch(generationUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(pack),
@@ -235,7 +249,7 @@ export default function Home() {
     <main>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="MemoryOS home"><span className="brand-mark">M</span><span>MemoryOS</span><small>Review Studio</small></a>
-        <div className="topbar-actions"><span className={`connection ${source}`}><i /> {generating ? "AI working" : source === "live" ? "Live AI result" : "Golden match"}</span><span className="reviewer">RN</span></div>
+        <div className="topbar-actions"><span className={`connection ${source}`}><i /> {generating ? (localApiBase ? "Local engine working" : "AI working") : source === "live" ? (localApiBase ? "Local result" : "Live AI result") : "Golden match"}</span><span className="reviewer">RN</span></div>
       </header>
 
       <div className="workspace" id="top">
@@ -253,7 +267,7 @@ export default function Home() {
           <section className="memory-lab" aria-labelledby="lab-title">
             <div className="lab-intro">
               <div><div className="eyebrow">Live Memory Lab</div><h1 id="lab-title">Watch the AI build a memory.</h1><p>Give it grounded match notes. MemoryOS will discover the story, personalize it for the squad, create a next chapter, and show each step as it happens.</p></div>
-              <span className="model-chip">OpenAI / live</span>
+              <span className="model-chip">{localApiBase ? "On-device / no key" : "OpenAI / live"}</span>
             </div>
             <div className="lab-grid">
               <form className="lab-form" onSubmit={(event) => { event.preventDefault(); void runLiveMemory(); }}>
@@ -264,7 +278,7 @@ export default function Home() {
                 <label className="wide">Verified events <small>One factual event per line</small><textarea value={eventNotes} onChange={(event) => setEventNotes(event.target.value)} rows={6} /></label>
                 <label className="wide">Tags <small>Comma-separated</small><input value={labTags} onChange={(event) => setLabTags(event.target.value)} /></label>
                 <label className="confirmation wide"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>I confirm these notes describe a real match.</span></label>
-                <div className="lab-buttons wide"><button className="run-button" type="submit" disabled={generating}>{generating ? "Making the memory..." : "Make this memory live"}</button><button className="reset-button" type="button" onClick={resetGoldenMatch} disabled={generating}>Reset golden match</button></div>
+                <div className="lab-buttons wide"><button className="run-button" type="submit" disabled={generating}>{generating ? "Making the memory..." : localApiBase ? "Make this memory locally" : "Make this memory live"}</button><button className="reset-button" type="button" onClick={resetGoldenMatch} disabled={generating}>Reset golden match</button></div>
               </form>
 
               <div className="stage-panel" aria-live="polite" aria-busy={generating}>
@@ -273,7 +287,7 @@ export default function Home() {
                   {stages.map((stage, index) => <li className={`stage-card ${stage.status}`} key={stage.stage}><span className="stage-index">{stage.status === "complete" ? "OK" : String(index + 1).padStart(2, "0")}</span><div><strong>{prettyEvent(stage.stage)}</strong><p>{stage.message}</p></div><i aria-hidden="true" /></li>)}
                 </ol>
                 {generationError && <div className="generation-error" role="alert"><strong>The run stopped.</strong><span>{generationError}</span></div>}
-                <p className="privacy-note">Your API key stays on the server. Only the match pack is sent to the model.</p>
+                <p className="privacy-note">{localApiBase ? "Local mode: your match notes stay on this computer. No API key required." : "Your API key stays on the server. Only the match pack is sent to the model."}</p>
               </div>
             </div>
           </section>

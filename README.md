@@ -24,6 +24,7 @@ mission-result loop are intentionally deferred until the memory output is good.
 - A credential-free deterministic provider for demos and tests
 - An optional OpenAI Responses API adapter using Pydantic Structured Outputs
 - FastAPI and command-line entry points
+- A local Review Studio with streamed pipeline progress and no API key
 - Grounding, consent, distinctness, relationship-claim, and safe-abstention checks
 
 ## Quick start
@@ -55,6 +56,16 @@ Then open `http://127.0.0.1:8000/docs` or send a Memory Pack to:
 ```text
 POST /v1/memories/discover
 ```
+
+Or start the local engine and interactive Review Studio together:
+
+```powershell
+.\start-local.ps1
+```
+
+Then open `http://localhost:3000`, edit the sample match notes, and choose **Make this memory
+locally**. The default local path is deterministic, credential-free, and keeps the notes on this
+computer.
 
 ## Run in VS Code
 
@@ -152,7 +163,7 @@ The prototype does not grade prose by how dramatic it sounds. It asks four measu
   a published Garena schema.
 - The default provider uses deterministic rules so the demo and tests run without credentials.
 - OpenAI mode is implemented but requires a valid server-side API key and separate output evaluation.
-- There is no persistence, authentication, live telemetry, frontend, or notification delivery yet.
+- There is no production authentication, live telemetry, or notification delivery yet.
 
 ## License
 
