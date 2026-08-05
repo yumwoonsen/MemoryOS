@@ -1,5 +1,8 @@
 # Phase 1 foundation: the first MemoryOS vertical slice
 
+> This document records the original single-pack milestone. The current historical-discovery and
+> split-review architecture is described in [Architecture](architecture.md) and [API](api.md).
+
 ## Milestone summary
 
 This initial repository establishes the AI Memory Engine underneath **Garena Next Chapter**. It
@@ -47,10 +50,15 @@ distinctness, and quest connection.
 
 The repository also demonstrates two non-happy paths:
 
-- A strong comeback becomes `needs_human_confirmation` rather than being treated as confirmed.
+- On the original v1.0 compatibility pipeline, a strong comeback becomes
+  `needs_human_confirmation` and its generated artifacts remain reviewable rather than ready.
 - A routine low-signal elimination becomes `rejected` without manufactured nostalgia.
 
 These cases are core product behavior, not fallback error handling.
+
+The Phase 2 `/v1/memories/generate` route is intentionally stricter: it makes no model call and
+returns no generated artifacts until source verification and meaning confirmation are both
+positive. The legacy behavior above remains only for migration compatibility.
 
 ## Verification snapshot
 
@@ -68,8 +76,9 @@ The milestone does not include a frontend, database, authentication, notificatio
 integration, media understanding, production deployment, or new-match continuation. Those features
 belong after the team validates whether the generated experience feels uniquely tied to one squad.
 
-## Recommended next milestone
+## Original next milestone (now in progress)
 
 Build the human review loop: show the discovered memory and its evidence, let a player confirm,
 edit, tag, or dismiss it, and persist that feedback for later retrieval and ranking experiments.
-
+Phase 2A adds the historical ranking and split review-state backend; the concurrent frontend work
+owns the later persistence and review interface.

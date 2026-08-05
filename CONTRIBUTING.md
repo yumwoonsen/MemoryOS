@@ -1,6 +1,6 @@
 # Contributing to MemoryOS
 
-MemoryOS is currently a Phase 1 prototype. Contributions should strengthen the central claim: a
+MemoryOS is currently a Phase 1/2 prototype. Contributions should strengthen the central claim: a
 Next Chapter must be specific to one squad, grounded in evidence, distinct for each participant,
 and safe to abstain when the input is weak.
 
@@ -19,6 +19,7 @@ The included VS Code settings select the local virtual environment and enable py
 Run all checks before committing:
 
 ```powershell
+$env:MEMORYOS_PROVIDER = "deterministic"
 ruff format --check .
 ruff check .
 pytest
@@ -28,12 +29,16 @@ To apply the formatter locally, run `ruff format .` and then repeat the checks.
 
 ## Change guidelines
 
-- Keep `MemoryPack` and `MemoryEngineResult` versioned and backward-compatible within version `1.0`.
+- Keep the v1.0 compatibility contract stable, and make intentional v1.1 contract changes through
+  the Pydantic models and generated OpenAPI rather than duplicating frontend schemas.
 - Add or update a fixture whenever a new behavior or failure mode is introduced.
 - Keep eligibility, evidence, consent, verification, and safety checks deterministic.
+- Preserve the historical-request invariants: one target, one squad ID, one roster, one current
+  consent snapshot, and unique pack IDs.
 - Treat prompt changes like code: document the intent and evaluate all eligible fixtures.
 - Do not add claims about Garena's internal telemetry or APIs without an authoritative source.
-- Do not commit real player data, API keys, `.env`, generated evaluation exports, or local environments.
+- Do not commit real player data, API keys, any `.env*` file other than `.env.example`, generated
+  evaluation exports, or local environments.
 - Preserve safe abstention; more generated content is not automatically better output.
 
 ## Commit style
@@ -56,4 +61,3 @@ A useful pull request explains:
 2. Which contract, prompt, or pipeline stage is affected.
 3. Which fixtures and tests demonstrate the change.
 4. Whether grounding, consent, cost, latency, or privacy behavior changed.
-

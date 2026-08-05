@@ -1,30 +1,46 @@
-# Garena Next Chapter / MemoryOS Build
+# Garena Next Chapter / MemoryOS
 
-MemoryOS is the AI memory architecture underneath **Garena Next Chapter**: a prototype that turns a
-specific, player-confirmed squad memory into distinct teammate perspectives and a playable mission
-derived from that same history.
+MemoryOS is the AI memory engine behind **Garena Next Chapter**. It turns lightweight historical
+match data into reviewable squad memories, distinct teammate perspectives, and a grounded quest
+that gives the squad a specific reason to return.
 
-The Phase 1 question is deliberately narrow:
+The Phase 1/2 backend answers two questions:
 
-> Given a realistic Garena-style Memory Pack, can the system discover a meaningful moment, explain
-> why it matters to each participant, create a connected quest, and reject claims it cannot ground?
-
-This repository is backend-first. The UI, live Free Fire integration, notification delivery, and
-mission-result loop are intentionally deferred until the memory output is good.
+1. Which moments in a player's history are most likely to be worth remembering?
+2. After a player verifies and confirms one, can AI turn it into a safe, evidence-backed next
+   chapter?
 
 > [!IMPORTANT]
 > This is a hackathon prototype built with synthetic Memory Pack fixtures. It does not connect to
 > Free Fire production services, contain player data, or claim access to Garena's internal APIs.
 
-## What works now
+## System boundary
 
-- Strict, versioned Memory Pack input and Memory Engine output contracts
-- A five-stage pipeline: input → discovery → perspectives → quest → validation
-- Three test stories: confirmed chaos, unconfirmed comeback, and insufficient evidence
-- A credential-free deterministic provider for demos and tests
-- An optional OpenAI Responses API adapter using Pydantic Structured Outputs
-- FastAPI and command-line entry points
-- Grounding, consent, distinctness, relationship-claim, and safe-abstention checks
+MemoryOS deliberately separates decisions that must be reliable from language that benefits from
+AI:
+
+| Deterministic code owns | AI may propose |
+|---|---|
+| Evidence compilation and ranking | Bounded memory title and type |
+| Eligibility, consent, and redaction | Quest title, mission, and recipe |
+| Review state and final status | Composition from allowed quest templates |
+| Closed factual clauses plus final validation | No factual control state |
+
+Humans make two independent decisions: whether the source accurately describes the match and
+whether the moment is meaningful. AI is never the authority for either decision.
+
+## What the backend supports
+
+- Strict, versioned Memory Pack and response contracts
+- Historical discovery across up to 50 packs with an explainable deterministic top-three ranking
+- Duplicate suppression and candidate diversity
+- Separate source-verification and meaning-confirmation states
+- Consent-aware evidence compilation and stable anonymization of opted-out players
+- Bounded discovery, perspective, and quest generation stages
+- Deterministic evidence-reference, assignment, lexical-claim, distinctness, and safe-abstention
+  checks
+- A credential-free deterministic provider plus an optional OpenAI Structured Outputs provider
+- FastAPI, command-line, pytest, and generated OpenAPI entry points
 
 ## Quick start
 
@@ -35,125 +51,165 @@ cd memoryos-build
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+$env:MEMORYOS_PROVIDER = "deterministic"
 pytest
 ```
 
-Run the confirmed golden path without an API key:
+Run the API in deterministic mode (the safe default, made explicit here so a local `.env` cannot
+silently select the paid provider):
 
 ```powershell
-python -m backend.run_memory backend/data/funny_memory.json
-```
-
-Run the API:
-
-```powershell
+$env:MEMORYOS_PROVIDER = "deterministic"
 uvicorn backend.main:app --reload
 ```
 
-Then open `http://127.0.0.1:8000/docs` or send a Memory Pack to:
+Open `http://127.0.0.1:8000/docs` for the live request and response schemas.
+
+The original single-pack CLI remains useful for a credential-free golden-path check:
+
+```powershell
+python -m backend.run_memory backend/data/funny_memory.json --provider deterministic
+```
+
+The main API flow is:
 
 ```text
-POST /v1/memories/discover
+POST /v1/memories/discover-history
+    -> player verifies and confirms one candidate
+POST /v1/memories/generate
+    -> validated memory + perspectives + quest
 ```
+
+Each history request uses one target, squad, roster, and current consent snapshot. The base `score`
+is the weighted component sum and controls the `0.45` eligibility gate; the separate
+`ranking_score` may subtract the `0.08` repeated-type diversity penalty during top-candidate
+selection. Clients consume both values from OpenAPI instead of recomputing them.
+
+`POST /v1/memories/discover` remains available as the deprecated v1.0 single-pack compatibility
+route. Unlike the new review-gated route, it preserves the legacy behavior in which an unconfirmed
+pack can still produce reviewable draft artifacts. New clients must use `/generate` for the split
+source/meaning gate.
+
+The streaming route is an NDJSON snapshot view of the same completed generation call, not a second
+AI implementation, token stream, or real-time per-stage trace.
+
+Only the top-level `status: "ready"` marks artifacts as ready. The nested `validation.passed` field
+can also be true for a safe abstention or a candidate waiting for human review, so clients must not
+use it as a readiness shortcut.
 
 ## Run in VS Code
 
-Open this folder in VS Code and accept the recommended Python extension if it is not installed.
-The workspace is already configured to use `.venv\Scripts\python.exe`.
+Open the repository folder and accept the recommended Python extension. The workspace selects
+`.venv\Scripts\python.exe` and enables pytest discovery automatically. In **Run and Debug**:
 
-From **Run and Debug**, choose either:
-
-- **MemoryOS: Run API** — starts the FastAPI server; open `http://127.0.0.1:8000/docs`.
-- **MemoryOS: Run Golden Path** — processes `backend/data/funny_memory.json` in the terminal.
-
-VS Code's Testing panel is configured to discover the pytest suite automatically.
-
-## Verify the project
-
-Run the same quality gates expected before every commit:
-
-```powershell
-ruff format --check .
-ruff check .
-pytest
-```
-
-The Phase 1 baseline contains nine tests covering the golden path, safe abstention, human review,
-evidence grounding, unsupported relationship claims, input validation, and the HTTP contract.
+- **MemoryOS: Run API** starts FastAPI in deterministic mode.
+- **MemoryOS: Run API (Live OpenAI)** explicitly selects the paid provider and reads the key from
+  the local environment or `.env`.
+- **MemoryOS: Run Golden Path** processes the original confirmed fixture in the terminal.
 
 ## Optional live AI mode
 
-The local provider is the default so evaluation stays fast, repeatable, and free. To exercise the
-model boundary, copy `.env.example` to `.env`, add a server-side API key, and set:
+Deterministic mode is intentionally the default: it is repeatable, free, and cannot spend API
+credits accidentally. To opt in to live generation:
 
-```dotenv
-MEMORYOS_PROVIDER=openai
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-5.6-luna
+```powershell
+Copy-Item .env.example .env
 ```
 
-Never commit `.env` or expose the API key in a browser client. The adapter uses the Responses API
-and parses each generative stage directly into its Pydantic schema. Deterministic validation always
-runs afterward. See the official OpenAI guides for the
-[Responses API](https://developers.openai.com/api/docs/guides/text) and
-[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
+Add a server-side `OPENAI_API_KEY` to `.env`, then launch with an explicit provider selection:
+
+```powershell
+$env:MEMORYOS_PROVIDER = "openai"
+uvicorn backend.main:app --reload
+```
+
+Never commit `.env` or expose the key to browser code. The model receives a sanitized evidence
+ledger plus the preceding typed stage output. It produces typed semantic outputs; deterministic
+validation still decides whether the result may be returned as ready. Validation combines exact
+schema/reference checks with conservative lexical heuristics, so human source and meaning review
+remain essential. The default live model is documented in the official
+[gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
+
+Core gameplay clauses are closed server renderings in both modes: memory summary/evidence,
+player-specific perspective messages/references, and quest-objective descriptions must match their
+deterministic templates exactly. The model retains bounded framing fields such as memory title and
+type and quest title, mission, and recipe; those still pass privacy, evidence, action, and lexical
+checks.
+
+See [the API guide](docs/api.md) for configuration and request shapes.
+
+## Verify changes
+
+Run the same checks as CI:
+
+```powershell
+$env:MEMORYOS_PROVIDER = "deterministic"
+ruff check .
+ruff format --check .
+pytest
+```
+
+CI tests Python 3.11 and 3.13. The test suite includes the OpenAPI contract smoke test, ranking and
+compatibility cases, privacy failures, provider failures, and the original Phase 1 golden paths.
+
+Run the synthetic fixture-regression harness without credentials:
+
+```powershell
+python -m backend.evaluate
+```
+
+Live evaluation is deliberately opt-in and may incur API cost:
+
+```powershell
+python -m backend.evaluate --provider openai
+```
 
 ## Repository map
 
 ```text
 memoryos-build/
-├── backend/
-│   ├── agents/          # Discovery, perspective, quest, validation stages
-│   ├── data/            # Versioned Memory Pack fixtures
-│   ├── models/          # Strict Pydantic contracts
-│   ├── prompts/         # Version-controlled model behavior
-│   ├── services/        # Prompt loader and OpenAI adapter
-│   ├── main.py          # FastAPI app
-│   ├── pipeline.py      # Five-stage orchestration
-│   └── run_memory.py    # JSON-to-JSON CLI
-├── docs/                # Product, architecture, decisions, and evaluation
-├── frontend/            # Explicit Phase 2 placeholder
-└── tests/               # Golden path, abstention, grounding, and API tests
+|-- backend/
+|   |-- agents/          # Bounded semantic and validation stages
+|   |-- data/            # Synthetic Memory Pack fixtures
+|   |-- models/          # Pydantic API and pipeline contracts
+|   |-- prompts/         # Version-controlled model behavior
+|   |-- services/        # Evidence, ranking, and provider boundaries
+|   |-- main.py          # FastAPI app and OpenAPI contract
+|   `-- pipeline.py      # Canonical orchestration
+|-- docs/                # Product, architecture, API, decisions, and evaluation
+|-- frontend/            # Concurrent UI work; consumes the backend contract later
+`-- tests/               # Contract, ranking, grounding, privacy, and pipeline tests
 ```
-
-## Expected fixture outcomes
-
-| Fixture | Why it exists | Expected status |
-|---|---|---|
-| `funny_memory.json` | Rich telemetry + player-confirmed caption/tags | `ready` |
-| `comeback_memory.json` | Strong candidate with no human confirmation yet | `needs_human_confirmation` |
-| `insufficient_memory.json` | Weak ordinary event with no positive human signal | `rejected` |
-
-## Definition of good output
-
-The prototype does not grade prose by how dramatic it sounds. It asks four measurable questions:
-
-1. **Specificity:** Could another squad receive this unchanged?
-2. **Evidence:** Can each factual reference be traced to an input event?
-3. **Perspective:** Does each teammate receive a meaningfully different recall?
-4. **Quest connection:** Does the mission continue or remix the memory itself?
 
 ## Documentation
 
 | Document | Purpose |
 |---|---|
 | [Product context](docs/product_context.md) | Product thesis, experience loop, and guardrails |
-| [Architecture](docs/architecture.md) | Pipeline stages, provider boundary, and failure behavior |
-| [API reference](docs/api.md) | Endpoints, configuration, statuses, and examples |
-| [Decision log](docs/decisions.md) | Accepted Phase 1 architecture decisions |
-| [Evaluation](docs/evaluation.md) | Quality rubric and prompt evaluation workflow |
-| [Roadmap](docs/roadmap.md) | Phase 2, Phase 3, and production questions |
-| [Phase 1 foundation](docs/phase-1-foundation.md) | Reusable write-up for the initial repository milestone |
-| [Contributing](CONTRIBUTING.md) | Development workflow and quality gates |
+| [Architecture](docs/architecture.md) | Historical ranking, AI boundary, trust, and privacy |
+| [API reference](docs/api.md) | Endpoints, status flow, configuration, and handoff |
+| [Decision log](docs/decisions.md) | Accepted architecture decisions |
+| [Evaluation](docs/evaluation.md) | Quality metrics and regression workflow |
+| [Roadmap](docs/roadmap.md) | Integration path and production questions |
+| [Phase 1 foundation](docs/phase-1-foundation.md) | Original single-memory vertical slice |
 
 ## Known limitations
 
-- Memory Packs are synthetic representations of data Garena could plausibly assemble; they are not
-  a published Garena schema.
-- The default provider uses deterministic rules so the demo and tests run without credentials.
-- OpenAI mode is implemented but requires a valid server-side API key and separate output evaluation.
-- There is no persistence, authentication, live telemetry, frontend, or notification delivery yet.
+- Fixtures represent data Garena could plausibly assemble; they are not a published Garena schema.
+- There is no backend persistence, authentication, notification delivery, or live telemetry feed.
+- Deterministic ranking weights are prototype hypotheses and need calibration against player labels.
+- The validator checks typed references and selected lexical patterns; it cannot prove that every
+  possible natural-language implication is supported by telemetry.
+- The evaluation report is a synthetic regression summary. Its distinctness and grounding metrics
+  are exact-string/reference proxies, not human judgments of story quality.
+- Stable anonymization protects generated content inside one request; production identity handling
+  requires a broader privacy and retention design.
+- OpenAI mode needs a valid server-side key and separate cost, latency, and output-quality testing.
+- Disconnecting an NDJSON client does not reliably cancel its synchronous worker or an in-flight
+  provider request; work may continue until completion or timeout.
+- The Python API is canonical. Any concurrent frontend Worker schemas should be retired or generated
+  from OpenAPI before integration to prevent validation drift.
 
 ## License
 
-MemoryOS is available under the [MIT License](LICENSE). Copyright © 2026 Ryan Neo Liang Zhi.
+MemoryOS is available under the [MIT License](LICENSE). Copyright (c) 2026 Ryan Neo Liang Zhi.

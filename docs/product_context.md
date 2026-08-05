@@ -7,32 +7,34 @@
 
 ## Product thesis
 
-Existing returner systems usually use generic rewards or generic quests. Next Chapter uses a
-player-owned squad memory as the reason to return and turns that past episode into something new to
-play together.
+Most returner systems use generic rewards or generic quests. Next Chapter uses a player-owned squad
+memory as the reason to return and turns that episode into something new to play together. The unit
+of reactivation is the squad, not only the individual account.
 
-The unit of reactivation is the squad, not only the individual account.
+Historical ranking matters because it changes the product from “summarize this match” into “find the
+few moments this squad may genuinely want back.” Human review then supplies something telemetry and
+AI cannot: whether the facts are correct and whether the moment carries personal meaning.
 
 ## Core experience
 
-The longer product loop is:
-
 > Capture → Understand → Remember → Remix → Reunite → Continue
 
-Phase 1 focuses on the center of that loop: understand a historical Memory Pack, create personal
-recalls, remix it into a quest, and require player confirmation before activation.
+Phase 1/2 covers the center of that loop: rank historical Memory Packs, let a player verify and
+confirm one, create personal recalls, and remix it into a quest.
 
 ## Product guardrails
 
-- AI identifies candidate memories; humans confirm importance.
+- Deterministic ranking identifies candidates; humans verify source truth and confirm importance.
 - Gameplay telemetry establishes facts, not feelings.
 - Player-authored context may express meaning but cannot rewrite match facts.
-- A weak candidate should be skipped instead of decorated with generic nostalgia.
-- Opted-out players do not receive generated perspectives.
+- A weak candidate is skipped instead of decorated with generic nostalgia.
+- Opted-out identities are anonymized before prompting; those players receive no perspective or
+  quest assignment.
 - “Best friend,” intent, and emotional-state claims require evidence the current schema does not
-  provide, so the validator rejects them.
-- Mission success is not required for a meaningful reunion; future chapter generation should
-  preserve both wins and failures honestly.
+  provide. The prototype rejects known lexical patterns and keeps interpretation reviewable; this
+  heuristic is a guardrail, not complete semantic proof.
+- Mission success is not required for a meaningful reunion; future chapters should preserve wins
+  and failures honestly.
 
 ## Golden path
 
@@ -43,4 +45,3 @@ quest reverses the rescue role while recreating the original location and squad 
 The test is simple:
 
 > If the names and location can be removed without breaking the quest, it is not personal enough.
-
