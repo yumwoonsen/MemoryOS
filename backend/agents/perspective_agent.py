@@ -9,6 +9,7 @@ from backend.models.schemas import (
     PerspectiveSet,
     PlayerPerspective,
 )
+from backend.services.evidence import safe_generation_payload
 from backend.services.structured_generator import StructuredGenerator
 
 
@@ -18,13 +19,22 @@ class PerspectiveAgent:
 
     def create(self, pack: MemoryPack, memory: MemoryRecord) -> list[PlayerPerspective]:
         if self._generator:
+            canonical = [
+                self._perspective_for(member.player_id, member.display_name, pack, memory)
+                for member in pack.squad.members
+                if member.opted_in
+            ]
             result = self._generator.generate(
                 prompt_name="perspective_prompt.txt",
-                payload={
-                    "memory_pack": pack.model_dump(mode="json"),
-                    "discovered_memory": memory.model_dump(mode="json"),
-                },
+                payload=safe_generation_payload(
+                    pack,
+                    discovered_memory=memory.model_dump(mode="json"),
+                    required_perspective_templates=[
+                        perspective.model_dump(mode="json") for perspective in canonical
+                    ],
+                ),
                 response_model=PerspectiveSet,
+                stage="perspectives",
             )
             return result.perspectives
 
@@ -105,11 +115,20 @@ class PerspectiveAgent:
         elif authored_retreat:
             count = authored_retreat.details.get("count")
             count_text = f" {count} times" if count is not None else ""
-            message = (
-                f"You called for retreat{count_text}. The squad's verified escape turned that "
-                f"call into part of “{memory.title}.”"
-            )
+            escape = next((event for event in events if event.type == "vehicle_escape"), None)
+            if escape:
+                message = (
+                    f"You called for retreat{count_text}. The squad's verified escape turned "
+                    f"that call into part of “{memory.title}.”"
+                )
+            else:
+                message = (
+                    f"You called for retreat{count_text}. That grounded call became your part "
+                    f"of “{memory.title}.”"
+                )
             used_events = [authored_retreat.event_id]
+            if escape:
+                used_events.append(escape.event_id)
         elif authored_last_alive:
             location = authored_last_alive.location or pack.match.map_name or "the late game"
             message = (

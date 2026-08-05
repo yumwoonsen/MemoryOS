@@ -1,0 +1,12 @@
+{
+  "relevant_pack_ids": [
+    "history-chaos-001",
+    "history-comeback-001",
+    "history-clutch-private-001"
+  ],
+  "should_abstain_pack_ids": [
+    "history-weak-001",
+    "history-disputed-001",
+    "history-dismissed-001"
+  ]
+}

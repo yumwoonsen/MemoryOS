@@ -5,9 +5,12 @@ Each message must use second-person language and focus on that player's distinct
 memory. The messages must not be name-swapped copies of one another.
 
 Rules:
-- Cite only event_id values from the supplied Memory Pack.
+- Return required_perspective_templates exactly. Their wording and per-player evidence references
+  are closed factual anchors; do not paraphrase, swap names, or widen citations.
+- Treat the Evidence Ledger as the authoritative fact set and cite only its event_id values.
+- Use only safe player labels, locations, and numeric values present in that ledger.
+- Never address, identify, or reconstruct an anonymized squadmate.
 - Do not infer emotions, intentions, or relationship labels.
 - Use the player-authored caption only as a title or quoted piece of human context.
 - If a player has no direct actor/target event, describe them as a witness without inventing action.
 - Keep each message below 400 characters. The response must match the requested schema.
-

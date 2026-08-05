@@ -1,0 +1,187 @@
+[
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-chaos-001",
+    "player_profile": {"player_id": "lee", "preferred_role": "entry"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 64,
+      "days_since_full_squad": 42
+    },
+    "match": {
+      "match_id": "H-MATCH-CHAOS",
+      "mode": "battle_royale",
+      "map_name": "Bermuda",
+      "placement": 5,
+      "played_at": "2026-05-10T20:00:00+08:00"
+    },
+    "match_events": [
+      {"event_id": "h-chaos-revive", "type": "revive", "actor_id": "mei", "target_id": "lee", "timestamp_seconds": 900, "location": "Clock Tower", "importance": "high", "details": {}},
+      {"event_id": "h-chaos-escape", "type": "vehicle_escape", "actor_id": "jo", "timestamp_seconds": 910, "location": "Clock Tower", "importance": "high", "details": {"passengers": 2}},
+      {"event_id": "h-chaos-survive", "type": "final_zone_survival", "actor_id": "lee", "timestamp_seconds": 1050, "location": "Final Zone", "importance": "high", "details": {"squad_alive": 3}}
+    ],
+    "human_memory": {"caption": "The impossible getaway", "tags": ["funny", "chaos"], "author_player_id": "lee"},
+    "human_review": {"source_status": "verified", "meaning_status": "confirmed"},
+    "reactions": {"laugh_count": 12, "fire_count": 4, "saved": true},
+    "current_context": {"active_member_ids": ["lee", "mei"], "resurfacing_reason": "Two squad members are active.", "original_mode_available": true}
+  },
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-comeback-001",
+    "player_profile": {"player_id": "lee", "preferred_role": "entry"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 64,
+      "days_since_full_squad": 35
+    },
+    "match": {
+      "match_id": "H-MATCH-COMEBACK",
+      "mode": "battle_royale",
+      "map_name": "Kalahari",
+      "placement": 2,
+      "played_at": "2026-06-20T20:00:00+08:00"
+    },
+    "match_events": [
+      {"event_id": "h-comeback-last", "type": "last_player_alive", "actor_id": "lee", "timestamp_seconds": 800, "location": "Command Post", "importance": "high", "details": {"squad_alive": 1}},
+      {"event_id": "h-comeback-revive", "type": "revive", "actor_id": "lee", "target_id": "mei", "timestamp_seconds": 820, "location": "Command Post", "importance": "high", "details": {}},
+      {"event_id": "h-comeback-cover", "type": "cover_fire", "actor_id": "jo", "timestamp_seconds": 830, "location": "Command Post", "importance": "medium", "details": {"duration_seconds": 6}}
+    ],
+    "human_memory": {"caption": "The one-player reset", "tags": ["comeback"], "author_player_id": "mei"},
+    "human_review": {"source_status": "unreviewed", "meaning_status": "unreviewed"},
+    "reactions": {"laugh_count": 1, "fire_count": 6, "saved": true},
+    "current_context": {"active_member_ids": ["lee"], "resurfacing_reason": "The original mode is active.", "original_mode_available": true}
+  },
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-clutch-private-001",
+    "player_profile": {"player_id": "lee", "preferred_role": "entry"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 64,
+      "days_since_full_squad": 29
+    },
+    "match": {
+      "match_id": "H-MATCH-PRIVATE",
+      "mode": "battle_royale",
+      "map_name": "Bermuda",
+      "placement": 3,
+      "played_at": "2026-07-01T20:00:00+08:00"
+    },
+    "match_events": [
+      {"event_id": "h-private-revive", "type": "revive", "actor_id": "mei", "target_id": "lee", "timestamp_seconds": 700, "location": "Peak", "importance": "high", "details": {}},
+      {"event_id": "h-private-escape", "type": "vehicle_escape", "actor_id": "jo", "timestamp_seconds": 715, "location": "Peak", "importance": "high", "details": {"passengers": 2}},
+      {"event_id": "h-private-survive", "type": "final_zone_survival", "actor_id": "lee", "timestamp_seconds": 980, "location": "Final Zone", "importance": "high", "details": {"squad_alive": 2}}
+    ],
+    "human_memory": {"caption": "Jo drove us through Peak", "tags": ["clutch"], "author_player_id": "lee"},
+    "human_review": {"source_status": "verified", "meaning_status": "confirmed"},
+    "reactions": {"laugh_count": 2, "fire_count": 8, "saved": true},
+    "current_context": {"active_member_ids": ["lee", "mei"], "resurfacing_reason": "Lee and Mei are online.", "original_mode_available": true}
+  },
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-weak-001",
+    "player_profile": {"player_id": "lee", "preferred_role": "entry"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 3,
+      "days_since_full_squad": 1
+    },
+    "match": {"match_id": "H-MATCH-WEAK", "mode": "battle_royale", "map_name": "Bermuda", "placement": 31, "played_at": "2026-08-01T20:00:00+08:00"},
+    "match_events": [
+      {"event_id": "h-weak-event", "type": "elimination", "actor_id": "lee", "timestamp_seconds": 120, "location": "Peak", "importance": "low", "details": {}}
+    ],
+    "human_review": {"source_status": "unreviewed", "meaning_status": "unreviewed"},
+    "reactions": {"laugh_count": 0, "fire_count": 0, "saved": false},
+    "current_context": {"active_member_ids": [], "resurfacing_reason": null, "original_mode_available": true}
+  },
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-chaos-duplicate",
+    "player_profile": {"player_id": "lee"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 64,
+      "days_since_full_squad": 42
+    },
+    "match": {"match_id": "H-MATCH-CHAOS", "mode": "battle_royale", "map_name": "Bermuda", "placement": 5, "played_at": "2026-05-10T20:00:00+08:00"},
+    "match_events": [
+      {"event_id": "h-duplicate-revive", "type": "revive", "actor_id": "mei", "target_id": "lee", "timestamp_seconds": 900, "location": "Clock Tower", "importance": "high", "details": {}},
+      {"event_id": "h-duplicate-escape", "type": "vehicle_escape", "actor_id": "jo", "timestamp_seconds": 910, "location": "Clock Tower", "importance": "high", "details": {"passengers": 2}}
+    ],
+    "human_memory": {"caption": "A second import of the getaway", "tags": ["chaos"], "author_player_id": "lee"},
+    "human_review": {"source_status": "verified", "meaning_status": "confirmed"},
+    "reactions": {"laugh_count": 1, "fire_count": 0, "saved": false},
+    "current_context": {"active_member_ids": ["lee"], "resurfacing_reason": null, "original_mode_available": true}
+  },
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-disputed-001",
+    "player_profile": {"player_id": "lee"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 64,
+      "days_since_full_squad": 20
+    },
+    "match": {"match_id": "H-MATCH-DISPUTED", "mode": "battle_royale", "map_name": "Bermuda", "placement": 4, "played_at": "2026-04-02T20:00:00+08:00"},
+    "match_events": [
+      {"event_id": "h-disputed-event", "type": "last_player_alive", "actor_id": "lee", "timestamp_seconds": 700, "location": "Peak", "importance": "high", "details": {}}
+    ],
+    "human_memory": {"caption": "Telemetry under review", "tags": ["clutch"], "author_player_id": "lee"},
+    "human_review": {"source_status": "disputed", "meaning_status": "confirmed"},
+    "reactions": {"laugh_count": 0, "fire_count": 4, "saved": true},
+    "current_context": {"active_member_ids": ["lee"], "resurfacing_reason": "The source was challenged.", "original_mode_available": true}
+  },
+  {
+    "schema_version": "1.1",
+    "pack_id": "history-dismissed-001",
+    "player_profile": {"player_id": "lee"},
+    "squad": {
+      "squad_id": "history-squad",
+      "members": [
+        {"player_id": "lee", "display_name": "Lee", "role": "entry", "opted_in": true},
+        {"player_id": "mei", "display_name": "Mei", "role": "support", "opted_in": true},
+        {"player_id": "jo", "display_name": "Jo", "role": "driver", "opted_in": false}
+      ],
+      "matches_together": 64,
+      "days_since_full_squad": 18
+    },
+    "match": {"match_id": "H-MATCH-DISMISSED", "mode": "battle_royale", "map_name": "Kalahari", "placement": 3, "played_at": "2026-03-12T20:00:00+08:00"},
+    "match_events": [
+      {"event_id": "h-dismissed-event", "type": "final_zone_survival", "actor_id": "lee", "timestamp_seconds": 990, "location": "Command Post", "importance": "high", "details": {"placement_reached": 3}}
+    ],
+    "human_memory": {"caption": "Not one to resurface", "tags": ["clutch"], "author_player_id": "lee"},
+    "human_review": {"source_status": "verified", "meaning_status": "dismissed"},
+    "reactions": {"laugh_count": 0, "fire_count": 3, "saved": true},
+    "current_context": {"active_member_ids": ["lee"], "resurfacing_reason": "The player dismissed this memory.", "original_mode_available": true}
+  }
+]

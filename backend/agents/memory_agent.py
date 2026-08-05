@@ -10,6 +10,7 @@ from backend.models.schemas import (
     MemoryRecord,
     MemoryType,
 )
+from backend.services.evidence import safe_generation_payload
 from backend.services.structured_generator import StructuredGenerator
 
 
@@ -20,23 +21,41 @@ class MemoryAgent:
         self._generator = generator
 
     def discover(self, pack: MemoryPack) -> tuple[DiscoveryAssessment, MemoryRecord | None]:
-        assessment = self._assess_signals(pack)
+        assessment = self.assess(pack)
+        return self.discover_from_assessment(pack, assessment)
+
+    def discover_from_assessment(
+        self, pack: MemoryPack, assessment: DiscoveryAssessment
+    ) -> tuple[DiscoveryAssessment, MemoryRecord | None]:
         if not assessment.eligible:
             return assessment, None
 
         if self._generator:
+            canonical = self._discover_deterministically(pack, assessment.signal_score)
             memory = self._generator.generate(
                 prompt_name="memory_prompt.txt",
-                payload={"memory_pack": pack.model_dump(mode="json")},
+                payload=safe_generation_payload(
+                    pack,
+                    required_factual_template=canonical.model_dump(mode="json"),
+                ),
                 response_model=MemoryRecord,
+                stage="memory_discovery",
             )
             return assessment, memory
 
         return assessment, self._discover_deterministically(pack, assessment.signal_score)
 
-    def _assess_signals(self, pack: MemoryPack) -> DiscoveryAssessment:
+    def assess(self, pack: MemoryPack) -> DiscoveryAssessment:
         score = 0.0
         reasons: list[str] = []
+
+        if not pack.match_events:
+            return DiscoveryAssessment(
+                signal_score=0.0,
+                threshold=self.threshold,
+                reasons=["no grounded gameplay events were present"],
+                eligible=False,
+            )
 
         importance_points = {"low": 0.02, "medium": 0.05, "high": 0.10}
         event_score = min(
@@ -55,13 +74,13 @@ class MemoryAgent:
             reasons.append("last-player-alive comeback pattern")
 
         human_memory = pack.human_memory
-        if human_memory and human_memory.caption:
+        if human_memory and human_memory.caption and human_memory.caption.strip():
             score += 0.15
             reasons.append("player-authored caption")
         if human_memory and human_memory.tags:
             score += 0.10
             reasons.append("player-selected memory tags")
-        if human_memory and human_memory.confirmed:
+        if human_memory and getattr(human_memory, "confirmed", False):
             score += 0.20
             reasons.append("player-confirmed meaning")
 
@@ -81,9 +100,14 @@ class MemoryAgent:
             eligible=score >= self.threshold,
         )
 
+    def preview(self, pack: MemoryPack, score: float) -> MemoryRecord:
+        """Create a deterministic, evidence-only candidate preview."""
+
+        return self._discover_deterministically(pack, score)
+
     def _discover_deterministically(self, pack: MemoryPack, score: float) -> MemoryRecord:
         selected_events = self._select_evidence(pack.match_events)
-        human_confirmed = bool(pack.human_memory and pack.human_memory.confirmed)
+        human_confirmed = pack.meaning_status.value == "confirmed"
         title = self._title(pack, selected_events)
         memory_type = self._memory_type(pack, selected_events)
         summary = self._summary(pack, selected_events)
@@ -124,15 +148,23 @@ class MemoryAgent:
         return "the squad"
 
     def _title(self, pack: MemoryPack, events: list[MatchEvent]) -> str:
-        if pack.human_memory and pack.human_memory.caption:
-            return pack.human_memory.caption.strip().title()
+        caption = (
+            pack.human_memory.caption.strip()
+            if pack.human_memory and pack.human_memory.caption
+            else ""
+        )
+        if caption:
+            title = caption.title()
+            return title[:100]
         location = next((event.location for event in events if event.location), None)
         event_types = {event.type for event in events}
         if "last_player_alive" in event_types:
-            return f"{location or 'The Squad'} Comeback"
-        if "revive" in event_types:
-            return f"The {location or 'Final Circle'} Rescue"
-        return f"{location or 'Squad'} Memory Candidate"
+            title = f"{location or 'The Squad'} Comeback"
+        elif "revive" in event_types:
+            title = f"The {location or 'Final Circle'} Rescue"
+        else:
+            title = f"{location or 'Squad'} Memory Candidate"
+        return title[:100]
 
     @staticmethod
     def _memory_type(pack: MemoryPack, events: list[MatchEvent]) -> MemoryType:
@@ -161,15 +193,15 @@ class MemoryAgent:
             rescued = self._display_name(pack, revive.target_id)
             driver = self._display_name(pack, escape.actor_id)
             return (
-                f"At {location or 'the final rotation'}, {rescuer} revived {rescued} before "
+                f"At {location or 'the final rotation'}, {rescuer} revived {rescued}. "
                 f"{driver} drove the squad out of danger."
             )
         if last_alive and revive:
             survivor = self._display_name(pack, last_alive.actor_id)
             rescued = self._display_name(pack, revive.target_id)
             return (
-                f"At {location or 'the late game'}, {survivor} was the last squad member alive "
-                f"and brought {rescued} back into the match."
+                f"At {location or 'the late game'}, {survivor} became the last surviving player. "
+                f"{self._display_name(pack, revive.actor_id)} revived {rescued}."
             )
         primary = events[0]
         actor = self._display_name(pack, primary.actor_id)

@@ -19,6 +19,7 @@ class StructuredGenerator(Protocol):
         prompt_name: str,
         payload: dict[str, Any],
         response_model: type[ModelT],
+        stage: str,
     ) -> ModelT:
         """Return a model response already parsed into the requested contract."""
 

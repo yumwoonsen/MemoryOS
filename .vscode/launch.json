@@ -11,6 +11,24 @@
         "--reload"
       ],
       "console": "integratedTerminal",
+      "env": {
+        "MEMORYOS_PROVIDER": "deterministic"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "MemoryOS: Run API (Live OpenAI)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "backend.main:app",
+        "--reload"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "MEMORYOS_PROVIDER": "openai"
+      },
       "justMyCode": true
     },
     {
@@ -22,6 +40,9 @@
         "backend/data/funny_memory.json"
       ],
       "console": "integratedTerminal",
+      "env": {
+        "MEMORYOS_PROVIDER": "deterministic"
+      },
       "justMyCode": true
     }
   ]

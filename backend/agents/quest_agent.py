@@ -13,6 +13,7 @@ from backend.models.schemas import (
     QuestRecipe,
     VerificationRule,
 )
+from backend.services.evidence import literal_passenger_target, safe_generation_payload
 from backend.services.structured_generator import StructuredGenerator
 
 
@@ -27,23 +28,26 @@ class QuestAgent:
         perspectives: list[PlayerPerspective],
     ) -> NextChapter:
         if self._generator:
+            canonical = self._create_deterministically(pack, memory)
             return self._generator.generate(
                 prompt_name="quest_prompt.txt",
-                payload={
-                    "memory_pack": pack.model_dump(mode="json"),
-                    "discovered_memory": memory.model_dump(mode="json"),
-                    "player_perspectives": [
+                payload=safe_generation_payload(
+                    pack,
+                    discovered_memory=memory.model_dump(mode="json"),
+                    player_perspectives=[
                         perspective.model_dump(mode="json") for perspective in perspectives
                     ],
-                },
+                    allowed_quest_template=canonical.model_dump(mode="json"),
+                ),
                 response_model=NextChapter,
+                stage="quest_generation",
             )
         return self._create_deterministically(pack, memory)
 
     def _create_deterministically(self, pack: MemoryPack, memory: MemoryRecord) -> NextChapter:
         evidence_ids = {item.event_id for item in memory.evidence}
         events = [event for event in pack.match_events if event.event_id in evidence_ids]
-        location = next((event.location for event in events if event.location), pack.match.map_name)
+        location = next((event.location for event in events if event.location), None)
         member_ids = [member.player_id for member in pack.squad.members if member.opted_in]
         all_source_ids = [event.event_id for event in events]
         slug = re.sub(r"[^a-z0-9]+", "-", memory.title.lower()).strip("-")
@@ -79,6 +83,9 @@ class QuestAgent:
 
         revive = next((event for event in events if event.type == "revive"), None)
         if revive and revive.actor_id and revive.target_id:
+            if not self._both_opted_in(pack, revive.actor_id, revive.target_id):
+                revive = None
+        if revive and revive.actor_id and revive.target_id:
             rescued_name = self._name(pack, revive.target_id)
             rescuer_name = self._name(pack, revive.actor_id)
             objectives.append(
@@ -98,15 +105,20 @@ class QuestAgent:
             )
 
         escape = next((event for event in events if event.type == "vehicle_escape"), None)
-        if escape and escape.actor_id:
+        passenger_target = literal_passenger_target(escape) if escape is not None else None
+        if (
+            escape
+            and escape.actor_id
+            and self._is_opted_in(pack, escape.actor_id)
+            and passenger_target is not None
+        ):
             driver_name = self._name(pack, escape.actor_id)
-            passenger_target = max(int(escape.details.get("passengers", 2)), 2)
             objectives.append(
                 QuestObjective(
                     objective_id="driver-seat-open",
                     description=(
                         f"{driver_name} drives at least {passenger_target} teammates out of "
-                        f"{location or 'the first contested location'}."
+                        f"{escape.location or 'danger'}."
                     ),
                     assigned_player_id=escape.actor_id,
                     required=False,
@@ -120,7 +132,7 @@ class QuestAgent:
             )
 
         retreat = next((event for event in events if event.type == "retreat_ping"), None)
-        if retreat and retreat.actor_id:
+        if retreat and retreat.actor_id and self._is_opted_in(pack, retreat.actor_id):
             caller_name = self._name(pack, retreat.actor_id)
             objectives.append(
                 QuestObjective(
@@ -143,8 +155,9 @@ class QuestAgent:
             + (f" at {location}" if location else "")
             + " using roles grounded in the original match."
         )
+        quest_title = f"{memory.title} II: {title_suffix}" if slug else title_suffix
         return NextChapter(
-            title=f"{memory.title} II: {title_suffix}" if slug else title_suffix,
+            title=quest_title[:120],
             mission=mission,
             recipe=QuestRecipe.REMIX if revive else QuestRecipe.RECREATE,
             objectives=objectives,
@@ -155,3 +168,13 @@ class QuestAgent:
         return next(
             member.display_name for member in pack.squad.members if member.player_id == player_id
         )
+
+    @staticmethod
+    def _is_opted_in(pack: MemoryPack, player_id: str) -> bool:
+        return any(
+            member.player_id == player_id and member.opted_in for member in pack.squad.members
+        )
+
+    @classmethod
+    def _both_opted_in(cls, pack: MemoryPack, first: str, second: str) -> bool:
+        return cls._is_opted_in(pack, first) and cls._is_opted_in(pack, second)
