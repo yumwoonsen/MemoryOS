@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "backend/**"
+      - "integration/**"
   pull_request:
 
 permissions:

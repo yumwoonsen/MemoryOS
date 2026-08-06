@@ -52,6 +52,7 @@ class HistoricalMemoryRanker:
             "disputed": 0,
             "dismissed": 0,
             "target_opted_out": 0,
+            "insufficient_opted_in": 0,
             "eligible_not_selected": 0,
         }
         eligible: list[ScoredPack] = []
@@ -154,6 +155,8 @@ class HistoricalMemoryRanker:
     def _hard_filter(pack: MemoryPack | MemoryPackV11) -> str | None:
         if not pack.target_player_opted_in:
             return "target_opted_out"
+        if sum(member.opted_in for member in pack.squad.members) < 2:
+            return "insufficient_opted_in"
         if pack.source_status == SourceStatus.DISPUTED:
             return "disputed"
         if pack.meaning_status == MeaningStatus.DISMISSED:
@@ -166,6 +169,7 @@ class HistoricalMemoryRanker:
     def _filter_reason(code: str) -> str:
         return {
             "target_opted_out": "the target player has not opted in",
+            "insufficient_opted_in": "fewer than two squad members are opted in",
             "disputed": "the gameplay source was disputed",
             "dismissed": "the player dismissed this memory",
             "no_grounded_events": "no grounded gameplay events were present",
@@ -176,11 +180,10 @@ class HistoricalMemoryRanker:
         importance = {"low": 0.05, "medium": 0.12, "high": 0.25}
         raw = min(sum(importance[event.importance.value] for event in pack.match_events), 0.75)
         reasons = [f"{len(pack.match_events)} grounded event(s)"]
-        event_types = {event.type for event in pack.match_events}
-        if {"revive", "vehicle_escape"} <= event_types:
+        if MemoryAgent.connected_pair(pack.match_events, "revive", "vehicle_escape"):
             raw += 0.15
             reasons.append("connected rescue-and-escape evidence")
-        if {"last_player_alive", "revive"} <= event_types:
+        if MemoryAgent.connected_pair(pack.match_events, "last_player_alive", "revive"):
             raw += 0.20
             reasons.append("last-player-alive comeback evidence")
         return min(raw, 1.0), reasons

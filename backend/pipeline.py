@@ -296,6 +296,7 @@ class MemoryPipeline:
             "provider": self.provider_name,
             "model": self.model_name,
             "prompt_version": "grounded-v1",
+            "factual_renderer": "closed-v1",
             "redaction_count": redaction_count,
             "compatibility_conversion": (
                 "v1.0 confirmed normalized to split review states"
@@ -366,7 +367,9 @@ def build_pipeline(provider: str | None = None) -> MemoryPipeline:
     """Build a pipeline from explicit configuration or environment variables."""
 
     load_dotenv()
-    selected_provider = (provider or os.getenv("MEMORYOS_PROVIDER", "deterministic")).lower()
+    selected_provider = (
+        (provider or os.getenv("MEMORYOS_PROVIDER", "deterministic")).strip().lower()
+    )
     if selected_provider == "deterministic":
         return MemoryPipeline()
     if selected_provider == "openai":

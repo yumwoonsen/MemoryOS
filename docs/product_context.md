@@ -22,6 +22,10 @@ AI cannot: whether the facts are correct and whether the moment carries personal
 Phase 1/2 covers the center of that loop: rank historical Memory Packs, let a player verify and
 confirm one, create personal recalls, and remix it into a quest.
 
+The integrated player demo currently shows the reveal-and-remix half of this loop for one verified
+fixture. Historical browsing and the two review decisions remain the active Phase 2B product work;
+the attractive reveal screen should not be mistaken for completion of the trust flow.
+
 ## Product guardrails
 
 - Deterministic ranking identifies candidates; humans verify source truth and confirm importance.

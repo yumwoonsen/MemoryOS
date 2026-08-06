@@ -144,6 +144,17 @@ class PerspectiveAgent:
                 f"{primary.type.replace('_', ' ')} became “{memory.title}.”"
             )
             used_events = [primary.event_id]
+            event_label = primary.type.replace("_", " ")
+            if primary.actor_id == player_id:
+                message = (
+                    f"{display_name}, you triggered the squad's verified {event_label} at "
+                    f"{location}. That event is your grounded part of the selected memory."
+                )
+            elif primary.target_id == player_id:
+                message = (
+                    f"At {location}, the verified {event_label} lists {display_name} as its "
+                    "target. That event is your grounded part of the selected memory."
+                )
 
         return PlayerPerspective(
             player_id=player_id,

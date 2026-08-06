@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "memory-pack-worst-plan-001",
+  "player_profile": {
+    "player_id": "lee",
+    "preferred_role": "aggressive_entry"
+  },
+  "squad": {
+    "squad_id": "original-four",
+    "members": [
+      {
+        "player_id": "lee",
+        "display_name": "Lee",
+        "role": "aggressive_entry",
+        "opted_in": true
+      },
+      {
+        "player_id": "mei",
+        "display_name": "Mei",
+        "role": "support_rescuer",
+        "opted_in": true
+      },
+      {
+        "player_id": "jo",
+        "display_name": "Jo",
+        "role": "driver",
+        "opted_in": true
+      },
+      {
+        "player_id": "amir",
+        "display_name": "Amir",
+        "role": "caller",
+        "opted_in": true
+      }
+    ],
+    "matches_together": 87,
+    "days_since_full_squad": 37
+  },
+  "match": {
+    "match_id": "FF-M218",
+    "mode": "battle_royale",
+    "map_name": "Bermuda",
+    "placement": 6,
+    "played_at": "2026-06-26T20:14:00+08:00"
+  },
+  "match_events": [
+    {
+      "event_id": "evt-retreat-01",
+      "type": "retreat_ping",
+      "actor_id": "amir",
+      "timestamp_seconds": 1110,
+      "location": "Clock Tower",
+      "importance": "medium",
+      "details": {
+        "count": 3
+      }
+    },
+    {
+      "event_id": "evt-revive-01",
+      "type": "revive",
+      "actor_id": "mei",
+      "target_id": "lee",
+      "timestamp_seconds": 1115,
+      "location": "Clock Tower",
+      "importance": "high",
+      "details": {
+        "zone_state": "closing"
+      }
+    },
+    {
+      "event_id": "evt-escape-01",
+      "type": "vehicle_escape",
+      "actor_id": "jo",
+      "timestamp_seconds": 1118,
+      "location": "Clock Tower",
+      "importance": "high",
+      "details": {
+        "passengers": 3,
+        "health_state": "critical"
+      }
+    },
+    {
+      "event_id": "evt-survival-01",
+      "type": "final_zone_survival",
+      "actor_id": "lee",
+      "timestamp_seconds": 1210,
+      "location": "Final Zone",
+      "importance": "high",
+      "details": {
+        "squad_alive": 4
+      }
+    }
+  ],
+  "human_memory": {
+    "caption": "Worst plan, best night",
+    "tags": [
+      "funny",
+      "chaos"
+    ],
+    "author_player_id": "amir",
+    "confirmed": true
+  },
+  "reactions": {
+    "laugh_count": 12,
+    "fire_count": 3,
+    "saved": true
+  },
+  "current_context": {
+    "active_member_ids": [
+      "lee",
+      "mei"
+    ],
+    "resurfacing_reason": "Two original squad members are active and Bermuda is available.",
+    "original_mode_available": true
+  }
+}

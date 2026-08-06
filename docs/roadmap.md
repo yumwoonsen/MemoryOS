@@ -1,13 +1,13 @@
 # Roadmap
 
-## Phase 1 — Memory Engine foundation
+## Phase 1 — Memory Engine foundation (complete)
 
 - Versioned Memory Pack and result contracts
 - Discovery, perspective, quest, and validation stages
 - Deterministic and structured-model providers
 - Golden fixtures and quality tests
 
-## Phase 2A — Historical discovery backend
+## Phase 2A — Historical discovery backend (complete for prototype)
 
 - Deterministic ranking across up to 50 packs
 - Split source-verification and meaning-confirmation states
@@ -15,9 +15,19 @@
 - Selected-memory generation and strengthened validation
 - OpenAPI contract and regression evaluation
 
-## Phase 2B — Human review and clickable experience
+## Phase 2B — Human review and clickable experience (in progress)
 
-- Frontend review flow for verify, confirm, edit, or dismiss
+Completed in the integrated teammate slice:
+
+- Mobile-first reveal flow for one grounded legacy memory
+- Evidence-first story, current-player perspective, and quest preview
+- Server-side backend proxy with an exact-fixture hosted fallback
+- Runtime result guards and rendered HTML regression tests
+
+Still required for the Phase 2 contract:
+
+- Historical top-candidate picker using `/v1/memories/discover-history`
+- Separate source verify/dispute and meaning confirm/dismiss actions
 - Evidence view showing why each sentence and objective exists
 - Per-player preview and consent controls
 - OpenAPI-derived client types and API contract tests

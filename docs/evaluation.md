@@ -14,6 +14,7 @@ The automated suite covers:
 - Mixed-squad and mixed-target request rejection
 - V1.0 review-state normalization into v1.1
 - Prompt and output redaction for opted-out identities
+- Rejection when fewer than two squad members are currently opted in
 - One perspective per opted-in participant, with no duplicates
 - Known, opted-in quest assignees and at least two grounded objectives
 - Exact enforcement of server-rendered memory facts, player-perspective facts, and quest-objective
@@ -117,3 +118,17 @@ pytest
 
 CI runs these checks on Python 3.11 and 3.13 without credentials or external model calls. The
 OpenAPI contract smoke test is part of the normal pytest suite.
+
+The integrated frontend has its own deterministic gates:
+
+```powershell
+cd frontend
+npm ci
+npm audit --audit-level=high
+npm run typecheck
+npm run lint
+npm test
+```
+
+The rendered-flow tests cover the unrevealed state, evidence-first reveal, hosted fallback,
+fail-closed errors, asset selection, and the absence of direct browser-to-localhost calls.

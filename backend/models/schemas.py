@@ -516,6 +516,7 @@ class HistoricalFilterCounts(StrictModel):
     disputed: int = Field(ge=0)
     dismissed: int = Field(ge=0)
     target_opted_out: int = Field(ge=0)
+    insufficient_opted_in: int = Field(ge=0)
     eligible_not_selected: int = Field(ge=0)
 
 

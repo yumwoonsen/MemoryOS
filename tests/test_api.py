@@ -27,6 +27,22 @@ def test_health_endpoint() -> None:
     }
 
 
+def test_invalid_provider_configuration_returns_safe_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "not-a-provider")
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "stage": "configuration",
+        "code": "invalid_provider",
+        "retryable": False,
+        "message": "The live AI provider could not complete this generation stage.",
+    }
+
+
 def test_discovery_endpoint_returns_versioned_output() -> None:
     payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
     response = client.post("/v1/memories/discover", json=payload)

@@ -114,6 +114,7 @@ Response shape (trimmed):
     "disputed": 0,
     "dismissed": 0,
     "target_opted_out": 0,
+    "insufficient_opted_in": 0,
     "eligible_not_selected": 0
   },
   "metadata": {
@@ -319,6 +320,11 @@ Use `/openapi.json` to derive frontend request and response types. During integr
 should compare the generated client against the running backend. Do not copy Pydantic definitions by
 hand or retain a separate Worker implementation of ranking and generation; that creates conflicting
 meaning for schema version, consent, and `ready`.
+
+The current player prototype intentionally remains on deprecated `/v1/memories/discover` while the
+Phase 2 review screens are built. Its `/api/discover` route is a server-side compatibility proxy,
+not a second ranking engine. New historical UI work should call `/discover-history`, retain the
+selected complete Memory Pack, collect both review decisions, and then call `/generate`.
 
 ## Data boundary
 

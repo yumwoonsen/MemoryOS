@@ -45,8 +45,10 @@ but cannot make a candidate eligible or ineligible. Remaining ties resolve by ne
 then stable `pack_id` order. Offset-aware timestamps are preferred; a legacy timestamp without an
 offset is interpreted as UTC so ordering does not depend on the backend host's timezone.
 
-Hard filters run before ranking. A pack cannot surface when it has no grounded events, its target
-player opted out, its source is disputed, or its meaning was dismissed.
+Hard filters run before ranking. A pack cannot surface when it has no grounded events, fewer than
+two opted-in squad members, its target player opted out, its source is disputed, or its meaning was
+dismissed. Requiring two consenting participants preserves the product's shared-memory premise and
+prevents generation of a nominally social quest for one person.
 
 A history request is one consent and identity boundary. Its 1-50 packs must share one squad ID,
 target player, roster ID set, and current per-member consent snapshot, and every pack ID must be
@@ -176,6 +178,12 @@ the player's review decision, and resubmit that pack for generation. It should n
 status, consent, ranking, or validation, and a candidate rank or ID is not a generation token.
 Review persistence may live in the frontend team's data layer during the prototype, but stored
 values must use the v1.1 state semantics above.
+
+The merged player view is a Phase 1 compatibility client: it calls the deprecated single-pack
+route and adds browser-side result guards before rendering. Those guards are useful defense in
+depth, but they do not replace backend validation. The next UI slice must add historical candidate
+selection plus separate source and meaning actions, then replace the hand-written v1.0 interfaces
+with types generated from the FastAPI OpenAPI document.
 
 ## Deferred production boundaries
 

@@ -77,6 +77,31 @@ class ValidatorAgent:
         "sabotaged",
         "surrendered",
     }
+    unsafe_quest_terms = {
+        "attack your teammate",
+        "deliberately lose",
+        "friendly fire",
+        "intentionally lose",
+        "kill your teammate",
+        "lose on purpose",
+        "self harm",
+        "shoot a teammate",
+        "shoot your teammate",
+        "suicide",
+        "team kill",
+        "teamkill",
+        "throw the match",
+    }
+    safe_instruction_prefixes = {
+        "avoid",
+        "avoiding",
+        "never",
+        "no",
+        "not",
+        "prevent",
+        "preventing",
+        "without",
+    }
     event_action_patterns: dict[str, tuple[str, ...]] = {
         "elimination": (
             r"\beliminat(?:e|ed|es|ing|ion|ions)\b",
@@ -132,18 +157,28 @@ class ValidatorAgent:
     }
 
     def abstention_report(self, assessment: DiscoveryAssessment) -> ValidationReport:
+        reason_text = " ".join(assessment.reasons).casefold()
+        if "no grounded gameplay" in reason_text:
+            code = "missing_grounded_gameplay"
+            message = "Generation was skipped because no gameplay event could ground the memory."
+        elif "fewer than two squad members" in reason_text:
+            code = "insufficient_opted_in_members"
+            message = "Generation was skipped because a squad memory needs two opted-in members."
+        else:
+            code = "insufficient_memory_signal"
+            message = (
+                f"Signal score {assessment.signal_score:.2f} is below the "
+                f"{assessment.threshold:.2f} threshold; generation was safely skipped."
+            )
         return ValidationReport(
             passed=True,
             human_review_required=False,
             scores=self._empty_scores(),
             issues=[
                 ValidationIssue(
-                    code="insufficient_memory_signal",
+                    code=code,
                     severity=IssueSeverity.INFO,
-                    message=(
-                        f"Signal score {assessment.signal_score:.2f} is below the "
-                        f"{assessment.threshold:.2f} threshold; generation was safely skipped."
-                    ),
+                    message=message,
                 )
             ],
         )
@@ -345,6 +380,22 @@ class ValidatorAgent:
         shared_ids = tuple(dict.fromkeys((*quest_ids, *memory_ids)))
         safe_title = quest.title.replace(memory.title, "the selected memory")
         safe_mission = quest.mission.replace(memory.title, "the selected memory")
+        unsafe_terms = self._find_unsafe_quest_terms(
+            " ".join(
+                [
+                    safe_title,
+                    safe_mission,
+                    *(objective.description for objective in quest.objectives),
+                ]
+            )
+        )
+        if unsafe_terms:
+            issues.append(
+                self._error(
+                    "unsafe_quest_instruction",
+                    f"Unsafe quest language found: {unsafe_terms}",
+                )
+            )
         segments = [
             _FactualSegment(
                 safe_title,
@@ -596,7 +647,12 @@ class ValidatorAgent:
     ) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []
         generated_text = " ".join(segment.text for segment in segments)
-        lowered_text = generated_text.casefold()
+        claim_text = " ".join(
+            self._strip_quoted_context(segment.text)
+            for segment in segments
+            if segment.validate_facts
+        )
+        lowered_text = claim_text.casefold()
 
         used_relationship_terms = self._terms_in_text(
             lowered_text, self.unsupported_relationship_terms
@@ -823,6 +879,26 @@ class ValidatorAgent:
                     code="weak_quest_specificity",
                     severity=IssueSeverity.WARNING,
                     message="A strong Next Chapter should contain three squad-specific anchors.",
+                )
+            )
+
+        participant_objectives = [
+            objective
+            for objective in quest.objectives
+            if objective.verification.metric == "squad_member_ids"
+        ]
+        if len(participant_objectives) != 1:
+            issues.append(
+                self._error(
+                    "invalid_participant_objective_count",
+                    "A Next Chapter requires exactly one squad reunion objective.",
+                )
+            )
+        elif not participant_objectives[0].required:
+            issues.append(
+                self._error(
+                    "participant_objective_must_be_required",
+                    "The squad reunion objective must be required.",
                 )
             )
 
@@ -1438,6 +1514,18 @@ class ValidatorAgent:
     @classmethod
     def _terms_in_text(cls, lowered_text: str, terms: set[str]) -> list[str]:
         return sorted(term for term in terms if cls._contains_phrase(lowered_text, term))
+
+    @classmethod
+    def _find_unsafe_quest_terms(cls, text: str) -> list[str]:
+        found: list[str] = []
+        for term in cls.unsafe_quest_terms:
+            for match in re.finditer(identity_pattern(term), text, re.IGNORECASE):
+                prefix_tokens = re.findall(r"[^\W_]+", text[: match.start()].casefold())
+                if prefix_tokens and prefix_tokens[-1] in cls.safe_instruction_prefixes:
+                    continue
+                found.append(term)
+                break
+        return sorted(found)
 
     @staticmethod
     def _contains_phrase(text: str, phrase: str) -> bool:

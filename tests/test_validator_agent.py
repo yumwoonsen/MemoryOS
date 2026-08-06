@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from backend.agents.validator_agent import ValidatorAgent
 from backend.models.schemas import MemoryPack, VerificationRule
 from backend.pipeline import MemoryPipeline
@@ -279,3 +281,63 @@ def test_valid_deterministic_artifacts_pass_all_stage_boundaries() -> None:
     assert validator.validate_memory_stage(pack, memory) == []
     assert validator.validate_perspective_stage(pack, memory, perspectives) == []
     assert validator.validate_quest_stage(pack, memory, quest) == []
+
+
+def test_quest_requires_one_required_squad_reunion_objective() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    participant_index = next(
+        index
+        for index, objective in enumerate(quest.objectives)
+        if objective.verification.metric == "squad_member_ids"
+    )
+    participant = quest.objectives[participant_index]
+    remaining = [
+        objective for index, objective in enumerate(quest.objectives) if index != participant_index
+    ]
+    without_participants = quest.model_copy(update={"objectives": remaining})
+    optional_participants = quest.model_copy(
+        update={
+            "objectives": [
+                participant.model_copy(update={"required": False}),
+                *remaining,
+            ]
+        }
+    )
+
+    missing_codes = issue_codes(
+        ValidatorAgent().validate_quest_stage(pack, memory, without_participants)
+    )
+    optional_codes = issue_codes(
+        ValidatorAgent().validate_quest_stage(pack, memory, optional_participants)
+    )
+
+    assert "invalid_participant_objective_count" in missing_codes
+    assert "participant_objective_must_be_required" in optional_codes
+
+
+@pytest.mark.parametrize(
+    "unsafe_mission",
+    [
+        "Lose on purpose, then reunite the squad.",
+        "Do not hesitate; deliberately lose.",
+        "Avoid enemies, then use friendly fire.",
+    ],
+)
+def test_validator_rejects_unsafe_quest_instructions(unsafe_mission: str) -> None:
+    pack, memory, _, quest = generated_artifacts()
+    unsafe_quest = quest.model_copy(update={"mission": unsafe_mission})
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, unsafe_quest)
+
+    assert "unsafe_quest_instruction" in issue_codes(issues)
+
+
+def test_validator_allows_quest_language_that_prevents_harm() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    safe_quest = quest.model_copy(
+        update={"mission": "Reassemble the squad while avoiding friendly fire."}
+    )
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, safe_quest)
+
+    assert "unsafe_quest_instruction" not in issue_codes(issues)

@@ -138,6 +138,24 @@ checks.
 
 See [the API guide](docs/api.md) for configuration and request shapes.
 
+## Player prototype
+
+The integrated `frontend/` is the teammate-built, mobile-first Phase 1 player experience. It reveals
+one grounded memory, shows evidence and the current player's perspective, then previews the Next
+Chapter quest. It currently uses the deprecated single-pack `/v1/memories/discover` adapter, which
+the backend keeps during migration. The historical candidate picker and split verification flow are
+the next frontend integration milestone.
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Run the deterministic backend from the repository root before opening the frontend. When the
+backend is unavailable, only the exact committed demo fixture can use the hosted sample; modified
+or unknown packs fail closed.
+
 ## Verify changes
 
 Run the same checks as CI:
@@ -147,6 +165,13 @@ $env:MEMORYOS_PROVIDER = "deterministic"
 ruff check .
 ruff format --check .
 pytest
+
+cd frontend
+npm ci
+npm audit --audit-level=high
+npm run typecheck
+npm run lint
+npm test
 ```
 
 CI tests Python 3.11 and 3.13. The test suite includes the OpenAPI contract smoke test, ranking and
@@ -177,7 +202,7 @@ memoryos-build/
 |   |-- main.py          # FastAPI app and OpenAPI contract
 |   `-- pipeline.py      # Canonical orchestration
 |-- docs/                # Product, architecture, API, decisions, and evaluation
-|-- frontend/            # Concurrent UI work; consumes the backend contract later
+|-- frontend/            # Integrated Phase 1 player demo and backend compatibility adapter
 `-- tests/               # Contract, ranking, grounding, privacy, and pipeline tests
 ```
 
@@ -191,6 +216,7 @@ memoryos-build/
 | [Decision log](docs/decisions.md) | Accepted architecture decisions |
 | [Evaluation](docs/evaluation.md) | Quality metrics and regression workflow |
 | [Roadmap](docs/roadmap.md) | Integration path and production questions |
+| [Shank integration review](docs/shank-integration-review.md) | Merge choices, compatibility, and next work |
 | [Phase 1 foundation](docs/phase-1-foundation.md) | Original single-memory vertical slice |
 
 ## Known limitations
@@ -207,8 +233,8 @@ memoryos-build/
 - OpenAI mode needs a valid server-side key and separate cost, latency, and output-quality testing.
 - Disconnecting an NDJSON client does not reliably cancel its synchronous worker or an in-flight
   provider request; work may continue until completion or timeout.
-- The Python API is canonical. Any concurrent frontend Worker schemas should be retired or generated
-  from OpenAPI before integration to prevent validation drift.
+- The integrated frontend still carries hand-written v1.0 compatibility types. Replace them with
+  OpenAPI-generated v1.1 types when implementing the historical review flow.
 
 ## License
 

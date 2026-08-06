@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from backend.agents.validator_agent import ValidatorAgent
 from backend.models.schemas import EvidenceRef, MemoryPack, PipelineStatus
-from backend.pipeline import MemoryPipeline
+from backend.pipeline import MemoryPipeline, build_pipeline
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "backend" / "data"
 
@@ -150,3 +150,122 @@ def test_validator_rejects_unsupported_relationship_claims() -> None:
 
     assert report.passed is False
     assert "unsupported_relationship_claim" in {issue.code for issue in report.issues}
+
+
+def test_player_authored_caption_is_attributed_context_not_a_model_claim() -> None:
+    payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
+    payload["human_memory"]["caption"] = "Best friend clutch"
+    pack = MemoryPack.model_validate(payload)
+
+    result = MemoryPipeline().run(pack)
+
+    assert result.status == PipelineStatus.READY
+    assert "unsupported_relationship_claim" not in {
+        issue.code for issue in result.validation.issues
+    }
+
+
+def test_squad_memory_requires_two_opted_in_members() -> None:
+    payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
+    for member in payload["squad"]["members"][1:]:
+        member["opted_in"] = False
+    pack = MemoryPack.model_validate(payload)
+
+    result = MemoryPipeline().run(pack)
+
+    assert result.status == PipelineStatus.REJECTED
+    assert result.discovery.reasons == ["fewer than two squad members are opted in"]
+    assert {issue.code for issue in result.validation.issues} == {"insufficient_opted_in_members"}
+
+
+@pytest.mark.parametrize(
+    "escape_updates",
+    [
+        {"timestamp_seconds": 1000},
+        {"timestamp_seconds": 1300},
+        {"location": "Peak"},
+        {"location": None},
+    ],
+)
+def test_disconnected_events_do_not_receive_a_connected_pattern_bonus(
+    escape_updates: dict[str, str | int | None],
+) -> None:
+    payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
+    payload["match_events"][2].update(escape_updates)
+    pack = MemoryPack.model_validate(payload)
+
+    result = MemoryPipeline().run(pack)
+
+    assert result.memory is not None
+    assert "connected rescue-and-escape pattern" not in result.discovery.reasons
+    assert " before " not in result.memory.summary
+
+
+def test_connected_summary_uses_the_connected_pair_location() -> None:
+    payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
+    payload["match_events"] = [
+        {
+            "event_id": "evt-revive-alpha",
+            "type": "revive",
+            "actor_id": "mei",
+            "target_id": "lee",
+            "timestamp_seconds": 100,
+            "location": "Alpha",
+            "importance": "high",
+            "details": {},
+        },
+        {
+            "event_id": "evt-revive-bravo",
+            "type": "revive",
+            "actor_id": "jo",
+            "target_id": "amir",
+            "timestamp_seconds": 200,
+            "location": "Bravo",
+            "importance": "high",
+            "details": {},
+        },
+        {
+            "event_id": "evt-escape-bravo",
+            "type": "vehicle_escape",
+            "actor_id": "amir",
+            "timestamp_seconds": 210,
+            "location": "Bravo",
+            "importance": "high",
+            "details": {"passengers": 3},
+        },
+    ]
+    pack = MemoryPack.model_validate(payload)
+
+    result = MemoryPipeline().run(pack)
+
+    assert result.memory is not None
+    assert result.memory.summary.startswith("At Bravo, Jo revived Amir before Amir drove")
+
+
+def test_generic_actor_perspectives_remain_distinct() -> None:
+    payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
+    for index, (event, member) in enumerate(
+        zip(payload["match_events"], payload["squad"]["members"], strict=True), start=1
+    ):
+        event.update(
+            {
+                "event_id": f"evt-elimination-{index}",
+                "type": "elimination",
+                "actor_id": member["player_id"],
+                "target_id": None,
+                "timestamp_seconds": 100 + index,
+                "location": "Clock Tower",
+                "importance": "high",
+                "details": {},
+            }
+        )
+    pack = MemoryPack.model_validate(payload)
+
+    result = MemoryPipeline().run(pack)
+
+    assert result.status == PipelineStatus.READY
+    assert len({perspective.message for perspective in result.player_perspectives}) == 4
+
+
+def test_provider_name_is_trimmed_and_case_normalized() -> None:
+    assert build_pipeline("  DeTeRmInIsTiC  ").provider_name == "deterministic"

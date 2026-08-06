@@ -71,9 +71,12 @@ app.add_middleware(
 )
 
 
-@app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
-    pipeline = build_pipeline()
+@app.get("/health", tags=["system"], response_model=None)
+def health() -> dict[str, str] | JSONResponse:
+    try:
+        pipeline = _build_configured_pipeline()
+    except OpenAIProviderError as error:
+        return _provider_error_response(error)
     return {
         "status": "ok",
         "phase": "1",
@@ -94,7 +97,7 @@ def discover_memory(memory_pack: LegacyMemoryPack) -> MemoryEngineResult | JSONR
     """Legacy v1.0 full-pipeline adapter retained during the migration window."""
 
     try:
-        return build_pipeline().run(memory_pack)
+        return _build_configured_pipeline().run(memory_pack)
     except OpenAIProviderError as error:
         return _provider_error_response(error)
 
@@ -122,7 +125,7 @@ def generate_memory(request: GenerateMemoryRequest) -> MemoryEngineResultV11 | J
     """Expand a reviewed candidate into perspectives and a grounded quest."""
 
     try:
-        return build_pipeline().generate(request.memory_pack)
+        return _build_configured_pipeline().generate(request.memory_pack)
     except OpenAIProviderError as error:
         return _provider_error_response(error)
 
@@ -151,7 +154,7 @@ def generate_memory_stream(request: GenerateMemoryRequest) -> NDJSONStreamingRes
             message="Rechecking evidence, consent, and review state.",
         )
         try:
-            pipeline = build_pipeline()
+            pipeline = _build_configured_pipeline()
             result = await asyncio.to_thread(pipeline.generate, request.memory_pack)
         except OpenAIProviderError as error:
             yield _ndjson_event(type="error", **error.as_dict())
@@ -211,6 +214,17 @@ def _provider_error_response(error: OpenAIProviderError) -> JSONResponse:
             "message": "The live AI provider could not complete this generation stage.",
         },
     )
+
+
+def _build_configured_pipeline() -> MemoryPipeline:
+    try:
+        return build_pipeline()
+    except ValueError:
+        raise OpenAIProviderError(
+            stage="configuration",
+            code="invalid_provider",
+            retryable=False,
+        ) from None
 
 
 def _ndjson_event(**payload: object) -> str:

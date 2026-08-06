@@ -198,6 +198,18 @@ def test_history_filters_a_consistently_opted_out_target() -> None:
     assert response.filters.target_opted_out == 1
 
 
+def test_history_filters_memories_without_two_opted_in_members() -> None:
+    payload = load_history()[1].model_dump(mode="json")
+    for member in payload["squad"]["members"][1:]:
+        member["opted_in"] = False
+    pack = MemoryPackV11.model_validate(payload)
+
+    response = MemoryPipeline().discover_history(HistoricalDiscoveryRequest(memory_packs=[pack]))
+
+    assert response.candidates == []
+    assert response.filters.insufficient_opted_in == 1
+
+
 def test_diversity_penalty_promotes_a_different_memory_type() -> None:
     chaos, comeback, repeated_chaos = load_history()[:3]
     payload = repeated_chaos.model_dump(mode="json")
