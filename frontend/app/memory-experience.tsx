@@ -376,6 +376,7 @@ export function MemoryExperience({ initialPack }: { initialPack: MemoryPack }) {
                 <button className="reveal-memory-button" type="button" onClick={() => void revealMemory()}>
                   Load this memory
                 </button>
+                <a className="history-entry-link" href="/history">Review your squad history</a>
               </div>
             </section>
           ) : view.kind === "loading" ? (

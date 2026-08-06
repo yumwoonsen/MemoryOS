@@ -923,6 +923,148 @@ summary:focus-visible {
   background: rgba(215, 255, 63, .16);
 }
 
+.history-entry-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: #526300;
+  font-size: 10px;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.history-intro,
+.history-candidates,
+.history-review {
+  padding: 28px 22px;
+}
+
+.history-intro h1,
+.history-candidates h1,
+.history-review h1 {
+  margin: 10px 0;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.history-intro > p:not(.demo-kicker),
+.history-note,
+.history-review > p:not(.demo-kicker) {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.history-candidate {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #d5dacd;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.candidate-topline,
+.review-badges,
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.candidate-topline span,
+.candidate-topline strong,
+.review-badges span {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #eff6db;
+  color: #526300;
+  font: 800 7px var(--font-mono);
+  text-transform: uppercase;
+}
+
+.candidate-topline small {
+  flex: 1;
+  color: var(--muted);
+  font: 7px var(--font-mono);
+  text-transform: uppercase;
+}
+
+.history-candidate h2 {
+  margin: 12px 0 6px;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.history-candidate p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.history-candidate ul {
+  margin: 13px 0;
+  padding-left: 18px;
+  color: #4d5749;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.redaction-notice {
+  margin-bottom: 12px !important;
+  color: #73603a !important;
+  font-size: 9px !important;
+}
+
+.review-badges {
+  margin-bottom: 13px;
+}
+
+.history-candidate button,
+.secondary-action {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #a7c400;
+  border-radius: 7px;
+  background: var(--lime);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.review-actions {
+  align-items: stretch;
+}
+
+.secondary-action {
+  border-color: #cfd6c9;
+  background: transparent;
+  color: #4e574c;
+}
+
+.review-timeline {
+  margin: 14px 0 22px;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid #e0e5db;
+}
+
+.review-timeline li {
+  padding: 12px 0;
+  border-bottom: 1px solid #e0e5db;
+}
+
+.review-timeline strong,
+.review-timeline small {
+  display: block;
+}
+
+.review-timeline strong { font-size: 12px; }
+.review-timeline small { margin-top: 3px; color: var(--muted); font: 8px var(--font-mono); text-transform: uppercase; }
+
 .challenge-dialog {
   width: min(calc(100% - 28px), 360px);
   padding: 24px;
