@@ -29,6 +29,8 @@ recalls, remix it into a quest, and require player confirmation before activatio
 - Player-authored context may express meaning but cannot rewrite match facts.
 - A weak candidate should be skipped instead of decorated with generic nostalgia.
 - Opted-out players do not receive generated perspectives.
+- In this prototype, opt-out also prevents quest assignment but does not remove a player's
+  participation from shared match evidence; production data-exclusion semantics remain unresolved.
 - “Best friend,” intent, and emotional-state claims require evidence the current schema does not
   provide, so the validator rejects them.
 - Mission success is not required for a meaningful reunion; future chapter generation should
@@ -43,4 +45,3 @@ quest reverses the rescue role while recreating the original location and squad 
 The test is simple:
 
 > If the names and location can be removed without breaking the quest, it is not personal enough.
-

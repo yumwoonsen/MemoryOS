@@ -19,6 +19,11 @@ report:
 3. Insufficient evidence must become `rejected` with no generated content.
 4. Unknown players or duplicate events must fail at input validation.
 5. Invented evidence or unsupported relationship labels must fail final validation.
+6. Human-only signals must abstain when no gameplay event can ground the memory.
+7. Every perspective appears exactly once and keeps the squad's canonical display name.
+8. Every quest objective has unique, connected evidence and a supported verification rule.
+9. Opted-out players are never assigned a personalized objective.
+10. Every quest has exactly one required squad reunion objective plus another grounded anchor.
 
 ## Prompt evaluation workflow
 
@@ -31,4 +36,3 @@ For any prompt or model change:
 5. Promote a model or prompt only when it improves specificity without reducing grounding.
 
 Fluent prose alone is not a success criterion.
-

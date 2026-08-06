@@ -53,6 +53,10 @@ Invoke-RestMethod `
 Every successful response includes a discovery assessment, validation report, quality scores, and
 provider metadata. Schema-invalid requests return FastAPI's standard HTTP `422` response.
 
+Generation safely abstains when there is no grounded gameplay event or fewer than two squad members
+are opted in, even when captions or reactions make the raw signal score exceed the normal threshold.
+The reason appears in the existing discovery `reasons` and validation `issues` fields.
+
 ## Provider configuration
 
 The deterministic provider is the default and requires no credentials.
@@ -72,6 +76,9 @@ OPENAI_MODEL=gpt-5.6-luna
 The model handles bounded semantic generation. Input validation, the low-signal gate, and final
 validation remain deterministic for both providers.
 
+Invalid or unavailable provider configuration returns HTTP `503` with the stable error code
+`pipeline_configuration_error`; secret or provider exception details are not returned to clients.
+
 ## Versioning
 
 Input and output objects currently use `schema_version: "1.0"`. Breaking contract changes require a
@@ -82,4 +89,3 @@ new schema version and migration notes. HTTP routes remain under `/v1` for the s
 The included JSON files are synthetic evaluation fixtures. This API does not currently receive live
 Free Fire telemetry or player information and should not be deployed with real data without
 authentication, access controls, retention rules, and a privacy review.
-

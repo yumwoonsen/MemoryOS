@@ -11,10 +11,12 @@ from backend.models.schemas import (
     MemoryType,
 )
 from backend.services.structured_generator import StructuredGenerator
+from backend.services.text import truncate_text
 
 
 class MemoryAgent:
     threshold = 0.45
+    episode_window_seconds = 120
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
@@ -30,9 +32,60 @@ class MemoryAgent:
                 payload={"memory_pack": pack.model_dump(mode="json")},
                 response_model=MemoryRecord,
             )
-            return assessment, memory
+            return assessment, self._canonicalize_generated_memory(
+                pack, memory, assessment.signal_score
+            )
 
         return assessment, self._discover_deterministically(pack, assessment.signal_score)
+
+    def _canonicalize_generated_memory(
+        self, pack: MemoryPack, memory: MemoryRecord, score: float
+    ) -> MemoryRecord:
+        """Treat model output as a structured selection and render claims from source data."""
+
+        input_events = {event.event_id: event for event in pack.match_events}
+        selected_events: list[MatchEvent] = []
+        canonical_evidence: list[EvidenceRef] = []
+        for evidence in memory.evidence:
+            source_event = input_events.get(evidence.event_id)
+            if source_event is None:
+                canonical_evidence.append(
+                    EvidenceRef(
+                        event_id=evidence.event_id,
+                        event_type=evidence.event_type,
+                        significance="Ungrounded event reference; validation must reject it.",
+                    )
+                )
+                continue
+            if source_event.event_id not in {event.event_id for event in selected_events}:
+                selected_events.append(source_event)
+            canonical_evidence.append(
+                EvidenceRef(
+                    event_id=source_event.event_id,
+                    event_type=source_event.type,
+                    significance=self._event_significance(source_event, pack),
+                )
+            )
+
+        if selected_events:
+            title = self._title(pack, selected_events)
+            memory_type = self._memory_type(pack, selected_events)
+            summary = self._summary(pack, selected_events)
+        else:
+            title = "Ungrounded Memory Candidate"
+            memory_type = MemoryType.OTHER
+            summary = "The candidate could not be grounded in the supplied match events."
+
+        return memory.model_copy(
+            update={
+                "title": title,
+                "memory_type": memory_type,
+                "summary": summary,
+                "confidence": score,
+                "evidence": canonical_evidence,
+                "human_confirmed": bool(pack.human_memory and pack.human_memory.confirmed),
+            }
+        )
 
     def _assess_signals(self, pack: MemoryPack) -> DiscoveryAssessment:
         score = 0.0
@@ -46,19 +99,20 @@ class MemoryAgent:
             score += event_score
             reasons.append(f"{len(pack.match_events)} grounded gameplay event(s)")
 
-        event_types = {event.type for event in pack.match_events}
-        if {"revive", "vehicle_escape"}.issubset(event_types):
+        if self._connected_pair(pack.match_events, "revive", "vehicle_escape"):
             score += 0.15
             reasons.append("connected rescue-and-escape pattern")
-        if "last_player_alive" in event_types and "revive" in event_types:
+        if self._connected_pair(pack.match_events, "last_player_alive", "revive"):
             score += 0.20
             reasons.append("last-player-alive comeback pattern")
 
         human_memory = pack.human_memory
-        if human_memory and human_memory.caption:
+        caption = human_memory.caption.strip() if human_memory and human_memory.caption else ""
+        tags = [tag.strip() for tag in human_memory.tags if tag.strip()] if human_memory else []
+        if caption:
             score += 0.15
             reasons.append("player-authored caption")
-        if human_memory and human_memory.tags:
+        if tags:
             score += 0.10
             reasons.append("player-selected memory tags")
         if human_memory and human_memory.confirmed:
@@ -73,12 +127,20 @@ class MemoryAgent:
             score += reaction_score
             reasons.append("positive save or reaction signals")
 
+        if not pack.match_events:
+            reasons.append("no grounded gameplay event is available as evidence")
+
+        opted_in_count = sum(member.opted_in for member in pack.squad.members)
+        if opted_in_count < 2:
+            reasons.append("fewer than two squad members are opted in")
+
         score = round(min(score, 1.0), 2)
+        has_generation_prerequisites = bool(pack.match_events) and opted_in_count >= 2
         return DiscoveryAssessment(
             signal_score=score,
             threshold=self.threshold,
             reasons=reasons or ["no meaningful memory signals were present"],
-            eligible=score >= self.threshold,
+            eligible=score >= self.threshold and has_generation_prerequisites,
         )
 
     def _discover_deterministically(self, pack: MemoryPack, score: float) -> MemoryRecord:
@@ -104,8 +166,8 @@ class MemoryAgent:
             human_confirmed=human_confirmed,
         )
 
-    @staticmethod
-    def _select_evidence(events: list[MatchEvent]) -> list[MatchEvent]:
+    @classmethod
+    def _select_evidence(cls, events: list[MatchEvent]) -> list[MatchEvent]:
         importance_order = {"high": 0, "medium": 1, "low": 2}
         ranked = sorted(
             events,
@@ -114,7 +176,63 @@ class MemoryAgent:
                 event.timestamp_seconds if event.timestamp_seconds is not None else 10**9,
             ),
         )
-        return ranked[:4] or events[:1]
+        selected: list[MatchEvent] = []
+        for first_type, second_type in (
+            ("last_player_alive", "revive"),
+            ("revive", "vehicle_escape"),
+        ):
+            pair = cls._connected_pair(ranked, first_type, second_type)
+            if pair:
+                for event in pair:
+                    if event.event_id not in {item.event_id for item in selected}:
+                        selected.append(event)
+
+        for event in ranked:
+            if event.event_id not in {item.event_id for item in selected}:
+                selected.append(event)
+            if len(selected) == 4:
+                break
+        return selected[:4]
+
+    @staticmethod
+    def _connected_pair(
+        events: list[MatchEvent], first_type: str, second_type: str
+    ) -> tuple[MatchEvent, MatchEvent] | None:
+        """Return an explicitly co-located pair inside one short episode window."""
+
+        first_events = [event for event in events if event.type == first_type]
+        second_events = [event for event in events if event.type == second_type]
+        for first in first_events:
+            for second in second_events:
+                if not MemoryAgent._has_required_participants(first):
+                    continue
+                if not MemoryAgent._has_required_participants(second):
+                    continue
+                if (
+                    first_type == "last_player_alive"
+                    and second_type == "revive"
+                    and first.actor_id != second.actor_id
+                ):
+                    continue
+                if first.timestamp_seconds is None or second.timestamp_seconds is None:
+                    continue
+                elapsed_seconds = second.timestamp_seconds - first.timestamp_seconds
+                if elapsed_seconds < 0 or elapsed_seconds > MemoryAgent.episode_window_seconds:
+                    continue
+                if not first.location or not second.location:
+                    continue
+                if first.location.casefold() != second.location.casefold():
+                    continue
+                return first, second
+        return None
+
+    @staticmethod
+    def _has_required_participants(event: MatchEvent) -> bool:
+        if event.type == "revive":
+            return bool(event.actor_id and event.target_id and event.actor_id != event.target_id)
+        if event.type in {"last_player_alive", "vehicle_escape"}:
+            return event.actor_id is not None
+        return True
 
     @staticmethod
     def _display_name(pack: MemoryPack, player_id: str | None) -> str:
@@ -124,19 +242,30 @@ class MemoryAgent:
         return "the squad"
 
     def _title(self, pack: MemoryPack, events: list[MatchEvent]) -> str:
-        if pack.human_memory and pack.human_memory.caption:
-            return pack.human_memory.caption.strip().title()
+        caption = (
+            pack.human_memory.caption.strip()
+            if pack.human_memory and pack.human_memory.caption
+            else ""
+        )
+        if caption:
+            return truncate_text(caption.title(), 100)
         location = next((event.location for event in events if event.location), None)
         event_types = {event.type for event in events}
         if "last_player_alive" in event_types:
-            return f"{location or 'The Squad'} Comeback"
-        if "revive" in event_types:
-            return f"The {location or 'Final Circle'} Rescue"
-        return f"{location or 'Squad'} Memory Candidate"
+            title = f"{location or 'The Squad'} Comeback"
+        elif "revive" in event_types:
+            title = f"The {location or 'Final Circle'} Rescue"
+        else:
+            title = f"{location or 'Squad'} Memory Candidate"
+        return truncate_text(title, 100)
 
     @staticmethod
     def _memory_type(pack: MemoryPack, events: list[MatchEvent]) -> MemoryType:
-        tags = {tag.lower() for tag in (pack.human_memory.tags if pack.human_memory else [])}
+        tags = {
+            tag.strip().casefold()
+            for tag in (pack.human_memory.tags if pack.human_memory else [])
+            if tag.strip()
+        }
         event_types = {event.type for event in events}
         if tags & {"funny", "chaos"} or "vehicle_escape" in event_types:
             return MemoryType.CHAOS
@@ -151,32 +280,36 @@ class MemoryAgent:
         return MemoryType.OTHER
 
     def _summary(self, pack: MemoryPack, events: list[MatchEvent]) -> str:
-        revive = next((event for event in events if event.type == "revive"), None)
-        escape = next((event for event in events if event.type == "vehicle_escape"), None)
-        last_alive = next((event for event in events if event.type == "last_player_alive"), None)
-        location = next((event.location for event in events if event.location), pack.match.map_name)
+        rescue_pair = self._connected_pair(events, "revive", "vehicle_escape")
+        comeback_pair = self._connected_pair(events, "last_player_alive", "revive")
 
-        if revive and escape:
+        if rescue_pair:
+            revive, escape = rescue_pair
             rescuer = self._display_name(pack, revive.actor_id)
             rescued = self._display_name(pack, revive.target_id)
             driver = self._display_name(pack, escape.actor_id)
-            return (
+            location = revive.location or escape.location or pack.match.map_name
+            summary = (
                 f"At {location or 'the final rotation'}, {rescuer} revived {rescued} before "
                 f"{driver} drove the squad out of danger."
             )
-        if last_alive and revive:
+        elif comeback_pair:
+            last_alive, revive = comeback_pair
             survivor = self._display_name(pack, last_alive.actor_id)
             rescued = self._display_name(pack, revive.target_id)
-            return (
+            location = last_alive.location or revive.location or pack.match.map_name
+            summary = (
                 f"At {location or 'the late game'}, {survivor} was the last squad member alive "
                 f"and brought {rescued} back into the match."
             )
-        primary = events[0]
-        actor = self._display_name(pack, primary.actor_id)
-        return (
-            f"At {primary.location or pack.match.map_name or 'the match'}, {actor} triggered "
-            f"the squad's {primary.type.replace('_', ' ')} moment."
-        )
+        else:
+            primary = events[0]
+            actor = self._display_name(pack, primary.actor_id)
+            summary = (
+                f"At {primary.location or pack.match.map_name or 'the match'}, {actor} triggered "
+                f"the squad's {primary.type.replace('_', ' ')} moment."
+            )
+        return truncate_text(summary, 500)
 
     def _event_significance(self, event: MatchEvent, pack: MemoryPack) -> str:
         actor = self._display_name(pack, event.actor_id)

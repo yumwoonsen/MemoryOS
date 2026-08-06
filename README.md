@@ -92,8 +92,8 @@ ruff check .
 pytest
 ```
 
-The Phase 1 baseline contains nine tests covering the golden path, safe abstention, human review,
-evidence grounding, unsupported relationship claims, input validation, and the HTTP contract.
+The backend suite contains 57 tests covering the golden path, safe abstention, human review,
+consent boundaries, evidence grounding, verification rules, input validation, and the HTTP contract.
 
 ## Optional live AI mode
 
@@ -107,8 +107,9 @@ OPENAI_MODEL=gpt-5.6-luna
 ```
 
 Never commit `.env` or expose the API key in a browser client. The adapter uses the Responses API
-and parses each generative stage directly into its Pydantic schema. Deterministic validation always
-runs afterward. See the official OpenAI guides for the
+and parses each generative stage directly into its Pydantic schema. Model output selects structure;
+player-facing factual prose is rendered canonically from the Memory Pack before deterministic
+validation runs. See the official OpenAI guides for the
 [Responses API](https://developers.openai.com/api/docs/guides/text) and
 [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 

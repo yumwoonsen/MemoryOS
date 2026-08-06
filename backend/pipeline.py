@@ -39,7 +39,7 @@ class MemoryPipeline:
                 pack_id=pack.pack_id,
                 status=PipelineStatus.REJECTED,
                 discovery=assessment,
-                validation=self.validator_agent.abstention_report(assessment),
+                validation=self.validator_agent.abstention_report(assessment, pack),
                 metadata=self._metadata(),
             )
 
@@ -70,6 +70,7 @@ class MemoryPipeline:
             "pipeline_version": "phase-1-v1",
             "provider": self.provider_name,
             "model": self.model_name,
+            "prose_renderer": "canonical-v1",
         }
 
 
@@ -77,7 +78,9 @@ def build_pipeline(provider: str | None = None) -> MemoryPipeline:
     """Build a pipeline from explicit configuration or environment variables."""
 
     load_dotenv()
-    selected_provider = (provider or os.getenv("MEMORYOS_PROVIDER", "deterministic")).lower()
+    selected_provider = (
+        (provider or os.getenv("MEMORYOS_PROVIDER", "deterministic")).strip().lower()
+    )
     if selected_provider == "deterministic":
         return MemoryPipeline()
     if selected_provider == "openai":

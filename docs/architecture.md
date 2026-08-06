@@ -49,9 +49,11 @@ has one job, typed inputs/outputs, and no side effects.
 
 ## Provider boundary
 
-Deterministic mode is the evaluation baseline. OpenAI mode replaces semantic generation in the
+Deterministic mode is the evaluation baseline. OpenAI mode proposes structured selections in the
 discovery, perspective, and quest stages; it does not replace input validation, the discovery gate,
-or final validation.
+canonical prose rendering, or final validation. Event significance, player perspectives, quest
+missions, and objective descriptions are rendered again from Memory Pack facts, so fluent model
+prose is never accepted as evidence by itself.
 
 ```text
 same MemoryPack
@@ -68,7 +70,8 @@ This lets the team compare model quality without changing HTTP payloads or UI as
 ## Failure behavior
 
 - Malformed data fails with schema validation errors.
-- Low-signal data returns `rejected` with no generated memory, perspective, or quest.
+- Low-signal data, eventless data, or fewer than two opted-in members returns `rejected` with no
+  generated memory, perspective, or quest.
 - Strong but unconfirmed data returns `needs_human_confirmation`.
 - Unsupported or ungrounded generated content fails deterministic validation and returns `rejected`.
 - Confirmed, grounded content returns `ready`.
