@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("https://memoryos.example/", {
+    new Request(`https://memoryos.example${path}`, {
       headers: { accept: "text/html", host: "memoryos.example" },
     }),
     {
@@ -46,23 +46,48 @@ async function discover(body) {
   );
 }
 
-test("server-renders the complete Next Chapter experience", async () => {
+test("server-renders the unrevealed Battle Royale memory", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Next Chapter — Powered by MemoryOS<\/title>/i);
-  assert.match(html, /Your squad has/);
-  assert.match(html, /unfinished stories/);
-  assert.match(html, /Discover the memory/);
-  assert.match(html, /Facts in\. Verified chapter out\./);
-  assert.match(html, /Canonical transformation/);
-  assert.match(html, /Machine-checkable quest rules/);
-  assert.match(html, /Worst Plan, Best Night/);
-  assert.match(html, /Needs your call/);
-  assert.match(html, /Safely skipped/);
+  const mainHtml = html.slice(html.indexOf("<main"), html.indexOf("</main>") + "</main>".length);
+  assert.match(html, /<title>Garena Next Chapter — MemoryOS<\/title>/i);
+  assert.match(html, /data-theme="light"/i);
+  assert.match(html, /Battle Royale/i);
+  assert.match(html, /aria-busy="false"/i);
+  assert.match(html, /Memory waiting/i);
+  assert.match(html, /Memory not loaded/i);
+  assert.match(html, /A squad memory is waiting/i);
+  assert.match(html, /Free Fire/i);
+  assert.match(html, /Bermuda/i);
+  assert.match(html, /Your original squad left a story behind/i);
+  assert.match(html, /The original squad/i);
+  assert.match(html, /Load this memory/i);
+  assert.match(html, /free-fire-map-v2\.webp/i);
+  assert.match(html, /free-fire-map-mobile-v2\.webp/i);
   assert.match(html, /https:\/\/memoryos\.example\/og\.png/);
+  assert.doesNotMatch(
+    mainHtml,
+    /Worst Plan, Best Night|Your side of the story|What actually happened|Return the Favour|Play this challenge|Demo simulation|clock-tower-town-v2|Memory Pack|Run Memory Engine|Choose a memory signal|Facts in\. Verified chapter out\.|Canonical transformation|Tactical Round|COD Mobile|Review Studio/i,
+  );
+});
+
+test("keeps the loaded player story in a simple evidence-first order", async () => {
+  const source = await readFile(new URL("../app/memory-experience.tsx", import.meta.url), "utf8");
+  const gist = source.indexOf("memory-gist-label");
+  const recap = source.indexOf("What actually happened");
+  const perspective = source.indexOf("Your side of the story");
+  const chapter = source.indexOf("Next Chapter");
+
+  assert.ok(gist > -1 && gist < recap);
+  assert.ok(recap < perspective);
+  assert.ok(perspective < chapter);
+  assert.doesNotMatch(
+    source,
+    /Challenge rules|objectiveRule|Verified live|Verified preview|Confirm this memory|\?\?\s*result\.player_perspectives\[0\]/i,
+  );
 });
 
 test("does not ship the disposable starter preview", async () => {
@@ -72,6 +97,11 @@ test("does not ship the disposable starter preview", async () => {
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /react-loading-skeleton/);
   assert.doesNotMatch(html, /Your site is taking shape/);
+});
+
+test("keeps only the latest Battle Royale source pack", async () => {
+  const dataFiles = (await readdir(new URL("../data/", import.meta.url))).sort();
+  assert.deepEqual(dataFiles, ["funny_memory.json"]);
 });
 
 test("hosted discovery returns a JSON sample instead of proxying localhost", async () => {
@@ -84,43 +114,12 @@ test("hosted discovery returns a JSON sample instead of proxying localhost", asy
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^application\/json\b/i);
   assert.equal(response.headers.get("x-memoryos-mode"), "sample");
+  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
   const result = await response.json();
   assert.equal(result.status, "ready");
   assert.equal(result.metadata.prose_renderer, "canonical-v1");
   assert.match(result.player_perspectives[0].message, /Verified revive #1/);
   assert.match(result.next_chapter.mission, /remix "Worst Plan, Best Night"/);
-});
-
-test("hosted review sample mirrors the canonical backend contract", async () => {
-  const memoryPack = await readFile(
-    new URL("../data/comeback_memory.json", import.meta.url),
-    "utf8",
-  );
-  const response = await discover(memoryPack);
-  const result = await response.json();
-
-  assert.equal(response.status, 200);
-  assert.equal(result.status, "needs_human_confirmation");
-  assert.equal(result.validation.scores.specificity, 1);
-  assert.deepEqual(
-    result.player_perspectives.find((item) => item.player_id === "kay").evidence_event_ids,
-    ["evt-final-ten-01"],
-  );
-});
-
-test("confirming the review sample updates confidence and review state", async () => {
-  const memoryPack = JSON.parse(
-    await readFile(new URL("../data/comeback_memory.json", import.meta.url), "utf8"),
-  );
-  memoryPack.human_memory.confirmed = true;
-  const response = await discover(JSON.stringify(memoryPack));
-  const result = await response.json();
-
-  assert.equal(result.status, "ready");
-  assert.equal(result.discovery.signal_score, 1);
-  assert.equal(result.memory.confidence, 1);
-  assert.ok(result.discovery.reasons.includes("player-confirmed meaning"));
-  assert.ok(!result.validation.issues.some((issue) => issue.code === "human_confirmation_required"));
 });
 
 test("hosted discovery returns stable JSON errors", async () => {
@@ -132,9 +131,23 @@ test("hosted discovery returns stable JSON errors", async () => {
     message: "The Memory Pack was not valid JSON.",
   });
 
+  for (const invalidBody of ["null", "[]", "{}"]) {
+    const invalidPack = await discover(invalidBody);
+    assert.equal(invalidPack.status, 422);
+    assert.equal((await invalidPack.json()).code, "invalid_memory_pack");
+  }
+
   const memoryPack = JSON.parse(
     await readFile(new URL("../data/funny_memory.json", import.meta.url), "utf8"),
   );
+  memoryPack.match_events = [];
+  const mismatched = await discover(JSON.stringify(memoryPack));
+  assert.equal(mismatched.status, 503);
+  assert.equal((await mismatched.json()).code, "sample_result_unavailable");
+
+  memoryPack.match_events = JSON.parse(
+    await readFile(new URL("../data/funny_memory.json", import.meta.url), "utf8"),
+  ).match_events;
   memoryPack.pack_id = "unknown-pack";
   const unknown = await discover(JSON.stringify(memoryPack));
   assert.equal(unknown.status, 503);
@@ -142,13 +155,29 @@ test("hosted discovery returns stable JSON errors", async () => {
   assert.equal((await unknown.json()).code, "sample_result_unavailable");
 });
 
-test("stylesheet includes the approved accessible palette", async () => {
+test("ships the compact light palette and original Battle Royale artwork", async () => {
   const css = (await readFile(new URL("../app/globals.css", import.meta.url), "utf8")).toLowerCase();
 
-  for (const colour of ["#ffffff", "#52a6ff", "#cfffc0", "#6ec8bd", "#2c2c2c"]) {
+  for (const colour of ["#edf0e7", "#fffef9", "#171a15", "#d7ff3f", "#5d7000"]) {
     assert.match(css, new RegExp(colour));
   }
-  assert.doesNotMatch(css, /#ff7347|#42d7c8|#080b10|#111720/);
+  assert.doesNotMatch(css, /#52a6ff|#6ec8bd|#080b10|#111720/);
+
+  for (const asset of [
+    "../public/art/heroes/free-fire-map-v2.webp",
+    "../public/art/heroes/free-fire-map-mobile-v2.webp",
+    "../public/art/landmarks/clock-tower-town-v2.webp",
+  ]) {
+    const bytes = await readFile(new URL(asset, import.meta.url));
+    assert.ok(bytes.length > 1_000, `${asset} should contain optimized artwork`);
+    assert.equal(bytes.subarray(0, 4).toString("ascii"), "RIFF");
+    assert.equal(bytes.subarray(8, 12).toString("ascii"), "WEBP");
+  }
+});
+
+test("leaves the dedicated Review Studio deferred", async () => {
+  const response = await render("/studio");
+  assert.equal(response.status, 404);
 });
 
 test("browser bundle never calls the local backend directly", async () => {
@@ -162,4 +191,19 @@ test("browser bundle never calls the local backend directly", async () => {
 
   assert.doesNotMatch(browserBundle, /127\.0\.0\.1:8000/);
   assert.match(browserBundle, /\/api\/discover/);
+  assert.match(browserBundle, /Loading squad memory/i);
+  assert.match(browserBundle, /The gist/i);
+  assert.match(browserBundle, /What actually happened/i);
+  assert.match(browserBundle, /Your side of the story/i);
+  assert.match(browserBundle, /Next Chapter/i);
+  assert.match(browserBundle, /Play this challenge/i);
+  assert.match(browserBundle, /View from the start/i);
+  assert.doesNotMatch(
+    browserBundle,
+    /Memory Pack ready|Build this story|Generating from verified data|Match evidence remains the source of truth|Challenge rules|Verified live|Verified preview/i,
+  );
+  assert.doesNotMatch(
+    browserBundle,
+    /Choose a memory signal|One HP Reset|Match FF-M999|memory-pack-comeback|memory-pack-insufficient|Command Post/i,
+  );
 });

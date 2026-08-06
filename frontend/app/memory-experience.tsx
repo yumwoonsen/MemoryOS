@@ -1,38 +1,41 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { roleLabels, scenarioByKey, scenarios } from "@/lib/fixtures";
 import type {
-  MemoryApiError,
   MemoryEngineResult,
   MemoryPack,
-  QuestObjective,
-  Scenario,
-  ScenarioKey,
+  PlayerPerspective,
 } from "@/lib/types";
 
-type ViewState = "idle" | "loading" | "loaded" | "error";
+type ReadyResult = MemoryEngineResult & {
+  status: "ready";
+  memory: NonNullable<MemoryEngineResult["memory"]>;
+  next_chapter: NonNullable<MemoryEngineResult["next_chapter"]>;
+};
 
-const scoreLabels = {
-  specificity: "Specificity",
-  evidence_grounding: "Evidence grounding",
-  perspective_distinctness: "Distinct perspectives",
-  quest_connection: "Quest connection",
-} as const;
+type ViewState =
+  | { kind: "unrevealed" }
+  | { kind: "loading" }
+  | { kind: "ready"; result: ReadyResult }
+  | { kind: "unavailable" };
 
-function percent(value: number) {
-  return `${Math.round(value * 100)}%`;
+const avatarClasses = ["avatar-lime", "avatar-gold", "avatar-blue", "avatar-pink"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function isMemoryEngineResult(value: unknown): value is MemoryEngineResult {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      "status" in value &&
-      ["ready", "needs_human_confirmation", "rejected"].includes(
-        String((value as { status?: unknown }).status),
-      ),
+function isUnitScore(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function isRuleTarget(value: unknown) {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    (Array.isArray(value) && value.every((item) => typeof item === "string"))
   );
 }
 
@@ -40,586 +43,507 @@ function isOptedIn(member: MemoryPack["squad"]["members"][number]) {
   return member.opted_in !== false;
 }
 
-function formatRuleValue(value: QuestObjective["verification"]["target"]) {
-  if (Array.isArray(value)) return value.join(", ");
-  return String(value);
-}
-
-function formatRole(role?: string | null) {
-  return role ? roleLabels[role] ?? role.replaceAll("_", " ") : "Squadmate";
-}
-
-function formatMode(mode: string) {
-  return mode.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+function formatWords(value?: string | null) {
+  if (!value) return "Squadmate";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function formatClock(seconds?: number | null) {
   if (seconds == null) return "Match event";
-  const minutes = Math.floor(seconds / 60);
-  const remainder = String(seconds % 60).padStart(2, "0");
-  return `+${minutes}:${remainder}`;
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function formatMatchDate(value?: string | null) {
-  if (!value) return "Archived match";
-  return new Intl.DateTimeFormat("en-SG", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function assertEngineSource(response: Response) {
+  const source = response.headers.get("x-memoryos-mode");
+  if (source === "live" || source === "sample") return;
+  throw new Error("MemoryOS returned an unidentified response source.");
 }
 
-function eventDescription(event: MemoryPack["match_events"][number], pack: MemoryPack) {
-  const name = (playerId?: string | null) =>
-    pack.squad.members.find((member) => member.player_id === playerId)?.display_name ??
-    "The squad";
+function parseMemoryResult(value: unknown, pack: MemoryPack): MemoryEngineResult {
+  if (!isRecord(value)) throw new Error("MemoryOS returned an unreadable result.");
 
-  if (event.type === "retreat_ping") {
-    return `${name(event.actor_id)} called retreat ${event.details?.count ?? "several"} times.`;
+  const validStatuses = ["ready", "needs_human_confirmation", "rejected"];
+  if (
+    value.schema_version !== "1.0" ||
+    value.pack_id !== pack.pack_id ||
+    typeof value.status !== "string" ||
+    !validStatuses.includes(value.status)
+  ) {
+    throw new Error("MemoryOS returned a result for the wrong match or contract version.");
   }
-  if (event.type === "revive") {
-    const zone = event.details?.zone_state === "closing" ? " while the zone was closing" : "";
-    return `${name(event.actor_id)} revived ${name(event.target_id)}${zone}.`;
+
+  const discovery = value.discovery;
+  const validation = value.validation;
+  const metadata = value.metadata;
+  if (
+    !isRecord(discovery) ||
+    !isUnitScore(discovery.signal_score) ||
+    !isUnitScore(discovery.threshold) ||
+    typeof discovery.eligible !== "boolean" ||
+    !Array.isArray(discovery.reasons) ||
+    !discovery.reasons.every((reason) => typeof reason === "string") ||
+    !isRecord(validation) ||
+    typeof validation.passed !== "boolean" ||
+    typeof validation.human_review_required !== "boolean" ||
+    !isRecord(validation.scores) ||
+    !isUnitScore(validation.scores.specificity) ||
+    !isUnitScore(validation.scores.evidence_grounding) ||
+    !isUnitScore(validation.scores.perspective_distinctness) ||
+    !isUnitScore(validation.scores.quest_connection) ||
+    !Array.isArray(validation.issues) ||
+    !validation.issues.every(
+      (issue) =>
+        isRecord(issue) &&
+        typeof issue.code === "string" &&
+        ["info", "warning", "error"].includes(String(issue.severity)) &&
+        typeof issue.message === "string",
+    ) ||
+    !isRecord(metadata) ||
+    typeof metadata.pipeline_version !== "string" ||
+    typeof metadata.provider !== "string" ||
+    typeof metadata.model !== "string" ||
+    typeof metadata.prose_renderer !== "string" ||
+    !Array.isArray(value.player_perspectives)
+  ) {
+    throw new Error("MemoryOS returned an incomplete validation result.");
   }
-  if (event.type === "vehicle_escape") {
-    return `${name(event.actor_id)} drove ${event.details?.passengers ?? "the"} teammates out with the squad at ${event.details?.health_state ?? "low"} health.`;
-  }
-  if (event.type === "last_player_alive") {
-    return `${name(event.actor_id)} became the last squad member alive.`;
-  }
-  if (event.type === "cover_fire") {
-    return `${name(event.actor_id)} held cover fire for ${event.details?.duration_seconds ?? "several"} seconds.`;
-  }
-  if (event.type === "final_zone_survival") {
-    return `${name(event.actor_id)} carried the squad into the final zone.`;
-  }
-  return `${name(event.actor_id)} recorded a verified ${event.type.replaceAll("_", " ")} event.`;
-}
 
-function statusMark(key: ScenarioKey) {
-  if (key === "ready") return "✓";
-  if (key === "review") return "?";
-  return "—";
-}
+  const eventIds = new Set(pack.match_events.map((event) => event.event_id));
+  const optedInIds = new Set(pack.squad.members.filter(isOptedIn).map((member) => member.player_id));
+  const perspectiveIds = new Set<string>();
+  const perspectivesAreValid = value.player_perspectives.every((perspective) => {
+    if (!isRecord(perspective)) return false;
+    const canonicalMember = pack.squad.members.find((member) => member.player_id === perspective.player_id);
+    if (
+      typeof perspective.player_id !== "string" ||
+      typeof perspective.display_name !== "string" ||
+      perspective.display_name !== canonicalMember?.display_name ||
+      typeof perspective.message !== "string" ||
+      !Array.isArray(perspective.evidence_event_ids) ||
+      !perspective.evidence_event_ids.every((eventId) => typeof eventId === "string" && eventIds.has(eventId)) ||
+      !optedInIds.has(perspective.player_id) ||
+      perspectiveIds.has(perspective.player_id)
+    ) {
+      return false;
+    }
+    perspectiveIds.add(perspective.player_id);
+    return true;
+  });
+  if (!perspectivesAreValid) throw new Error("MemoryOS returned an ungrounded player perspective.");
 
-export function MemoryExperience() {
-  const [selectedKey, setSelectedKey] = useState<ScenarioKey>("ready");
-  const [viewState, setViewState] = useState<ViewState>("idle");
-  const [result, setResult] = useState<MemoryEngineResult | null>(null);
-  const [error, setError] = useState("");
-  const [engineMode, setEngineMode] = useState<"live" | "sample" | null>(null);
-  const [dismissed, setDismissed] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [caption, setCaption] = useState(
-    scenarioByKey.ready.pack.human_memory?.caption ?? "",
-  );
-  const [announcement, setAnnouncement] = useState("Ready to discover a memory.");
-  const resultRef = useRef<HTMLElement>(null);
-  const inviteButtonRef = useRef<HTMLButtonElement>(null);
-  const inviteDialogRef = useRef<HTMLDialogElement>(null);
+  if (value.status === "ready" || value.status === "needs_human_confirmation") {
+    const memory = value.memory;
+    const quest = value.next_chapter;
+    if (
+      !isRecord(memory) ||
+      typeof memory.title !== "string" ||
+      typeof memory.summary !== "string" ||
+      typeof memory.human_confirmed !== "boolean" ||
+      !Array.isArray(memory.evidence) ||
+      !memory.evidence.every(
+        (evidence) =>
+          isRecord(evidence) &&
+          typeof evidence.event_id === "string" &&
+          eventIds.has(evidence.event_id) &&
+          typeof evidence.event_type === "string" &&
+          typeof evidence.significance === "string",
+      ) ||
+      !isRecord(quest) ||
+      typeof quest.title !== "string" ||
+      typeof quest.mission !== "string" ||
+      !["recreate", "remix", "resolve"].includes(String(quest.recipe)) ||
+      !Array.isArray(quest.objectives) ||
+      !quest.objectives.every(
+        (objective) =>
+          isRecord(objective) &&
+          typeof objective.objective_id === "string" &&
+          typeof objective.description === "string" &&
+          typeof objective.required === "boolean" &&
+          isRecord(objective.verification) &&
+          typeof objective.verification.metric === "string" &&
+          ["equals", "at_least", "contains_all"].includes(String(objective.verification.operator)) &&
+          isRuleTarget(objective.verification.target) &&
+          Array.isArray(objective.source_event_ids) &&
+          objective.source_event_ids.every((eventId) => typeof eventId === "string" && eventIds.has(eventId)),
+      ) ||
+      !quest.objectives.some((objective) => isRecord(objective) && objective.required === true)
+    ) {
+      throw new Error("MemoryOS returned a story without grounded memory or challenge data.");
+    }
 
-  const selected = scenarioByKey[selectedKey];
-  const optedInMembers = selected.pack.squad.members.filter(isOptedIn);
+    if (perspectiveIds.size !== optedInIds.size) {
+      throw new Error("MemoryOS did not return one grounded perspective for every opted-in player.");
+    }
 
-  async function discover(pack: MemoryPack, shouldScroll = true) {
-    setViewState("loading");
-    setError("");
-    setDismissed(false);
-    setEditing(false);
-    setAnnouncement(`Reading ${pack.match.match_id}.`);
-
-    try {
-      const requestOptions: RequestInit = {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(pack),
-      };
-      const response = await fetch("/api/discover", requestOptions);
-      const responseMode =
-        response.headers.get("x-memoryos-mode") === "live" ? "live" : "sample";
-      const responseText = await response.text();
-      let body: MemoryEngineResult | MemoryApiError;
-      try {
-        body = JSON.parse(responseText) as MemoryEngineResult | MemoryApiError;
-      } catch {
-        throw new Error("MemoryOS returned an unreadable response. Please refresh and try again.");
-      }
-
-      if (!response.ok || !isMemoryEngineResult(body)) {
-        throw new Error(
-          "message" in body && body.message
-            ? body.message
-            : "The engine could not read this pack.",
-        );
-      }
-
-      setResult(body);
-      setEngineMode(responseMode);
-      setViewState("loaded");
-      setAnnouncement(
-        body.status === "ready"
-          ? `${body.memory?.title ?? "Memory"} is ready.`
-          : body.status === "needs_human_confirmation"
-            ? `${body.memory?.title ?? "This memory"} needs your confirmation.`
-            : "The engine safely skipped this match.",
-      );
-      if (shouldScroll) {
-        window.setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
-      }
-    } catch (caught) {
-      setViewState("error");
-      setError(caught instanceof Error ? caught.message : "MemoryOS is unavailable.");
-      setAnnouncement("Memory discovery failed. You can try again.");
+    if (value.status === "ready" && (!validation.passed || validation.human_review_required)) {
+      throw new Error("MemoryOS marked an unapproved memory as ready.");
+    }
+    if (value.status === "needs_human_confirmation" && (!validation.passed || !validation.human_review_required)) {
+      throw new Error("MemoryOS returned an inconsistent review state.");
     }
   }
 
-  function chooseScenario(scenario: Scenario) {
-    setSelectedKey(scenario.key);
-    setResult(null);
-    setViewState("idle");
-    setDismissed(false);
-    setEditing(false);
-    setEngineMode(null);
-    setCaption(scenario.pack.human_memory?.caption ?? "");
-    setAnnouncement(`${scenario.title} selected.`);
-  }
+  return value as MemoryEngineResult;
+}
 
-  function confirmMemory() {
-    const confirmedPack: MemoryPack = {
-      ...selected.pack,
-      human_memory: {
-        ...(selected.pack.human_memory ?? {}),
-        caption: caption.trim() || selected.pack.human_memory?.caption,
-        confirmed: true,
-      },
+function preferredPerspective(result: ReadyResult, pack: MemoryPack): PlayerPerspective | undefined {
+  return result.player_perspectives.find(
+    (perspective) => perspective.player_id === pack.player_profile.player_id,
+  );
+}
+
+function challengeTitle(title: string) {
+  return title.split(":").at(-1)?.trim() || title;
+}
+
+function MatchArtwork({ members }: { members: MemoryPack["squad"]["members"] }) {
+  return (
+    <div className="player-memory-art" aria-hidden="true">
+      <picture className="player-artwork">
+        <source media="(max-width: 650px)" srcSet="/art/heroes/free-fire-map-mobile-v2.webp" />
+        {/* The map is a pre-optimized, decorative WebP. */}
+        <img src="/art/heroes/free-fire-map-v2.webp" alt="" width="1440" height="520" fetchPriority="high" />
+      </picture>
+      <div className="player-route" />
+      {members.slice(0, 4).map((member, index) => (
+        <span className={`player-map-dot map-dot-${index + 1} ${avatarClasses[index]}`} key={member.player_id}>
+          {member.display_name.slice(0, 1)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function MemoryExperience({ initialPack }: { initialPack: MemoryPack }) {
+  const [view, setView] = useState<ViewState>({ kind: "unrevealed" });
+  const [announcement, setAnnouncement] = useState("A squad memory is waiting to be loaded.");
+  const requestSequence = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+  const playButtonRef = useRef<HTMLButtonElement>(null);
+  const challengeDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    return () => {
+      requestSequence.current += 1;
+      activeRequest.current?.abort();
     };
-    void discover(confirmedPack, false);
+  }, []);
+
+  const storyResult = view.kind === "ready" ? view.result : null;
+  const memory = storyResult?.memory;
+  const quest = storyResult?.next_chapter;
+  const optedInMembers = initialPack.squad.members.filter(isOptedIn);
+  const perspective = storyResult ? preferredPerspective(storyResult, initialPack) : undefined;
+  const currentPlayer = perspective
+    ? optedInMembers.find((member) => member.player_id === perspective.player_id)
+    : undefined;
+  const requiredObjectives = quest?.objectives.filter((objective) => objective.required) ?? [];
+  const eventMap = new Map(initialPack.match_events.map((event) => [event.event_id, event]));
+  const chronologicalEvidence = memory
+    ? [...memory.evidence].sort((left, right) => {
+        const leftTime = eventMap.get(left.event_id)?.timestamp_seconds ?? Number.MAX_SAFE_INTEGER;
+        const rightTime = eventMap.get(right.event_id)?.timestamp_seconds ?? Number.MAX_SAFE_INTEGER;
+        return leftTime - rightTime;
+      })
+    : [];
+  const canPlay =
+    view.kind === "ready" &&
+    view.result.validation.passed &&
+    !view.result.validation.human_review_required;
+  const statusLabel =
+    view.kind === "unrevealed"
+      ? "Memory waiting"
+      : view.kind === "loading"
+        ? "Opening memory"
+        : view.kind === "ready"
+          ? "Memory ready"
+          : "Not available";
+
+  function showChallenge() {
+    if (!canPlay) return;
+    setAnnouncement("Challenge preview ready. No real invitation was sent.");
+    challengeDialogRef.current?.showModal();
   }
 
-  function showInvite() {
-    inviteDialogRef.current?.showModal();
+  function closeChallenge() {
+    challengeDialogRef.current?.close();
   }
 
-  function closeInvite() {
-    inviteDialogRef.current?.close();
-    inviteButtonRef.current?.focus();
+  function resetReveal() {
+    requestSequence.current += 1;
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+    if (challengeDialogRef.current?.open) challengeDialogRef.current.close();
+    setView({ kind: "unrevealed" });
+    setAnnouncement("The squad memory is ready to load again.");
+  }
+
+  async function revealMemory() {
+    if (view.kind === "loading") return;
+
+    const requestId = ++requestSequence.current;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    const minimumDelay = new Promise<void>((resolve) => window.setTimeout(resolve, 850));
+    activeRequest.current = controller;
+    if (challengeDialogRef.current?.open) challengeDialogRef.current.close();
+    setView({ kind: "loading" });
+    setAnnouncement("Opening your squad memory.");
+
+    try {
+      const response = await fetch("/api/discover", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(initialPack),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      let payload: unknown;
+      try {
+        payload = JSON.parse(responseText) as unknown;
+      } catch {
+        throw new Error("MemoryOS returned an unreadable response.");
+      }
+
+      if (!response.ok) throw new Error("MemoryOS could not read this match.");
+      assertEngineSource(response);
+      const result = parseMemoryResult(payload, initialPack);
+      await minimumDelay;
+      if (controller.signal.aborted || requestId !== requestSequence.current) return;
+
+      if (result.status === "ready") {
+        setView({ kind: "ready", result: result as ReadyResult });
+        setAnnouncement(`${result.memory?.title ?? "Memory"} is ready.`);
+      } else {
+        setView({ kind: "unavailable" });
+        setAnnouncement(
+          result.status === "needs_human_confirmation"
+            ? "This memory still needs player confirmation."
+            : "This match was safely skipped.",
+        );
+      }
+    } catch {
+      if (controller.signal.aborted || requestId !== requestSequence.current) return;
+      await minimumDelay;
+      if (controller.signal.aborted || requestId !== requestSequence.current) return;
+      setView({ kind: "unavailable" });
+      setAnnouncement("Memory discovery failed. You can retry safely.");
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
+    }
   }
 
   return (
-    <main>
-      <a className="skip-link" href="#story">Skip to the memory story</a>
-      <header className="site-header shell">
-        <a className="brand" href="#top" aria-label="Next Chapter home">
-          <span className="brand-mark">NC</span>
-          <span>
-            <strong>NEXT CHAPTER</strong>
-            <small>Powered by MemoryOS</small>
+    <main className="player-app" data-theme="light" data-game="free-fire">
+      <a className="skip-link" href="#player-story">Skip to your story</a>
+      <p className="sr-only" aria-live="polite">{announcement}</p>
+
+      <div className="player-mode-heading">Battle Royale</div>
+
+      <div className="player-shell">
+        <header className="player-topbar">
+          <a className="player-brand" href="#player-story" aria-label="MemoryOS player home">
+            <span className="player-brand-mark">M</span>
+            <span>MemoryOS</span>
+          </a>
+          <span className={`engine-badge ${view.kind === "loading" ? "checking" : ""}`}>
+            <i aria-hidden="true" />
+            {statusLabel}
           </span>
-        </a>
-        <div className="header-meta">
-          <span className="status-dot" aria-hidden="true" />
-          Guardrails active · {engineMode === "live" ? "Live local engine" : engineMode === "sample" ? "Safe sample mode" : "Waiting to run"}
-        </div>
-        <a className="text-link" href="#grounding">How it stays grounded</a>
-      </header>
+        </header>
 
-      <section className="hero shell" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">Garena Next Chapter</p>
-          <h1>Your squad has <em>unfinished stories.</em></h1>
-          <p className="hero-lede">
-            MemoryOS turns verified match evidence into one shared memory, distinct
-            player perspectives, and a verifiable next chapter—without letting AI invent
-            the facts.
-          </p>
-          <div className="hero-actions">
-            <button
-              className="primary-button"
-              onClick={() => void discover(selected.pack)}
-              disabled={viewState === "loading"}
-            >
-              <span>{viewState === "loading" ? "Reading the match…" : "Discover the memory"}</span>
-              <span aria-hidden="true">↗</span>
-            </button>
-            <span className="trust-note">Grounded gameplay required · At least two players opted in</span>
-          </div>
-        </div>
+        <div className="player-page" id="player-story" aria-busy={view.kind === "loading"}>
+          {view.kind === "unrevealed" ? (
+            <section className="demo-input-card" aria-labelledby="demo-input-title">
+              <MatchArtwork members={optedInMembers} />
+              <div className="demo-input-copy">
+                <p className="demo-kicker">Memory not loaded</p>
+                <h1 id="demo-input-title">A squad memory is waiting.</h1>
+                <p className="demo-match-context">
+                  Free Fire <span>·</span> {formatWords(initialPack.match.mode)} <span>·</span> {initialPack.match.map_name ?? "Bermuda"}
+                </p>
+                <p className="reveal-teaser">Your original squad left a story behind. Open it when you are ready.</p>
+                <div className="reveal-squad">
+                  <div className="player-avatar-stack" aria-label={`${optedInMembers.length} squad members`}>
+                    {optedInMembers.slice(0, 4).map((member, index) => (
+                      <span className={`player-mini-avatar ${avatarClasses[index]}`} key={member.player_id} aria-hidden="true">
+                        {member.display_name.slice(0, 1)}
+                      </span>
+                    ))}
+                  </div>
+                  <span><strong>The original squad</strong><small>{initialPack.squad.matches_together} matches together</small></span>
+                </div>
+                <button className="reveal-memory-button" type="button" onClick={() => void revealMemory()}>
+                  Load this memory
+                </button>
+              </div>
+            </section>
+          ) : view.kind === "loading" ? (
+            <section className="demo-processing-card" aria-labelledby="demo-processing-title" role="status">
+              <div className="demo-processing-mark" aria-hidden="true">M</div>
+              <p className="demo-kicker">Loading squad memory</p>
+              <h1 id="demo-processing-title">Pulling the night back together.</h1>
+              <p className="reveal-loading-copy">Loading the shared memory, your side of the story, and what comes next.</p>
+              <div className="reveal-loading-lines" aria-hidden="true"><span /><span /><span /></div>
+            </section>
+          ) : storyResult && memory && quest ? (
+            <>
+              <section className="player-hero" aria-labelledby="player-memory-title">
+                <MatchArtwork members={optedInMembers} />
 
-        <aside className="pack-card" aria-label="Selected Memory Pack">
-          <div className="pack-topline">
-            <span>Memory Pack</span>
-            <span>{selected.pack.match.match_id}</span>
-          </div>
-          <div className="pack-scan" aria-hidden="true"><span /></div>
-          <p className="pack-kicker">{selected.pack.squad.squad_id.replaceAll("-", " ")}</p>
-          <h2>{selected.pack.match.map_name}</h2>
-          <p>{formatMode(selected.pack.match.mode)} · Placement #{selected.pack.match.placement}</p>
-          <div className="pack-stat-row">
-            <div><strong>{selected.pack.squad.matches_together}</strong><span>matches together</span></div>
-            <div><strong>{selected.pack.squad.days_since_full_squad ?? 0}</strong><span>days apart</span></div>
-          </div>
-          <div className="member-list">
-            {selected.pack.squad.members.map((member) => (
-              <span
-                className={`member-chip ${isOptedIn(member) ? "" : "member-opted-out"}`}
-                key={member.player_id}
+                <div className="player-memory-copy">
+                  <div className="memory-gist-label">The gist</div>
+                  <div className="player-context-strip">
+                    <strong>Free Fire</strong>
+                    <span>{formatWords(initialPack.match.mode)}</span>
+                    <span>{initialPack.match.map_name ?? "Bermuda"}</span>
+                  </div>
+                  <h1 id="player-memory-title">{memory.title}</h1>
+                  <p>{memory.summary}</p>
+                  <div className="player-squad-row">
+                    <div className="player-avatar-stack" aria-label={`${optedInMembers.length} players joined`}>
+                      {optedInMembers.slice(0, 4).map((member, index) => (
+                        <span
+                          className={`player-mini-avatar ${avatarClasses[index]}`}
+                          key={member.player_id}
+                          aria-hidden="true"
+                        >
+                          {member.display_name.slice(0, 1)}
+                        </span>
+                      ))}
+                    </div>
+                    <span>
+                      <strong>{optedInMembers.length} players joined</strong>
+                      <small>{initialPack.squad.squad_id.replaceAll("-", " ")}</small>
+                    </span>
+                  </div>
+                </div>
+              </section>
+
+              <details className="player-evidence">
+                <summary>
+                  <span>What actually happened</span>
+                  <small>{chronologicalEvidence.length} verified moments</small>
+                </summary>
+                <div className="player-evidence-list">
+                  <p className="player-evidence-intro">The match moments behind the shared memory, in the order they happened.</p>
+                  {chronologicalEvidence.map((evidence, index) => {
+                    const event = eventMap.get(evidence.event_id);
+                    return (
+                      <article key={evidence.event_id}>
+                        <span aria-hidden="true">{index + 1}</span>
+                        <div>
+                          <strong>{evidence.significance}</strong>
+                          <small>{event ? `${event.location ?? "Match"} · ${formatClock(event.timestamp_seconds)}` : "Match moment"}</small>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </details>
+
+              {perspective && currentPlayer && (
+                <details className="player-section your-perspective-card" open>
+                  <summary id="your-perspective-title">
+                    <span>Your side of the story</span>
+                    <small>{currentPlayer.display_name} · {formatWords(currentPlayer.role)}</small>
+                  </summary>
+                  <div className="your-perspective-body">
+                    <span className="your-avatar avatar-lime" aria-hidden="true">{currentPlayer.display_name.slice(0, 1)}</span>
+                    <div>
+                      <p className="your-identity">
+                        <strong>{currentPlayer.display_name}</strong>
+                        <span>{formatWords(currentPlayer.role)}</span>
+                      </p>
+                      <p className="your-message">{perspective.message}</p>
+                    </div>
+                  </div>
+                </details>
+              )}
+
+              <section className="player-section player-next" aria-labelledby="next-chapter-title">
+                <div className="next-chapter-label">Next Chapter</div>
+                <h2 id="next-chapter-title">{challengeTitle(quest.title)}</h2>
+                <p className="player-next-mission">{quest.mission}</p>
+                <ol className="player-objectives">
+                  {requiredObjectives.map((objective, index) => (
+                    <li key={objective.objective_id}>
+                      <span>{index + 1}</span>
+                      <p>{objective.description}</p>
+                    </li>
+                  ))}
+                </ol>
+                {/* The landmark is a pre-optimized, decorative WebP. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  className="chapter-landmark"
+                  src="/art/landmarks/clock-tower-town-v2.webp"
+                  alt=""
+                  width="760"
+                  height="448"
+                  loading="lazy"
+                  aria-hidden="true"
+                />
+              </section>
+
+              <button
+                ref={playButtonRef}
+                className="play-challenge"
+                type="button"
+                onClick={showChallenge}
+                disabled={!canPlay}
               >
-                <b>{member.display_name.slice(0, 1)}</b>
-                {member.display_name} · {isOptedIn(member) ? formatRole(member.role) : "Opted out"}
+                <span aria-hidden="true">▶</span>
+                Play this challenge
+              </button>
+            </>
+          ) : (
+            <section className="player-state-card" role="alert">
+              <span>Memory unavailable</span>
+              <h1>This memory is not ready to reveal.</h1>
+              <p>It may still need review, or there may not be enough approved context to share it yet.</p>
+              <button type="button" onClick={() => void revealMemory()}>Try again</button>
+            </section>
+          )}
+
+          <footer className="player-footer">
+            <span>MemoryOS</span>
+            <p>Your squad decides what is worth remembering.</p>
+            {(view.kind === "ready" || view.kind === "unavailable") && (
+              <button type="button" onClick={resetReveal}>View from the start</button>
+            )}
+          </footer>
+        </div>
+      </div>
+
+      {storyResult && quest && (
+        <dialog
+          ref={challengeDialogRef}
+          className="challenge-dialog"
+          aria-labelledby="challenge-dialog-title"
+          aria-describedby="challenge-dialog-description"
+          onClose={() => playButtonRef.current?.focus()}
+        >
+          <button className="dialog-close" type="button" onClick={closeChallenge} aria-label="Close challenge preview">×</button>
+          <p className="dialog-kicker">Demo simulation</p>
+          <h2 id="challenge-dialog-title">{challengeTitle(quest.title)}</h2>
+          <p id="challenge-dialog-description">This challenge is ready for the opted-in squad. No real invitation has been sent.</p>
+          <div className="dialog-squad" aria-label="Opted-in squad members">
+            {optedInMembers.map((member, index) => (
+              <span
+                className={avatarClasses[index % avatarClasses.length]}
+                key={member.player_id}
+                role="img"
+                aria-label={member.display_name}
+                title={member.display_name}
+              >
+                {member.display_name.slice(0, 1)}
               </span>
             ))}
           </div>
-          <div className="pack-footer">
-            <span>Schema v{selected.pack.schema_version}</span>
-            <span>{optedInMembers.length} of {selected.pack.squad.members.length} opted in</span>
-          </div>
-        </aside>
-      </section>
-
-      <section className="pipeline-section shell" aria-labelledby="pipeline-heading">
-        <div className="section-heading compact-heading">
-          <div>
-            <p className="eyebrow">One guarded path</p>
-            <h2 id="pipeline-heading">Facts in. Verified chapter out.</h2>
-          </div>
-          <p>AI proposes structure. MemoryOS rebuilds the wording and checks every important link.</p>
-        </div>
-        <div className="pipeline-flow">
-          <article className="pipeline-card pipeline-input">
-            <span className="pipeline-index">01 · Input</span>
-            <h3>Verified signals</h3>
-            <ul>
-              <li>Match-event IDs and player roles</li>
-              <li>Player-authored captions and reactions</li>
-              <li>Opted-in squad members only</li>
-            </ul>
-          </article>
-          <span className="pipeline-arrow" aria-hidden="true">→</span>
-          <article className="pipeline-card pipeline-transform">
-            <span className="pipeline-index">02 · Guarded AI</span>
-            <h3>Canonical transformation</h3>
-            <ul>
-              <li>Memory discovery and safe abstention</li>
-              <li>Role-specific player perspectives</li>
-              <li>Fact-based wording rebuilt by code</li>
-            </ul>
-          </article>
-          <span className="pipeline-arrow" aria-hidden="true">→</span>
-          <article className="pipeline-card pipeline-output">
-            <span className="pipeline-index">03 · Output</span>
-            <h3>Validated next chapter</h3>
-            <ul>
-              <li>One grounded shared memory</li>
-              <li>One view per opted-in player</li>
-              <li>Machine-checkable quest rules</li>
-            </ul>
-          </article>
-        </div>
-      </section>
-
-      <section className="scenario-section shell" aria-labelledby="scenario-heading">
-        <div className="section-heading compact-heading">
-          <div><p className="eyebrow">Three decisions, one standard</p><h2 id="scenario-heading">Choose a memory signal</h2></div>
-          <p>See what MemoryOS continues, pauses, and refuses to invent.</p>
-        </div>
-        <div className="scenario-grid" role="list">
-          {scenarios.map((scenario) => (
-            <button
-              type="button"
-              className={`scenario-card scenario-${scenario.key}`}
-              aria-pressed={selectedKey === scenario.key}
-              key={scenario.key}
-              onClick={() => chooseScenario(scenario)}
-            >
-              <span className="scenario-mark" aria-hidden="true">{statusMark(scenario.key)}</span>
-              <span className="scenario-copy"><small>{scenario.label}</small><strong>{scenario.title}</strong><span>{scenario.subtitle}</span></span>
-              <span className="scenario-arrow" aria-hidden="true">→</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <p className="sr-only" aria-live="polite">{announcement}</p>
-
-      <section className="result-shell shell" id="story" ref={resultRef} aria-busy={viewState === "loading"}>
-        {viewState === "idle" && <IdleStory selected={selected} onDiscover={() => void discover(selected.pack)} />}
-        {viewState === "loading" && <LoadingStory />}
-        {viewState === "error" && <ErrorStory message={error} onRetry={() => void discover(selected.pack)} />}
-        {viewState === "loaded" && result?.status === "rejected" && (
-          <RejectedStory result={result} onTryReady={() => chooseScenario(scenarioByKey.ready)} />
-        )}
-        {viewState === "loaded" && result && result.status !== "rejected" && result.memory && (
-          <>
-            {result.status === "needs_human_confirmation" && !dismissed && (
-              <ReviewCheckpoint
-                caption={caption}
-                editing={editing}
-                onCaptionChange={setCaption}
-                onConfirm={confirmMemory}
-                onDismiss={() => { setDismissed(true); setAnnouncement("Memory dismissed. Undo is available."); }}
-                onEdit={() => setEditing((value) => !value)}
-              />
-            )}
-            {dismissed ? (
-              <DismissedStory onUndo={() => { setDismissed(false); setAnnouncement("Memory restored for review."); }} />
-            ) : (
-              <MemoryStory result={result} pack={selected.pack} onInvite={showInvite} inviteButtonRef={inviteButtonRef} />
-            )}
-          </>
-        )}
-      </section>
-
-      <footer className="site-footer shell">
-        <span>Next Chapter / MemoryOS</span>
-        <p>Built with synthetic Memory Packs. No live Free Fire data or player messages.</p>
-        <a href="#top">Back to top ↑</a>
-      </footer>
-
-      <dialog className="invite-dialog" ref={inviteDialogRef} onCancel={closeInvite}>
-        <button className="dialog-close" aria-label="Close invite preview" onClick={closeInvite}>×</button>
-        <p className="eyebrow">Squad invite preview · Demo simulation</p>
-        <h2>The opted-in squad.<br />One more run.</h2>
-        <p>
-          {selected.pack.player_profile.player_id
-            ? selected.pack.squad.members.find((member) => member.player_id === selected.pack.player_profile.player_id)?.display_name
-            : "A squadmate"} wants the squad back for “{result?.next_chapter?.title}”.
-        </p>
-        <div className="dialog-squad">
-          {optedInMembers.map((member) => <span key={member.player_id}>{member.display_name.slice(0, 1)}</span>)}
-        </div>
-        <p className="dialog-note">Invite delivery is not connected in this prototype.</p>
-        <button className="secondary-button" onClick={closeInvite}>Close preview</button>
-      </dialog>
-    </main>
-  );
-}
-
-function IdleStory({ selected, onDiscover }: { selected: Scenario; onDiscover: () => void }) {
-  return (
-    <div className="idle-story panel-dashed">
-      <span className="idle-number">01</span>
-      <div><p className="eyebrow">Selected for review</p><h2>{selected.title}</h2><p>The evidence is assembled. Let MemoryOS decide whether this match deserves a next chapter.</p></div>
-      <button className="secondary-button" onClick={onDiscover}>Run this Memory Pack</button>
-    </div>
-  );
-}
-
-function LoadingStory() {
-  return (
-    <div className="loading-story">
-      <div className="loading-orbit" aria-hidden="true"><span /></div>
-      <p className="eyebrow">MemoryOS is reading the signal</p>
-      <h2>Separating the story from the noise.</h2>
-      <div className="loading-steps" aria-hidden="true"><span className="active">Discover</span><span>Perspective</span><span>Quest</span><span>Validate</span></div>
-    </div>
-  );
-}
-
-function ErrorStory({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="error-story">
-      <span className="status-icon">!</span>
-      <p className="eyebrow">The connection dropped</p>
-      <h2>The memory is still safe.</h2>
-      <p>{message}</p>
-      <button className="secondary-button" onClick={onRetry}>Try again</button>
-    </div>
-  );
-}
-
-function RejectedStory({ result, onTryReady }: { result: MemoryEngineResult; onTryReady: () => void }) {
-  const safeAbstention = !result.memory && result.validation.passed;
-  const leadIssue =
-    result.validation.issues.find((issue) => issue.severity === "error") ??
-    result.validation.issues[0];
-
-  return (
-    <article className="rejected-story">
-      <div className="rejected-copy">
-        <span className="decision-seal" aria-hidden="true">—</span>
-        <p className="eyebrow">{safeAbstention ? "Safely skipped" : "Validation blocked"}</p>
-        <h2>{safeAbstention ? "Not enough grounded evidence." : "This story did not pass."}</h2>
-        <p>
-          {safeAbstention
-            ? "Nothing was generated. MemoryOS leaves weak, eventless, or consent-insufficient inputs in match history instead of manufacturing nostalgia."
-            : "The candidate was stopped because one or more deterministic evidence, identity, consent, safety, or quest checks failed."}
-        </p>
-        <ul className="decision-reasons">
-          {result.discovery.reasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)}
-        </ul>
-        <button className="secondary-button" onClick={onTryReady}>Try a stronger memory pack</button>
-      </div>
-      <aside className="threshold-card">
-        <div className="threshold-score"><strong>{percent(result.discovery.signal_score)}</strong><span>memory signal</span></div>
-        <div className="meter" style={{ "--score": `${result.discovery.signal_score * 100}%` } as React.CSSProperties}><span /></div>
-        <div className="threshold-labels"><span>0%</span><b>{percent(result.discovery.threshold)} required</b><span>100%</span></div>
-        <div className="safe-skip"><span>{safeAbstention ? "✓" : "!"}</span><div><strong>{safeAbstention ? "Generation safely skipped" : "Deterministic validation failed"}</strong><p>{leadIssue?.message ?? "The output did not meet the MemoryOS contract."}</p></div></div>
-      </aside>
-    </article>
-  );
-}
-
-function ReviewCheckpoint({
-  caption,
-  editing,
-  onCaptionChange,
-  onConfirm,
-  onDismiss,
-  onEdit,
-}: {
-  caption: string;
-  editing: boolean;
-  onCaptionChange: (value: string) => void;
-  onConfirm: () => void;
-  onDismiss: () => void;
-  onEdit: () => void;
-}) {
-  return (
-    <section className="review-checkpoint" aria-labelledby="review-title">
-      <div className="review-icon" aria-hidden="true">?</div>
-      <div className="review-copy">
-        <p className="eyebrow">Grounding passed—you decide if it matters</p>
-        <h2 id="review-title">Does “{caption || "this moment"}” belong in your squad story?</h2>
-        <p>The facts are grounded, but nothing becomes a reunion prompt until a player confirms it.</p>
-        {editing && (
-          <label className="caption-field">Memory caption<input value={caption} maxLength={120} onChange={(event) => onCaptionChange(event.target.value)} /></label>
-        )}
-      </div>
-      <div className="review-actions">
-        <button className="primary-button" onClick={onConfirm}>Yes, keep this memory</button>
-        <button className="secondary-button" onClick={onEdit}>{editing ? "Done editing" : "Edit caption"}</button>
-        <button className="quiet-button" onClick={onDismiss}>Not this one</button>
-      </div>
-    </section>
-  );
-}
-
-function DismissedStory({ onUndo }: { onUndo: () => void }) {
-  return (
-    <div className="dismissed-story">
-      <span className="status-icon">✓</span>
-      <p className="eyebrow">Decision recorded locally</p>
-      <h2>This memory won’t become a reunion prompt.</h2>
-      <p>No data was saved or sent. This prototype keeps the decision in your current session only.</p>
-      <button className="secondary-button" onClick={onUndo}>Undo dismissal</button>
-    </div>
-  );
-}
-
-function MemoryStory({
-  result,
-  pack,
-  onInvite,
-  inviteButtonRef,
-}: {
-  result: MemoryEngineResult;
-  pack: MemoryPack;
-  onInvite: () => void;
-  inviteButtonRef: React.RefObject<HTMLButtonElement | null>;
-}) {
-  const memory = result.memory!;
-  const quest = result.next_chapter;
-  const evidenceIds = new Set(memory.evidence.map((item) => item.event_id));
-  const evidenceEvents = pack.match_events
-    .filter((event) => evidenceIds.has(event.event_id))
-    .sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
-
-  return (
-    <article className="memory-story">
-      <section className="memory-reveal">
-        <div className="memory-main">
-          <div className="status-row">
-            <span className={`status-pill ${result.status === "ready" ? "status-ready" : "status-review"}`}>
-              {result.status === "ready" ? "✓ Player-confirmed memory" : "? Awaiting player confirmation"}
-            </span>
-            <span className="memory-type">{memory.memory_type}</span>
-          </div>
-          <p className="chapter-index">Memory / {pack.match.match_id}</p>
-          <h2>{memory.title}</h2>
-          <p className="memory-summary">{memory.summary}</p>
-          <div className="match-meta">
-            <span>{pack.match.map_name}</span><span>{evidenceEvents[0]?.location ?? "Match location"}</span><span>Placement #{pack.match.placement}</span><span>{formatMatchDate(pack.match.played_at)}</span>
-          </div>
-        </div>
-        <aside className="signal-card">
-          <div className="signal-ring" style={{ "--score": `${result.discovery.signal_score * 360}deg` } as React.CSSProperties}>
-            <div><strong>{percent(result.discovery.signal_score)}</strong><span>memory signal</span></div>
-          </div>
-          <p>This cleared the {percent(result.discovery.threshold)} discovery threshold.</p>
-          <ul>{result.discovery.reasons.slice(0, 4).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-        </aside>
-      </section>
-
-      <section className="evidence-section" id="grounding">
-        <div className="section-heading">
-          <div><p className="eyebrow">Evidence ledger</p><h2>What actually happened</h2></div>
-          <p>Every factual beat cites a match-event ID. Captions and reactions can add meaning, but cannot replace gameplay evidence.</p>
-        </div>
-        <ol className="timeline">
-          {evidenceEvents.map((event, index) => (
-            <li key={event.event_id}>
-              <div className="timeline-marker"><span>{String(index + 1).padStart(2, "0")}</span></div>
-              <div className="timeline-time"><strong>{formatClock(event.timestamp_seconds)}</strong><span>{event.location ?? pack.match.map_name}</span></div>
-              <div className="timeline-event"><h3>{event.type.replaceAll("_", " ")}</h3><p>{eventDescription(event, pack)}</p><details><summary>View source event</summary><code>{event.event_id}</code><span>{event.importance ?? "medium"} importance</span></details></div>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="perspectives-section">
-        <div className="section-heading">
-          <div><p className="eyebrow">One night · {result.player_perspectives.length} points of view</p><h2>Same memory. Different meaning.</h2></div>
-          <p>Each opted-in player receives exactly one recall, using their canonical name and evidence from this memory.</p>
-        </div>
-        <div className="perspective-grid">
-          {result.player_perspectives.map((perspective, index) => {
-            const member = pack.squad.members.find((item) => item.player_id === perspective.player_id);
-            return (
-              <article className="perspective-card" key={perspective.player_id}>
-                <div className="perspective-top"><span className="avatar">{perspective.display_name.slice(0, 1)}</span><div><h3>{perspective.display_name}</h3><p>{formatRole(member?.role)}</p></div><span className="perspective-number">0{index + 1}</span></div>
-                <blockquote>“{perspective.message.replace(/^“|”$/g, "")}</blockquote>
-                <div className="evidence-chip"><span aria-hidden="true">⌁</span> {perspective.evidence_event_ids.join(" · ")}</div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      {quest && (
-        <section className="quest-section">
-          <div className="quest-gridline" aria-hidden="true" />
-          <div className="quest-header"><div><p className="eyebrow">Chapter 02 · The {quest.recipe}</p><h2>{quest.title}</h2><p>{quest.mission}</p></div><span className="quest-stamp">NEXT<br />CHAPTER</span></div>
-          {quest.objectives.find((objective) => objective.objective_id === "return-the-favour") && (
-            <div className="twist-card"><span>The twist</span><strong>{quest.objectives.find((objective) => objective.objective_id === "return-the-favour")?.description}</strong><p>Same place. Reversed roles.</p></div>
-          )}
-          <div className="objective-columns">
-            <ObjectiveList title="Mission objectives" objectives={quest.objectives.filter((objective) => objective.required)} />
-            <ObjectiveList title="Bonus objectives" objectives={quest.objectives.filter((objective) => !objective.required)} />
-          </div>
-          <div className="quest-action"><button ref={inviteButtonRef} className="primary-button light-button" onClick={onInvite}>Preview squad invite <span aria-hidden="true">↗</span></button><span>Rules are machine-checkable · Live match verification is not connected</span></div>
-        </section>
+          <button className="dialog-done" type="button" onClick={closeChallenge}>Done</button>
+        </dialog>
       )}
-
-      <section className="validation-section">
-        <div className="section-heading">
-          <div><p className="eyebrow">{result.status === "ready" ? "Validation passed" : "Grounding passed · Confirmation pending"}</p><h2>Grounded before it becomes a story.</h2></div>
-          <p>AI may suggest structure; MemoryOS rebuilds factual wording and checks evidence, identity, consent, safety, and quest rules.</p>
-        </div>
-        <div className="score-grid">
-          {(Object.keys(scoreLabels) as Array<keyof typeof scoreLabels>).map((key) => (
-            <div className="score-card" key={key}><span>{scoreLabels[key]}</span><strong>{percent(result.validation.scores[key])}</strong><div><i style={{ width: percent(result.validation.scores[key]) }} /></div></div>
-          ))}
-        </div>
-        <div className="validation-note"><span>✓</span><p><strong>{result.validation.passed ? "All deterministic checks passed" : "Human review required"}</strong> · {result.metadata.prose_renderer === "canonical-v1" ? "Canonical wording rebuilt from verified fields" : "Verified wording renderer"} · Provider: {result.metadata.provider} / {result.metadata.model}</p></div>
-      </section>
-    </article>
-  );
-}
-
-function ObjectiveList({ title, objectives }: { title: string; objectives: NonNullable<MemoryEngineResult["next_chapter"]>["objectives"] }) {
-  return (
-    <div className="objective-list"><h3>{title}</h3><ol>{objectives.map((objective, index) => <li key={objective.objective_id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{objective.description}</strong><small>Rule · {objective.verification.metric.replaceAll("_", " ")} · {objective.verification.operator.replaceAll("_", " ")} · {formatRuleValue(objective.verification.target)}</small><small>Source · {objective.source_event_ids.join(" · ")}</small></div></li>)}</ol></div>
+    </main>
   );
 }

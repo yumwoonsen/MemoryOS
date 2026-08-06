@@ -138,13 +138,3 @@ export type MemoryEngineResult = {
   };
   metadata: PipelineMetadata;
 };
-
-export type ScenarioKey = "ready" | "review" | "skipped";
-
-export type Scenario = {
-  key: ScenarioKey;
-  label: string;
-  title: string;
-  subtitle: string;
-  pack: MemoryPack;
-};

@@ -1,46 +1,50 @@
-# Next Chapter frontend
+# MemoryOS player prototype
 
-The Phase 2 MemoryOS experience turns the backend’s three synthetic Memory Packs into a story-first
-review flow. It calls the local FastAPI service when available and falls back to matching sample
-results so the interface remains demonstrable when deployed on its own.
+This frontend is the compact, mobile-first player view for the latest MemoryOS prototype. It keeps
+one focused Free Fire Battle Royale example so the end-to-end idea is easy to understand without
+turning the player screen into an internal dashboard.
 
-The interface mirrors the backend guardrails: gameplay evidence and opted-in identities enter in
-blue, canonical transformation appears in mint, and validated output appears in teal. White is the
-main canvas and charcoal is used for accessible text throughout.
+The experience moves through four clear states:
 
-The UI also exposes the strengthened contract:
+1. an unrevealed squad memory;
+2. a short loading transition;
+3. the shared gist, chronological evidence, and the current player's perspective; and
+4. a grounded “Next Chapter” challenge with a safe preview dialog.
 
-- eventless, weak, or consent-insufficient packs are safely skipped;
-- AI may propose structure, but factual wording is rebuilt from verified Memory Pack fields;
-- every opted-in player receives exactly one evidence-linked perspective;
-- every quest objective displays its machine-checkable rule and source event IDs; and
-- backend failures are normalized into stable JSON errors before reaching the browser.
+The player never sees internal validation scores, rule IDs, model metadata, or Studio controls.
+Those checks still run behind the interface: results are bound to the submitted Memory Pack,
+evidence must reference real match events, and every opted-in player must receive exactly one
+grounded perspective. Review, rejected, malformed, or unavailable results do not reveal a story.
+
+The custom Bermuda map and clock-tower town artwork live in `public/art` as optimized WebPs. The
+dedicated MemoryOS Studio remains intentionally separate from this player prototype.
 
 ## Run locally
 
-Start the FastAPI service from the repository root:
+From this directory:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open the local URL printed by the development server. The frontend calls `/api/discover`, which
+uses the local MemoryOS backend when it is available. If the backend is offline, the exact included
+Battle Royale pack can use its canonical sample result; altered or unknown packs fail closed.
+
+To run the optional backend, start it from the repository root:
 
 ```powershell
 python -m uvicorn backend.main:app --reload
 ```
 
-Then start the frontend in a second terminal:
-
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`. The header reports whether the response came from the live local
-engine or safe sample mode.
-
 ## Quality checks
 
 ```powershell
+npm run typecheck
 npm run lint
 npm test
 ```
 
-The review controls are intentionally session-only. Confirmation persistence, authentication, and
-real invitation delivery remain outside this prototype.
+The challenge dialog is a simulation only. It does not send a real invitation or persist player
+actions.

@@ -1,8 +1,27 @@
 import { getDemoResult } from "@/lib/demo-results";
 import type { MemoryApiError, MemoryPack } from "@/lib/types";
 
-const configuredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
-const localApi = configuredApi ?? "http://127.0.0.1:8000";
+const normalizedConfiguredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
+const configuredApi = normalizedConfiguredApi || undefined;
+const backendApi = configuredApi ?? "http://127.0.0.1:8000";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isMemoryPackEnvelope(value: unknown): value is MemoryPack {
+  return (
+    isRecord(value) &&
+    value.schema_version === "1.0" &&
+    typeof value.pack_id === "string" &&
+    isRecord(value.player_profile) &&
+    typeof value.player_profile.player_id === "string" &&
+    isRecord(value.squad) &&
+    Array.isArray(value.squad.members) &&
+    isRecord(value.match) &&
+    Array.isArray(value.match_events)
+  );
+}
 
 function shouldCallBackend(request: Request) {
   if (configuredApi) return true;
@@ -11,7 +30,10 @@ function shouldCallBackend(request: Request) {
   return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
-function sampleResponse(memoryPack: MemoryPack) {
+function sampleResponse(
+  memoryPack: MemoryPack,
+  reason: "hosted-sample" | "backend-unavailable",
+) {
   const fallback = getDemoResult(memoryPack);
   if (!fallback) {
     return Response.json(
@@ -29,7 +51,7 @@ function sampleResponse(memoryPack: MemoryPack) {
   return Response.json(fallback, {
     headers: {
       "x-memoryos-mode": "sample",
-      "x-memoryos-fallback": "backend-unavailable",
+      "x-memoryos-fallback": reason,
     },
   });
 }
@@ -67,10 +89,10 @@ function normalizeBackendError(payload: unknown, status: number): MemoryApiError
 }
 
 export async function POST(request: Request) {
-  let memoryPack: MemoryPack;
+  let requestPayload: unknown;
 
   try {
-    memoryPack = (await request.json()) as MemoryPack;
+    requestPayload = await request.json();
   } catch {
     return Response.json(
       {
@@ -84,13 +106,28 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!isMemoryPackEnvelope(requestPayload)) {
+    return Response.json(
+      {
+        code: "invalid_memory_pack",
+        message: "The Memory Pack did not match the expected envelope.",
+      } satisfies MemoryApiError,
+      {
+        status: 422,
+        headers: { "x-memoryos-mode": "sample" },
+      },
+    );
+  }
+
+  const memoryPack = requestPayload;
+
   if (!shouldCallBackend(request)) {
-    return sampleResponse(memoryPack);
+    return sampleResponse(memoryPack, "hosted-sample");
   }
 
   let response: Response;
   try {
-    response = await fetch(`${localApi}/v1/memories/discover`, {
+    response = await fetch(`${backendApi}/v1/memories/discover`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(memoryPack),
@@ -98,7 +135,7 @@ export async function POST(request: Request) {
       cache: "no-store",
     });
   } catch {
-    return sampleResponse(memoryPack);
+    return sampleResponse(memoryPack, "backend-unavailable");
   }
 
   const responseText = await response.text();
