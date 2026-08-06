@@ -17,18 +17,18 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: baseUrl,
     title: "Next Chapter — Powered by MemoryOS",
     description:
-      "Turn player-confirmed squad memories into personal perspectives and a grounded mission to play next.",
+      "Turn verified match evidence into a player-reviewed memory, personal perspectives, and a verifiable mission to play next.",
     openGraph: {
       title: "Your squad has unfinished stories.",
       description:
-        "MemoryOS turns a player-confirmed match into personal recalls and a new mission grounded in what actually happened.",
+        "Verified match evidence in. A grounded, player-reviewed next chapter out.",
       type: "website",
       images: [{ url: "/og.png", width: 1672, height: 941, alt: "Your squad has unfinished stories" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "Your squad has unfinished stories.",
-      description: "Remember the match. Remix the roles. Reunite the squad.",
+      description: "Facts in. Guarded intelligence. A verifiable next chapter out.",
       images: ["/og.png"],
     },
   };

@@ -4,8 +4,10 @@ import { useRef, useState } from "react";
 
 import { roleLabels, scenarioByKey, scenarios } from "@/lib/fixtures";
 import type {
+  MemoryApiError,
   MemoryEngineResult,
   MemoryPack,
+  QuestObjective,
   Scenario,
   ScenarioKey,
 } from "@/lib/types";
@@ -21,6 +23,26 @@ const scoreLabels = {
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function isMemoryEngineResult(value: unknown): value is MemoryEngineResult {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "status" in value &&
+      ["ready", "needs_human_confirmation", "rejected"].includes(
+        String((value as { status?: unknown }).status),
+      ),
+  );
+}
+
+function isOptedIn(member: MemoryPack["squad"]["members"][number]) {
+  return member.opted_in !== false;
+}
+
+function formatRuleValue(value: QuestObjective["verification"]["target"]) {
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
 }
 
 function formatRole(role?: string | null) {
@@ -99,6 +121,7 @@ export function MemoryExperience() {
   const inviteDialogRef = useRef<HTMLDialogElement>(null);
 
   const selected = scenarioByKey[selectedKey];
+  const optedInMembers = selected.pack.squad.members.filter(isOptedIn);
 
   async function discover(pack: MemoryPack, shouldScroll = true) {
     setViewState("loading");
@@ -117,15 +140,19 @@ export function MemoryExperience() {
       const responseMode =
         response.headers.get("x-memoryos-mode") === "live" ? "live" : "sample";
       const responseText = await response.text();
-      let body: MemoryEngineResult | { message?: string };
+      let body: MemoryEngineResult | MemoryApiError;
       try {
-        body = JSON.parse(responseText) as MemoryEngineResult | { message?: string };
+        body = JSON.parse(responseText) as MemoryEngineResult | MemoryApiError;
       } catch {
         throw new Error("MemoryOS returned an unreadable response. Please refresh and try again.");
       }
 
-      if (!response.ok || !("status" in body)) {
-        throw new Error("message" in body && body.message ? body.message : "The engine could not read this pack.");
+      if (!response.ok || !isMemoryEngineResult(body)) {
+        throw new Error(
+          "message" in body && body.message
+            ? body.message
+            : "The engine could not read this pack.",
+        );
       }
 
       setResult(body);
@@ -193,7 +220,7 @@ export function MemoryExperience() {
         </a>
         <div className="header-meta">
           <span className="status-dot" aria-hidden="true" />
-          Synthetic demo · {engineMode === "live" ? "Live local engine" : "Safe sample mode"}
+          Guardrails active · {engineMode === "live" ? "Live local engine" : engineMode === "sample" ? "Safe sample mode" : "Waiting to run"}
         </div>
         <a className="text-link" href="#grounding">How it stays grounded</a>
       </header>
@@ -203,8 +230,9 @@ export function MemoryExperience() {
           <p className="eyebrow">Garena Next Chapter</p>
           <h1>Your squad has <em>unfinished stories.</em></h1>
           <p className="hero-lede">
-            MemoryOS turns a player-confirmed match into personal recalls—and a new
-            mission grounded in what actually happened.
+            MemoryOS turns verified match evidence into one shared memory, distinct
+            player perspectives, and a verifiable next chapter—without letting AI invent
+            the facts.
           </p>
           <div className="hero-actions">
             <button
@@ -215,7 +243,7 @@ export function MemoryExperience() {
               <span>{viewState === "loading" ? "Reading the match…" : "Discover the memory"}</span>
               <span aria-hidden="true">↗</span>
             </button>
-            <span className="trust-note">Synthetic player data · No messages are sent</span>
+            <span className="trust-note">Grounded gameplay required · At least two players opted in</span>
           </div>
         </div>
 
@@ -234,14 +262,61 @@ export function MemoryExperience() {
           </div>
           <div className="member-list">
             {selected.pack.squad.members.map((member) => (
-              <span className="member-chip" key={member.player_id}>
+              <span
+                className={`member-chip ${isOptedIn(member) ? "" : "member-opted-out"}`}
+                key={member.player_id}
+              >
                 <b>{member.display_name.slice(0, 1)}</b>
-                {member.display_name} · {formatRole(member.role)}
+                {member.display_name} · {isOptedIn(member) ? formatRole(member.role) : "Opted out"}
               </span>
             ))}
           </div>
-          <div className="pack-footer"><span>Schema v{selected.pack.schema_version}</span><span>Consent checked</span></div>
+          <div className="pack-footer">
+            <span>Schema v{selected.pack.schema_version}</span>
+            <span>{optedInMembers.length} of {selected.pack.squad.members.length} opted in</span>
+          </div>
         </aside>
+      </section>
+
+      <section className="pipeline-section shell" aria-labelledby="pipeline-heading">
+        <div className="section-heading compact-heading">
+          <div>
+            <p className="eyebrow">One guarded path</p>
+            <h2 id="pipeline-heading">Facts in. Verified chapter out.</h2>
+          </div>
+          <p>AI proposes structure. MemoryOS rebuilds the wording and checks every important link.</p>
+        </div>
+        <div className="pipeline-flow">
+          <article className="pipeline-card pipeline-input">
+            <span className="pipeline-index">01 · Input</span>
+            <h3>Verified signals</h3>
+            <ul>
+              <li>Match-event IDs and player roles</li>
+              <li>Player-authored captions and reactions</li>
+              <li>Opted-in squad members only</li>
+            </ul>
+          </article>
+          <span className="pipeline-arrow" aria-hidden="true">→</span>
+          <article className="pipeline-card pipeline-transform">
+            <span className="pipeline-index">02 · Guarded AI</span>
+            <h3>Canonical transformation</h3>
+            <ul>
+              <li>Memory discovery and safe abstention</li>
+              <li>Role-specific player perspectives</li>
+              <li>Fact-based wording rebuilt by code</li>
+            </ul>
+          </article>
+          <span className="pipeline-arrow" aria-hidden="true">→</span>
+          <article className="pipeline-card pipeline-output">
+            <span className="pipeline-index">03 · Output</span>
+            <h3>Validated next chapter</h3>
+            <ul>
+              <li>One grounded shared memory</li>
+              <li>One view per opted-in player</li>
+              <li>Machine-checkable quest rules</li>
+            </ul>
+          </article>
+        </div>
       </section>
 
       <section className="scenario-section shell" aria-labelledby="scenario-heading">
@@ -305,14 +380,14 @@ export function MemoryExperience() {
       <dialog className="invite-dialog" ref={inviteDialogRef} onCancel={closeInvite}>
         <button className="dialog-close" aria-label="Close invite preview" onClick={closeInvite}>×</button>
         <p className="eyebrow">Squad invite preview · Demo simulation</p>
-        <h2>The original four.<br />One more run.</h2>
+        <h2>The opted-in squad.<br />One more run.</h2>
         <p>
           {selected.pack.player_profile.player_id
             ? selected.pack.squad.members.find((member) => member.player_id === selected.pack.player_profile.player_id)?.display_name
             : "A squadmate"} wants the squad back for “{result?.next_chapter?.title}”.
         </p>
         <div className="dialog-squad">
-          {selected.pack.squad.members.map((member) => <span key={member.player_id}>{member.display_name.slice(0, 1)}</span>)}
+          {optedInMembers.map((member) => <span key={member.player_id}>{member.display_name.slice(0, 1)}</span>)}
         </div>
         <p className="dialog-note">Invite delivery is not connected in this prototype.</p>
         <button className="secondary-button" onClick={closeInvite}>Close preview</button>
@@ -355,20 +430,32 @@ function ErrorStory({ message, onRetry }: { message: string; onRetry: () => void
 }
 
 function RejectedStory({ result, onTryReady }: { result: MemoryEngineResult; onTryReady: () => void }) {
+  const safeAbstention = !result.memory && result.validation.passed;
+  const leadIssue =
+    result.validation.issues.find((issue) => issue.severity === "error") ??
+    result.validation.issues[0];
+
   return (
     <article className="rejected-story">
       <div className="rejected-copy">
         <span className="decision-seal" aria-hidden="true">—</span>
-        <p className="eyebrow">MemoryOS decision</p>
-        <h2>This one stays in the match history.</h2>
-        <p>One low-importance elimination was not enough to call this a squad memory. MemoryOS skipped the story instead of inventing one.</p>
+        <p className="eyebrow">{safeAbstention ? "Safely skipped" : "Validation blocked"}</p>
+        <h2>{safeAbstention ? "Not enough grounded evidence." : "This story did not pass."}</h2>
+        <p>
+          {safeAbstention
+            ? "Nothing was generated. MemoryOS leaves weak, eventless, or consent-insufficient inputs in match history instead of manufacturing nostalgia."
+            : "The candidate was stopped because one or more deterministic evidence, identity, consent, safety, or quest checks failed."}
+        </p>
+        <ul className="decision-reasons">
+          {result.discovery.reasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)}
+        </ul>
         <button className="secondary-button" onClick={onTryReady}>Try a stronger memory pack</button>
       </div>
       <aside className="threshold-card">
         <div className="threshold-score"><strong>{percent(result.discovery.signal_score)}</strong><span>memory signal</span></div>
         <div className="meter" style={{ "--score": `${result.discovery.signal_score * 100}%` } as React.CSSProperties}><span /></div>
         <div className="threshold-labels"><span>0%</span><b>{percent(result.discovery.threshold)} required</b><span>100%</span></div>
-        <div className="safe-skip"><span>✓</span><div><strong>Generation safely skipped</strong><p>{result.validation.issues[0]?.message}</p></div></div>
+        <div className="safe-skip"><span>{safeAbstention ? "✓" : "!"}</span><div><strong>{safeAbstention ? "Generation safely skipped" : "Deterministic validation failed"}</strong><p>{leadIssue?.message ?? "The output did not meet the MemoryOS contract."}</p></div></div>
       </aside>
     </article>
   );
@@ -393,9 +480,9 @@ function ReviewCheckpoint({
     <section className="review-checkpoint" aria-labelledby="review-title">
       <div className="review-icon" aria-hidden="true">?</div>
       <div className="review-copy">
-        <p className="eyebrow">We found something—you decide if it matters</p>
+        <p className="eyebrow">Grounding passed—you decide if it matters</p>
         <h2 id="review-title">Does “{caption || "this moment"}” belong in your squad story?</h2>
-        <p>Nothing becomes a reunion prompt until a player confirms it.</p>
+        <p>The facts are grounded, but nothing becomes a reunion prompt until a player confirms it.</p>
         {editing && (
           <label className="caption-field">Memory caption<input value={caption} maxLength={120} onChange={(event) => onCaptionChange(event.target.value)} /></label>
         )}
@@ -468,7 +555,7 @@ function MemoryStory({
       <section className="evidence-section" id="grounding">
         <div className="section-heading">
           <div><p className="eyebrow">Evidence ledger</p><h2>What actually happened</h2></div>
-          <p>Every story beat is traceable to match telemetry or player-authored context.</p>
+          <p>Every factual beat cites a match-event ID. Captions and reactions can add meaning, but cannot replace gameplay evidence.</p>
         </div>
         <ol className="timeline">
           {evidenceEvents.map((event, index) => (
@@ -484,7 +571,7 @@ function MemoryStory({
       <section className="perspectives-section">
         <div className="section-heading">
           <div><p className="eyebrow">One night · {result.player_perspectives.length} points of view</p><h2>Same memory. Different meaning.</h2></div>
-          <p>Each opted-in player receives a recall grounded in their own role.</p>
+          <p>Each opted-in player receives exactly one recall, using their canonical name and evidence from this memory.</p>
         </div>
         <div className="perspective-grid">
           {result.player_perspectives.map((perspective, index) => {
@@ -493,7 +580,7 @@ function MemoryStory({
               <article className="perspective-card" key={perspective.player_id}>
                 <div className="perspective-top"><span className="avatar">{perspective.display_name.slice(0, 1)}</span><div><h3>{perspective.display_name}</h3><p>{formatRole(member?.role)}</p></div><span className="perspective-number">0{index + 1}</span></div>
                 <blockquote>“{perspective.message.replace(/^“|”$/g, "")}</blockquote>
-                <div className="evidence-chip"><span aria-hidden="true">⌁</span> {perspective.evidence_event_ids[0]}</div>
+                <div className="evidence-chip"><span aria-hidden="true">⌁</span> {perspective.evidence_event_ids.join(" · ")}</div>
               </article>
             );
           })}
@@ -511,21 +598,21 @@ function MemoryStory({
             <ObjectiveList title="Mission objectives" objectives={quest.objectives.filter((objective) => objective.required)} />
             <ObjectiveList title="Bonus objectives" objectives={quest.objectives.filter((objective) => !objective.required)} />
           </div>
-          <div className="quest-action"><button ref={inviteButtonRef} className="primary-button light-button" onClick={onInvite}>Preview squad invite <span aria-hidden="true">↗</span></button><span>Demo simulation · No invite will be sent</span></div>
+          <div className="quest-action"><button ref={inviteButtonRef} className="primary-button light-button" onClick={onInvite}>Preview squad invite <span aria-hidden="true">↗</span></button><span>Rules are machine-checkable · Live match verification is not connected</span></div>
         </section>
       )}
 
       <section className="validation-section">
         <div className="section-heading">
-          <div><p className="eyebrow">Validation passed</p><h2>Grounded before it becomes a story.</h2></div>
-          <p>MemoryOS skips weak moments and rejects claims the source data cannot support.</p>
+          <div><p className="eyebrow">{result.status === "ready" ? "Validation passed" : "Grounding passed · Confirmation pending"}</p><h2>Grounded before it becomes a story.</h2></div>
+          <p>AI may suggest structure; MemoryOS rebuilds factual wording and checks evidence, identity, consent, safety, and quest rules.</p>
         </div>
         <div className="score-grid">
           {(Object.keys(scoreLabels) as Array<keyof typeof scoreLabels>).map((key) => (
             <div className="score-card" key={key}><span>{scoreLabels[key]}</span><strong>{percent(result.validation.scores[key])}</strong><div><i style={{ width: percent(result.validation.scores[key]) }} /></div></div>
           ))}
         </div>
-        <div className="validation-note"><span>✓</span><p><strong>{result.validation.passed ? "All deterministic checks passed" : "Human review required"}</strong> · Provider: {String(result.metadata.provider)} / {String(result.metadata.model)}</p></div>
+        <div className="validation-note"><span>✓</span><p><strong>{result.validation.passed ? "All deterministic checks passed" : "Human review required"}</strong> · {result.metadata.prose_renderer === "canonical-v1" ? "Canonical wording rebuilt from verified fields" : "Verified wording renderer"} · Provider: {result.metadata.provider} / {result.metadata.model}</p></div>
       </section>
     </article>
   );
@@ -533,6 +620,6 @@ function MemoryStory({
 
 function ObjectiveList({ title, objectives }: { title: string; objectives: NonNullable<MemoryEngineResult["next_chapter"]>["objectives"] }) {
   return (
-    <div className="objective-list"><h3>{title}</h3><ol>{objectives.map((objective, index) => <li key={objective.objective_id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{objective.description}</strong><small>Verified by {objective.verification.metric.replaceAll("_", " ")}</small></div></li>)}</ol></div>
+    <div className="objective-list"><h3>{title}</h3><ol>{objectives.map((objective, index) => <li key={objective.objective_id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{objective.description}</strong><small>Rule · {objective.verification.metric.replaceAll("_", " ")} · {objective.verification.operator.replaceAll("_", " ")} · {formatRuleValue(objective.verification.target)}</small><small>Source · {objective.source_event_ids.join(" · ")}</small></div></li>)}</ol></div>
   );
 }

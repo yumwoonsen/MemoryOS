@@ -96,6 +96,18 @@ export type QuestObjective = {
   source_event_ids: string[];
 };
 
+export type PipelineMetadata = {
+  pipeline_version: string;
+  provider: string;
+  model: string;
+  prose_renderer: string;
+};
+
+export type MemoryApiError = {
+  code: string;
+  message: string;
+};
+
 export type MemoryEngineResult = {
   schema_version: "1.0";
   pack_id: string;
@@ -124,7 +136,7 @@ export type MemoryEngineResult = {
       message: string;
     }>;
   };
-  metadata: Record<string, unknown>;
+  metadata: PipelineMetadata;
 };
 
 export type ScenarioKey = "ready" | "review" | "skipped";

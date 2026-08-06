@@ -48,35 +48,35 @@ const readyResult: MemoryEngineResult = {
       player_id: "lee",
       display_name: "Lee",
       message:
-        "Mei came back for you at Clock Tower. That verified revive became your part of “Worst Plan, Best Night.”",
+        "Verified revive #1 records Mei coming back for you at Clock Tower. That rescue became your part of \"Worst Plan, Best Night.\"",
       evidence_event_ids: ["evt-revive-01"],
     },
     {
       player_id: "mei",
       display_name: "Mei",
       message:
-        "You revived Lee at Clock Tower. Your rescue is one of the grounded events behind “Worst Plan, Best Night.”",
+        "Verified revive #1 records you reviving Lee at Clock Tower. Your rescue is grounded evidence behind \"Worst Plan, Best Night.\"",
       evidence_event_ids: ["evt-revive-01"],
     },
     {
       player_id: "jo",
       display_name: "Jo",
       message:
-        "You drove the squad out of Clock Tower with 3 passengers. The getaway is the chaotic turn in “Worst Plan, Best Night.”",
+        "You drove the squad out of Clock Tower with 3 passengers. The getaway is the chaotic turn in \"Worst Plan, Best Night.\"",
       evidence_event_ids: ["evt-escape-01"],
     },
     {
       player_id: "amir",
       display_name: "Amir",
       message:
-        "You called for retreat 3 times. The squad’s verified escape turned that call into part of “Worst Plan, Best Night.”",
+        "You called for retreat 3 times. The squad's verified escape turned that call into part of \"Worst Plan, Best Night.\"",
       evidence_event_ids: ["evt-retreat-01"],
     },
   ],
   next_chapter: {
     title: "Worst Plan, Best Night II: Return the Favour",
     mission:
-      "Reassemble the original squad and remix Worst Plan, Best Night at Clock Tower using roles grounded in the original match.",
+      "Reassemble the original squad and remix \"Worst Plan, Best Night\" at Clock Tower using roles grounded in the original match.",
     recipe: "remix",
     objectives: [
       {
@@ -132,7 +132,7 @@ const readyResult: MemoryEngineResult = {
       },
       {
         objective_id: "caller-chooses-route",
-        description: "Amir chooses the squad’s first rotation route.",
+        description: "Amir chooses the squad's first rotation route.",
         assigned_player_id: "amir",
         required: false,
         verification: {
@@ -159,6 +159,7 @@ const readyResult: MemoryEngineResult = {
     pipeline_version: "phase-1-v1",
     provider: "deterministic",
     model: "rules-v1",
+    prose_renderer: "canonical-v1",
   },
 };
 
@@ -188,7 +189,7 @@ const reviewResult: MemoryEngineResult = {
       {
         event_id: "evt-last-alive-01",
         event_type: "last_player_alive",
-        significance: "Nia became the squad’s last surviving player",
+        significance: "Nia became the squad's last surviving player",
       },
       {
         event_id: "evt-revive-rafi-01",
@@ -213,35 +214,35 @@ const reviewResult: MemoryEngineResult = {
       player_id: "nia",
       display_name: "Nia",
       message:
-        "You revived Rafi at Command Post. Your rescue is one of the grounded events behind “One Hp Reset.”",
+        "Verified revive #1 records you reviving Rafi at Command Post. Your rescue is grounded evidence behind \"One Hp Reset.\"",
       evidence_event_ids: ["evt-revive-rafi-01"],
     },
     {
       player_id: "rafi",
       display_name: "Rafi",
       message:
-        "Nia came back for you at Command Post. That verified revive became your part of “One Hp Reset.”",
+        "Verified revive #1 records Nia coming back for you at Command Post. That rescue became your part of \"One Hp Reset.\"",
       evidence_event_ids: ["evt-revive-rafi-01"],
     },
     {
       player_id: "sol",
       display_name: "Sol",
       message:
-        "Rafi came back for you at Command Post. That verified revive became your part of “One Hp Reset.”",
+        "Verified revive #2 records Rafi coming back for you at Command Post. That rescue became your part of \"One Hp Reset.\"",
       evidence_event_ids: ["evt-revive-sol-01"],
     },
     {
       player_id: "kay",
       display_name: "Kay",
       message:
-        "You were part of the original squad at Command Post when the verified last player alive became “One Hp Reset.”",
-      evidence_event_ids: ["evt-last-alive-01"],
+        "Kay, evidence #4 records your squad's verified final zone survival at Final Zone. It anchors your recall of \"One Hp Reset.\"",
+      evidence_event_ids: ["evt-final-ten-01"],
     },
   ],
   next_chapter: {
     title: "One Hp Reset II: Return the Favour",
     mission:
-      "Reassemble the original squad and remix One Hp Reset at Command Post using roles grounded in the original match.",
+      "Reassemble the original squad and remix \"One Hp Reset\" at Command Post using roles grounded in the original match.",
     recipe: "remix",
     objectives: [
       {
@@ -293,7 +294,7 @@ const reviewResult: MemoryEngineResult = {
     passed: true,
     human_review_required: true,
     scores: {
-      specificity: 0.75,
+      specificity: 1,
       evidence_grounding: 1,
       perspective_distinctness: 1,
       quest_connection: 1,
@@ -310,6 +311,7 @@ const reviewResult: MemoryEngineResult = {
     pipeline_version: "phase-1-v1",
     provider: "deterministic",
     model: "rules-v1",
+    prose_renderer: "canonical-v1",
   },
 };
 
@@ -346,6 +348,7 @@ const skippedResult: MemoryEngineResult = {
     pipeline_version: "phase-1-v1",
     provider: "deterministic",
     model: "rules-v1",
+    prose_renderer: "canonical-v1",
   },
 };
 
@@ -359,6 +362,11 @@ function titleCase(value: string) {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function truncateText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
 export function getDemoResult(pack: MemoryPack): MemoryEngineResult | undefined {
   const source = results[pack.pack_id];
   if (!source) return undefined;
@@ -368,17 +376,31 @@ export function getDemoResult(pack: MemoryPack): MemoryEngineResult | undefined 
 
   if (result.status === "needs_human_confirmation" && confirmed && result.memory) {
     const previousTitle = result.memory.title;
-    const nextTitle = titleCase(pack.human_memory?.caption?.trim() || previousTitle);
+    const nextTitle = truncateText(
+      titleCase(pack.human_memory?.caption?.trim() || previousTitle),
+      100,
+    );
     result.status = "ready";
+    result.discovery.signal_score = 1;
+    if (!result.discovery.reasons.includes("player-confirmed meaning")) {
+      result.discovery.reasons.push("player-confirmed meaning");
+    }
     result.memory.title = nextTitle;
+    result.memory.confidence = 1;
     result.memory.human_confirmed = true;
     result.player_perspectives = result.player_perspectives.map((perspective) => ({
       ...perspective,
       message: perspective.message.replaceAll(previousTitle, nextTitle),
     }));
     if (result.next_chapter) {
-      result.next_chapter.title = result.next_chapter.title.replace(previousTitle, nextTitle);
-      result.next_chapter.mission = result.next_chapter.mission.replace(previousTitle, nextTitle);
+      result.next_chapter.title = truncateText(
+        result.next_chapter.title.replace(previousTitle, nextTitle),
+        120,
+      );
+      result.next_chapter.mission = truncateText(
+        result.next_chapter.mission.replace(previousTitle, nextTitle),
+        500,
+      );
     }
     result.validation.human_review_required = false;
     result.validation.issues = result.validation.issues.filter(

@@ -1,7 +1,7 @@
 import { getDemoResult } from "@/lib/demo-results";
-import type { MemoryPack } from "@/lib/types";
+import type { MemoryApiError, MemoryPack } from "@/lib/types";
 
-const configuredApi = process.env.MEMORYOS_API_URL;
+const configuredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
 const localApi = configuredApi ?? "http://127.0.0.1:8000";
 
 function shouldCallBackend(request: Request) {
@@ -15,14 +15,55 @@ function sampleResponse(memoryPack: MemoryPack) {
   const fallback = getDemoResult(memoryPack);
   if (!fallback) {
     return Response.json(
-      { message: "MemoryOS is unavailable and this pack has no demo result." },
-      { status: 503 },
+      {
+        code: "sample_result_unavailable",
+        message: "MemoryOS is unavailable and this pack has no demo result.",
+      } satisfies MemoryApiError,
+      {
+        status: 503,
+        headers: { "x-memoryos-mode": "sample" },
+      },
     );
   }
 
   return Response.json(fallback, {
-    headers: { "x-memoryos-mode": "sample" },
+    headers: {
+      "x-memoryos-mode": "sample",
+      "x-memoryos-fallback": "backend-unavailable",
+    },
   });
+}
+
+function normalizeBackendError(payload: unknown, status: number): MemoryApiError {
+  if (payload && typeof payload === "object") {
+    const value = payload as Record<string, unknown>;
+    if (typeof value.message === "string") {
+      return {
+        code: typeof value.code === "string" ? value.code : "backend_request_failed",
+        message: value.message,
+      };
+    }
+    if (typeof value.detail === "string") {
+      return { code: "backend_request_failed", message: value.detail };
+    }
+    if (value.detail && typeof value.detail === "object") {
+      const detail = value.detail as Record<string, unknown>;
+      if (typeof detail.message === "string") {
+        return {
+          code: typeof detail.code === "string" ? detail.code : "backend_request_failed",
+          message: detail.message,
+        };
+      }
+    }
+  }
+
+  return {
+    code: status === 422 ? "memory_pack_validation_error" : "backend_request_failed",
+    message:
+      status === 422
+        ? "The Memory Pack did not match the backend contract."
+        : "MemoryOS could not process this Memory Pack.",
+  };
 }
 
 export async function POST(request: Request) {
@@ -31,30 +72,61 @@ export async function POST(request: Request) {
   try {
     memoryPack = (await request.json()) as MemoryPack;
   } catch {
-    return Response.json({ message: "The Memory Pack was not valid JSON." }, { status: 400 });
+    return Response.json(
+      {
+        code: "invalid_memory_pack_json",
+        message: "The Memory Pack was not valid JSON.",
+      } satisfies MemoryApiError,
+      {
+        status: 400,
+        headers: { "x-memoryos-mode": "sample" },
+      },
+    );
   }
 
   if (!shouldCallBackend(request)) {
     return sampleResponse(memoryPack);
   }
 
+  let response: Response;
   try {
-    const response = await fetch(`${localApi}/v1/memories/discover`, {
+    response = await fetch(`${localApi}/v1/memories/discover`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(memoryPack),
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(20_000),
       cache: "no-store",
-    });
-    const payload = await response.json();
-
-    return Response.json(payload, {
-      status: response.status,
-      headers: {
-        "x-memoryos-mode": "live",
-      },
     });
   } catch {
     return sampleResponse(memoryPack);
   }
+
+  const responseText = await response.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(responseText) as unknown;
+  } catch {
+    return Response.json(
+      {
+        code: "upstream_invalid_response",
+        message: "MemoryOS returned an unreadable response.",
+      } satisfies MemoryApiError,
+      {
+        status: 502,
+        headers: { "x-memoryos-mode": "live" },
+      },
+    );
+  }
+
+  if (!response.ok) {
+    return Response.json(normalizeBackendError(payload, response.status), {
+      status: response.status,
+      headers: { "x-memoryos-mode": "live" },
+    });
+  }
+
+  return Response.json(payload, {
+    status: response.status,
+    headers: { "x-memoryos-mode": "live" },
+  });
 }

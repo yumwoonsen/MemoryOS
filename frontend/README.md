@@ -4,6 +4,18 @@ The Phase 2 MemoryOS experience turns the backend’s three synthetic Memory Pac
 review flow. It calls the local FastAPI service when available and falls back to matching sample
 results so the interface remains demonstrable when deployed on its own.
 
+The interface mirrors the backend guardrails: gameplay evidence and opted-in identities enter in
+blue, canonical transformation appears in mint, and validated output appears in teal. White is the
+main canvas and charcoal is used for accessible text throughout.
+
+The UI also exposes the strengthened contract:
+
+- eventless, weak, or consent-insufficient packs are safely skipped;
+- AI may propose structure, but factual wording is rebuilt from verified Memory Pack fields;
+- every opted-in player receives exactly one evidence-linked perspective;
+- every quest objective displays its machine-checkable rule and source event IDs; and
+- backend failures are normalized into stable JSON errors before reaching the browser.
+
 ## Run locally
 
 Start the FastAPI service from the repository root:
