@@ -33,10 +33,20 @@ uses the local MemoryOS backend when it is available. If the backend is offline,
 Battle Royale pack can use its canonical sample result; altered or unknown packs fail closed.
 
 This screen currently targets the deprecated v1.0 `/v1/memories/discover` compatibility route. It
-is safe to keep during the migration window, but it is not yet the Phase 2 historical review flow.
-The next frontend milestone is `/discover-history` candidate selection, separate source and meaning
-review controls, and `/generate` after both gates pass. FastAPI OpenAPI is authoritative; the local
-TypeScript contracts are temporary compatibility types.
+is safe to keep during the migration window, but it is not the Phase 2 historical review flow.
+That flow is available at `/history`; FastAPI OpenAPI is authoritative.
+
+## Phase 2B historical review
+
+`/history` is the local Phase 2B journey. It submits the synthetic collection from
+`backend/data/historical_memory_packs.json` through the server-side `/api/history` proxy, retains
+the complete selected v1.1 pack, collects separate source and meaning decisions, then submits that
+pack through `/api/generate`. A story renders only when the returned top-level status is `ready`.
+
+`lib/api.generated.ts` is generated from the FastAPI OpenAPI snapshot. Run
+`npm run generate:api-types` after a backend schema change; pytest verifies that the snapshot has
+not drifted. The legacy exact-fixture fallback remains limited to `/api/discover` and is not used
+by `/history`.
 
 To run the optional backend, start it from the repository root:
 

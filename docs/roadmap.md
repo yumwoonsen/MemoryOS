@@ -17,28 +17,29 @@
 
 ## Phase 2B — Human review and clickable experience (in progress)
 
-Completed in the integrated teammate slice:
+Completed in the integrated teammate slice and Phase 2B review flow:
 
 - Mobile-first reveal flow for one grounded legacy memory
 - Evidence-first story, current-player perspective, and quest preview
 - Server-side backend proxy with an exact-fixture hosted fallback
 - Runtime result guards and rendered HTML regression tests
-
-Still required for the Phase 2 contract:
-
 - Historical top-candidate picker using `/v1/memories/discover-history`
 - Separate source verify/dispute and meaning confirm/dismiss actions
-- Evidence view showing why each sentence and objective exists
-- Per-player preview and consent controls
+- Evidence-first source review and ready-only player reveal
+- Consent redaction presentation and opted-in perspective controls
 - OpenAPI-derived client types and API contract tests
-- Stored review feedback and prompt comparison
+
+The `/history` player flow now implements candidate selection plus separate source and meaning
+review. It intentionally keeps choices only for the active session; durable feedback is deferred.
 
 ## Phase 3 — Reunion and continuation loop
 
+- In-app Memory Inbox or notification delivery with a curated moment clip
 - Squad invitation and acceptance simulation
 - Deterministic mission verification from a new match result
 - “Story Continues” chapter generation
 - Memory timeline and feedback capture
+- Optional dismissal feedback, kept separate from factual source disputes
 
 ## Production questions to resolve later
 

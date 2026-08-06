@@ -72,3 +72,12 @@ new-match verification have not started.
 Production work still requires authentication, player ownership checks, rate limits, retention and
 regional privacy rules, real Garena telemetry contracts, provider observability, and adversarial
 evaluation.
+
+## Phase 2B frontend implementation
+
+The Phase 2B player journey lives at `/history`; the retained `/` screen remains the Phase 1
+compatibility demo. It uses FastAPI-derived types and server-side proxy routes, holds the complete
+selected pack locally, and makes source verification and meaning confirmation distinct screens.
+Only a structurally valid v1.1 result whose top-level status is `ready` may render a memory,
+perspective, or Next Chapter. Historical hosted fallbacks were deliberately not added, so the
+walkthrough truthfully requires the deterministic backend.
