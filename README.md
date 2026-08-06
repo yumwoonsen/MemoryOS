@@ -9,8 +9,9 @@ The Phase 1 question is deliberately narrow:
 > Given a realistic Garena-style Memory Pack, can the system discover a meaningful moment, explain
 > why it matters to each participant, create a connected quest, and reject claims it cannot ground?
 
-This repository is backend-first. The UI, live Free Fire integration, notification delivery, and
-mission-result loop are intentionally deferred until the memory output is good.
+The repository began backend-first and now includes a Phase 2 review experience for the validated
+memory output. Live Free Fire integration, notification delivery, and the mission-result loop remain
+deferred.
 
 > [!IMPORTANT]
 > This is a hackathon prototype built with synthetic Memory Pack fixtures. It does not connect to
@@ -25,6 +26,8 @@ mission-result loop are intentionally deferred until the memory output is good.
 - An optional OpenAI Responses API adapter using Pydantic Structured Outputs
 - FastAPI and command-line entry points
 - Grounding, consent, distinctness, relationship-claim, and safe-abstention checks
+- A story-first web demo covering ready, confirmation-required, and safely-skipped memories
+- Evidence timelines, per-player perspectives, quest previews, and local review controls
 
 ## Quick start
 
@@ -55,6 +58,17 @@ Then open `http://127.0.0.1:8000/docs` or send a Memory Pack to:
 ```text
 POST /v1/memories/discover
 ```
+
+Run the player-facing demo in a second terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Then open `http://localhost:3000`. The frontend calls the local engine when it is available and uses
+matching synthetic sample results when it is not.
 
 ## Run in VS Code
 
@@ -112,7 +126,7 @@ memoryos-build/
 │   ├── pipeline.py      # Five-stage orchestration
 │   └── run_memory.py    # JSON-to-JSON CLI
 ├── docs/                # Product, architecture, decisions, and evaluation
-├── frontend/            # Explicit Phase 2 placeholder
+├── frontend/            # Phase 2 review and story experience
 └── tests/               # Golden path, abstention, grounding, and API tests
 ```
 
@@ -152,7 +166,8 @@ The prototype does not grade prose by how dramatic it sounds. It asks four measu
   a published Garena schema.
 - The default provider uses deterministic rules so the demo and tests run without credentials.
 - OpenAI mode is implemented but requires a valid server-side API key and separate output evaluation.
-- There is no persistence, authentication, live telemetry, frontend, or notification delivery yet.
+- The frontend uses synthetic fixtures and keeps review decisions in the current browser session.
+- There is no persistence, authentication, live telemetry, or notification delivery yet.
 
 ## License
 

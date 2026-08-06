@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "memory-pack-comeback-001",
+  "player_profile": {
+    "player_id": "nia",
+    "preferred_role": "flex"
+  },
+  "squad": {
+    "squad_id": "after-school-squad",
+    "members": [
+      {
+        "player_id": "nia",
+        "display_name": "Nia",
+        "role": "flex",
+        "opted_in": true
+      },
+      {
+        "player_id": "rafi",
+        "display_name": "Rafi",
+        "role": "scout",
+        "opted_in": true
+      },
+      {
+        "player_id": "sol",
+        "display_name": "Sol",
+        "role": "support",
+        "opted_in": true
+      },
+      {
+        "player_id": "kay",
+        "display_name": "Kay",
+        "role": "anchor",
+        "opted_in": true
+      }
+    ],
+    "matches_together": 42,
+    "days_since_full_squad": 18
+  },
+  "match": {
+    "match_id": "FF-M441",
+    "mode": "battle_royale",
+    "map_name": "Kalahari",
+    "placement": 2,
+    "played_at": "2026-07-12T17:40:00+08:00"
+  },
+  "match_events": [
+    {
+      "event_id": "evt-last-alive-01",
+      "type": "last_player_alive",
+      "actor_id": "nia",
+      "timestamp_seconds": 860,
+      "location": "Command Post",
+      "importance": "high",
+      "details": {
+        "squad_alive": 1
+      }
+    },
+    {
+      "event_id": "evt-revive-rafi-01",
+      "type": "revive",
+      "actor_id": "nia",
+      "target_id": "rafi",
+      "timestamp_seconds": 872,
+      "location": "Command Post",
+      "importance": "high",
+      "details": {
+        "nearby_enemies": 2
+      }
+    },
+    {
+      "event_id": "evt-revive-sol-01",
+      "type": "revive",
+      "actor_id": "rafi",
+      "target_id": "sol",
+      "timestamp_seconds": 885,
+      "location": "Command Post",
+      "importance": "high",
+      "details": {
+        "zone_state": "closing"
+      }
+    },
+    {
+      "event_id": "evt-cover-01",
+      "type": "cover_fire",
+      "actor_id": "kay",
+      "timestamp_seconds": 901,
+      "location": "Command Post",
+      "importance": "medium",
+      "details": {
+        "duration_seconds": 8
+      }
+    },
+    {
+      "event_id": "evt-final-ten-01",
+      "type": "final_zone_survival",
+      "actor_id": "nia",
+      "timestamp_seconds": 1130,
+      "location": "Final Zone",
+      "importance": "high",
+      "details": {
+        "placement_reached": 2
+      }
+    }
+  ],
+  "human_memory": {
+    "caption": "One HP reset",
+    "tags": [
+      "comeback",
+      "clutch"
+    ],
+    "author_player_id": "rafi",
+    "confirmed": false
+  },
+  "reactions": {
+    "laugh_count": 1,
+    "fire_count": 5,
+    "saved": false
+  },
+  "current_context": {
+    "active_member_ids": [
+      "nia",
+      "rafi",
+      "kay"
+    ],
+    "resurfacing_reason": "Three original members are active; the candidate still needs confirmation.",
+    "original_mode_available": true
+  }
+}
+

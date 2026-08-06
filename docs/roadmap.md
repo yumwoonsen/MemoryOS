@@ -9,9 +9,10 @@
 
 ## Phase 2 — Human review and clickable experience
 
-- Next.js review flow for confirm, edit caption/tags, or dismiss
-- Evidence view showing why each sentence and objective exists
-- Per-player preview and consent controls
+- [x] Review flow for confirm, edit caption, or dismiss
+- [x] Evidence view showing why each story beat and objective exists
+- [x] Per-player perspective and invitation previews
+- [ ] Persisted caption/tag edits and consent controls
 - Stored evaluation runs and prompt comparison
 
 ## Phase 3 — Reunion and continuation loop
@@ -28,4 +29,3 @@
 - What model, latency, and cost envelope is acceptable at Garena scale?
 - How should player edits and confirmations update future memory ranking?
 - What experiment design can isolate dormant-squad reactivation impact?
-

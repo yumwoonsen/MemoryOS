@@ -23,6 +23,20 @@ def test_health_endpoint() -> None:
     }
 
 
+def test_frontend_origin_can_preflight_discovery() -> None:
+    response = client.options(
+        "/v1/memories/discover",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 def test_discovery_endpoint_returns_versioned_output() -> None:
     payload = json.loads((DATA_DIR / "funny_memory.json").read_text(encoding="utf-8"))
     response = client.post("/v1/memories/discover", json=payload)

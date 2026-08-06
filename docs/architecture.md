@@ -2,8 +2,9 @@
 
 ## Objective
 
-Prove the AI Memory Engine before building a frontend or integrating live game services. The engine
-accepts one versioned Memory Pack and returns one versioned, validated Next Chapter result.
+Prove the AI Memory Engine and expose its validated output through a focused review experience
+before integrating live game services. The engine accepts one versioned Memory Pack and returns one
+versioned, validated Next Chapter result.
 
 ```mermaid
 flowchart LR
@@ -74,7 +75,6 @@ This lets the team compare model quality without changing HTTP payloads or UI as
 
 ## Deferred boundaries
 
-Phase 1 does not include databases, authentication, queues, notifications, media analysis, live Free
-Fire telemetry, mission-result verification from real matches, or a frontend. Each can be added
-behind the current contracts after output quality is demonstrated.
-
+The current prototype does not include databases, authentication, queues, notifications, media
+analysis, live Free Fire telemetry, or mission-result verification from real matches. Its Phase 2
+frontend consumes the same contracts and keeps player review actions session-only.
