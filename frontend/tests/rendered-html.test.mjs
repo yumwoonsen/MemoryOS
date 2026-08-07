@@ -240,6 +240,7 @@ test("server-renders the dedicated developer Studio", async () => {
   const html = await response.text();
   assert.match(html, /<title>MemoryOS Studio/i);
   assert.match(html, /Developer observability/i);
+  assert.match(html, /Developer Dashboard/i);
   assert.match(html, /Synthetic gameplay pack/i);
   assert.match(html, /Pipeline snapshots/i);
   assert.match(html, /Generation inspector/i);

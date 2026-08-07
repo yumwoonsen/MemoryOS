@@ -744,7 +744,7 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
       <section className="studio-hero" aria-labelledby="studio-title">
         <div>
           <p className="studio-kicker">Developer observability</p>
-          <h1 id="studio-title">See every boundary between gameplay data and the next chapter.</h1>
+          <h1 id="studio-title">Developer Dashboard</h1>
           <p className="studio-intro">
             Inspect the submitted evidence, model-capable stages, grounded outputs, and the
             deterministic checks that decide whether a memory is safe to ship.
