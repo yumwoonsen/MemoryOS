@@ -38,10 +38,10 @@ That flow is available at `/history`; FastAPI OpenAPI is authoritative.
 
 ## Phase 2B historical review
 
-`/history` is the local Phase 2B journey. It submits the synthetic collection from
-`backend/data/historical_memory_packs.json` through the server-side `/api/history` proxy, retains
-the complete selected v1.1 pack, collects separate source and meaning decisions, then submits that
-pack through `/api/generate`. A story renders only when the returned top-level status is `ready`.
+`/history` is the local AI Memory Inbox. It submits the synthetic collection through the server-side
+`/api/delivery/prepare` proxy, receives one source-verified AI-prepared memory, then records only
+an accept decision or one of two decline reasons through `/api/delivery/decision`. Player feedback
+does not rewrite telemetry.
 
 `lib/api.generated.ts` is generated from the FastAPI OpenAPI snapshot. Run
 `npm run generate:api-types` after a backend schema change; pytest verifies that the snapshot has

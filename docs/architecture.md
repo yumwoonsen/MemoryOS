@@ -192,6 +192,12 @@ a candidate ID, rank, or score is never authorization to generate. Browser reque
 server proxies, while generated types and a backend snapshot test keep FastAPI as the contract
 source of truth.
 
+The consumer-facing AI Memory Inbox uses a separate delivery contract. It automatically chooses a
+source-verified candidate, prepares a grounded AI memory and mission while player meaning remains
+unreviewed, and returns `pending_player_decision`. A player can accept or decline; `details_wrong`
+is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the browser rewrite
+telemetry. The older split-review route remains available for internal quality workflows.
+
 ## Deferred production boundaries
 
 This phase does not add authentication, durable backend storage, queues, notifications, production
