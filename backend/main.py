@@ -17,11 +17,16 @@ from backend.models.schemas import (
     HistoricalDiscoveryRequest,
     HistoricalDiscoveryResponse,
     LegacyMemoryPack,
+    MemoryDeliveryResult,
     MemoryEngineResult,
     MemoryEngineResultV11,
+    PrepareDeliveryRequest,
     ProviderErrorBody,
+    RecordDeliveryDecisionRequest,
+    RecordDeliveryDecisionResponse,
 )
 from backend.pipeline import MemoryPipeline, build_pipeline
+from backend.services.delivery_store import delivery_decision_store
 from backend.services.openai_client import OpenAIProviderError
 
 
@@ -128,6 +133,51 @@ def generate_memory(request: GenerateMemoryRequest) -> MemoryEngineResultV11 | J
         return _build_configured_pipeline().generate(request.memory_pack)
     except OpenAIProviderError as error:
         return _provider_error_response(error)
+
+
+@app.post(
+    "/v1/memories/prepare-delivery",
+    response_model=MemoryDeliveryResult,
+    response_model_exclude_none=True,
+    responses={503: {"model": ProviderErrorBody}},
+    tags=["memory-engine"],
+)
+def prepare_delivery(request: PrepareDeliveryRequest) -> MemoryDeliveryResult | JSONResponse:
+    """Prepare one trusted squad memory for an accept-or-decline delivery."""
+
+    try:
+        return _build_configured_pipeline().prepare_delivery(request.memory_packs)
+    except OpenAIProviderError as error:
+        return _provider_error_response(error)
+
+
+@app.post(
+    "/v1/memories/record-delivery-decision",
+    response_model=RecordDeliveryDecisionResponse,
+    responses={404: {"model": ProviderErrorBody}},
+    tags=["memory-engine"],
+)
+def record_delivery_decision(
+    request: RecordDeliveryDecisionRequest,
+) -> RecordDeliveryDecisionResponse | JSONResponse:
+    """Record a prototype accept/decline decision for a prepared delivery."""
+
+    result = delivery_decision_store.record(
+        request.delivery_id,
+        request.decision,
+        request.decline_reason,
+    )
+    if result is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "stage": "delivery_decision",
+                "code": "unknown_delivery",
+                "retryable": False,
+                "message": "This prepared delivery is no longer available.",
+            },
+        )
+    return result
 
 
 @app.post(

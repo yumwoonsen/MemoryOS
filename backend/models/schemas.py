@@ -45,6 +45,21 @@ class PipelineStatusV11(StrEnum):
     REJECTED = "rejected"
 
 
+class DeliveryStatus(StrEnum):
+    PENDING_PLAYER_DECISION = "pending_player_decision"
+    REJECTED = "rejected"
+
+
+class DeliveryDecision(StrEnum):
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+class DeliveryDeclineReason(StrEnum):
+    NOT_RELEVANT = "not_relevant"
+    DETAILS_WRONG = "details_wrong"
+
+
 class SourceStatus(StrEnum):
     UNREVIEWED = "unreviewed"
     VERIFIED = "verified"
@@ -542,6 +557,18 @@ class GenerateMemoryRequest(StrictModel):
         return self
 
 
+class PrepareDeliveryRequest(StrictModel):
+    """Prepare the strongest trusted moment for a player-facing delivery."""
+
+    schema_version: Literal["1.1"] = "1.1"
+    memory_packs: list[MemoryPackV11] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def packs_share_delivery_boundary(self) -> PrepareDeliveryRequest:
+        HistoricalDiscoveryRequest(schema_version="1.1", memory_packs=self.memory_packs, limit=1)
+        return self
+
+
 class MemoryEngineResultV11(StrictModel):
     schema_version: Literal["1.1"] = "1.1"
     pack_id: str
@@ -554,6 +581,46 @@ class MemoryEngineResultV11(StrictModel):
     next_chapter: NextChapter | None = None
     validation: ValidationReport
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeliveryNarrative(StrictModel):
+    teaser: str = Field(min_length=1, max_length=180)
+    why_this_surfaced: str = Field(min_length=1, max_length=240)
+
+
+class MemoryDeliveryResult(StrictModel):
+    schema_version: Literal["1.1"] = "1.1"
+    delivery_id: str | None = None
+    pack_id: str
+    status: DeliveryStatus
+    source_status: SourceStatus
+    meaning_status: MeaningStatus
+    memory: MemoryRecord | None = None
+    player_perspectives: list[PlayerPerspective] = Field(default_factory=list)
+    next_chapter: NextChapter | None = None
+    narrative: DeliveryNarrative | None = None
+    validation: ValidationReport
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RecordDeliveryDecisionRequest(StrictModel):
+    delivery_id: str = Field(min_length=1, max_length=128)
+    decision: DeliveryDecision
+    decline_reason: DeliveryDeclineReason | None = None
+
+    @model_validator(mode="after")
+    def decline_reason_matches_decision(self) -> RecordDeliveryDecisionRequest:
+        if self.decision == DeliveryDecision.ACCEPTED and self.decline_reason is not None:
+            raise ValueError("accepted delivery decisions cannot include a decline_reason")
+        if self.decision == DeliveryDecision.DECLINED and self.decline_reason is None:
+            raise ValueError("declined delivery decisions require a decline_reason")
+        return self
+
+
+class RecordDeliveryDecisionResponse(StrictModel):
+    delivery_id: str
+    decision: DeliveryDecision
+    decline_reason: DeliveryDeclineReason | None = None
 
 
 class ProviderErrorBody(StrictModel):

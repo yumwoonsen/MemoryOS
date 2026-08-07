@@ -102,6 +102,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/memories/prepare-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare Delivery
+         * @description Prepare one trusted squad memory for an accept-or-decline delivery.
+         */
+        post: operations["prepare_delivery_v1_memories_prepare_delivery_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/memories/record-delivery-decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Delivery Decision
+         * @description Record a prototype accept/decline decision for a prepared delivery.
+         */
+        post: operations["record_delivery_decision_v1_memories_record_delivery_decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -139,6 +179,28 @@ export interface components {
             /** Resurfacing Reason */
             resurfacing_reason?: string | null;
         };
+        /**
+         * DeliveryDecision
+         * @enum {string}
+         */
+        DeliveryDecision: "accepted" | "declined";
+        /**
+         * DeliveryDeclineReason
+         * @enum {string}
+         */
+        DeliveryDeclineReason: "not_relevant" | "details_wrong";
+        /** DeliveryNarrative */
+        DeliveryNarrative: {
+            /** Teaser */
+            teaser: string;
+            /** Why This Surfaced */
+            why_this_surfaced: string;
+        };
+        /**
+         * DeliveryStatus
+         * @enum {string}
+         */
+        DeliveryStatus: "pending_player_decision" | "rejected";
         /** DiscoveryAssessment */
         DiscoveryAssessment: {
             /** Eligible */
@@ -436,6 +498,32 @@ export interface components {
          * @enum {string}
          */
         MeaningStatus: "unreviewed" | "confirmed" | "dismissed";
+        /** MemoryDeliveryResult */
+        MemoryDeliveryResult: {
+            /** Delivery Id */
+            delivery_id?: string | null;
+            meaning_status: components["schemas"]["MeaningStatus"];
+            memory?: components["schemas"]["MemoryRecord"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            narrative?: components["schemas"]["DeliveryNarrative"] | null;
+            next_chapter?: components["schemas"]["NextChapter"] | null;
+            /** Pack Id */
+            pack_id: string;
+            /** Player Perspectives */
+            player_perspectives?: components["schemas"]["PlayerPerspective"][];
+            /**
+             * Schema Version
+             * @default 1.1
+             * @constant
+             */
+            schema_version: "1.1";
+            source_status: components["schemas"]["SourceStatus"];
+            status: components["schemas"]["DeliveryStatus"];
+            validation: components["schemas"]["ValidationReport"];
+        };
         /** MemoryEngineResult */
         MemoryEngineResult: {
             discovery: components["schemas"]["DiscoveryAssessment"];
@@ -584,6 +672,20 @@ export interface components {
             /** Preferred Role */
             preferred_role?: string | null;
         };
+        /**
+         * PrepareDeliveryRequest
+         * @description Prepare the strongest trusted moment for a player-facing delivery.
+         */
+        PrepareDeliveryRequest: {
+            /** Memory Packs */
+            memory_packs: components["schemas"]["MemoryPackV11"][];
+            /**
+             * Schema Version
+             * @default 1.1
+             * @constant
+             */
+            schema_version: "1.1";
+        };
         /** ProviderErrorBody */
         ProviderErrorBody: {
             /** Code */
@@ -645,6 +747,20 @@ export interface components {
              * @default false
              */
             saved: boolean;
+        };
+        /** RecordDeliveryDecisionRequest */
+        RecordDeliveryDecisionRequest: {
+            decision: components["schemas"]["DeliveryDecision"];
+            decline_reason?: components["schemas"]["DeliveryDeclineReason"] | null;
+            /** Delivery Id */
+            delivery_id: string;
+        };
+        /** RecordDeliveryDecisionResponse */
+        RecordDeliveryDecisionResponse: {
+            decision: components["schemas"]["DeliveryDecision"];
+            decline_reason?: components["schemas"]["DeliveryDeclineReason"] | null;
+            /** Delivery Id */
+            delivery_id: string;
         };
         /** RedactionNotice */
         RedactionNotice: {
@@ -918,6 +1034,90 @@ export interface operations {
                 };
                 content: {
                     "application/x-ndjson": components["schemas"]["GenerateStreamStageEvent"] | components["schemas"]["GenerateStreamErrorEvent"] | components["schemas"]["GenerateStreamResultEvent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_delivery_v1_memories_prepare_delivery_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareDeliveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryDeliveryResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+        };
+    };
+    record_delivery_decision_v1_memories_record_delivery_decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordDeliveryDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordDeliveryDecisionResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
                 };
             };
             /** @description Validation Error */

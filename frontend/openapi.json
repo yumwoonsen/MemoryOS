@@ -85,6 +85,53 @@
         "title": "CurrentContext",
         "type": "object"
       },
+      "DeliveryDecision": {
+        "enum": [
+          "accepted",
+          "declined"
+        ],
+        "title": "DeliveryDecision",
+        "type": "string"
+      },
+      "DeliveryDeclineReason": {
+        "enum": [
+          "not_relevant",
+          "details_wrong"
+        ],
+        "title": "DeliveryDeclineReason",
+        "type": "string"
+      },
+      "DeliveryNarrative": {
+        "additionalProperties": false,
+        "properties": {
+          "teaser": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Teaser",
+            "type": "string"
+          },
+          "why_this_surfaced": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Why This Surfaced",
+            "type": "string"
+          }
+        },
+        "required": [
+          "teaser",
+          "why_this_surfaced"
+        ],
+        "title": "DeliveryNarrative",
+        "type": "object"
+      },
+      "DeliveryStatus": {
+        "enum": [
+          "pending_player_decision",
+          "rejected"
+        ],
+        "title": "DeliveryStatus",
+        "type": "string"
+      },
       "DiscoveryAssessment": {
         "additionalProperties": false,
         "properties": {
@@ -962,6 +1009,95 @@
         "title": "MeaningStatus",
         "type": "string"
       },
+      "MemoryDeliveryResult": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Id"
+          },
+          "meaning_status": {
+            "$ref": "#/components/schemas/MeaningStatus"
+          },
+          "memory": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "narrative": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryNarrative"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextChapter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "player_perspectives": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerPerspective"
+            },
+            "title": "Player Perspectives",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "1.1",
+            "default": "1.1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_status": {
+            "$ref": "#/components/schemas/SourceStatus"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeliveryStatus"
+          },
+          "validation": {
+            "$ref": "#/components/schemas/ValidationReport"
+          }
+        },
+        "required": [
+          "pack_id",
+          "status",
+          "source_status",
+          "meaning_status",
+          "validation"
+        ],
+        "title": "MemoryDeliveryResult",
+        "type": "object"
+      },
       "MemoryEngineResult": {
         "additionalProperties": false,
         "properties": {
@@ -1405,6 +1541,32 @@
         "title": "PlayerProfile",
         "type": "object"
       },
+      "PrepareDeliveryRequest": {
+        "additionalProperties": false,
+        "description": "Prepare the strongest trusted moment for a player-facing delivery.",
+        "properties": {
+          "memory_packs": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryPackV11"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Memory Packs",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "1.1",
+            "default": "1.1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memory_packs"
+        ],
+        "title": "PrepareDeliveryRequest",
+        "type": "object"
+      },
       "ProviderErrorBody": {
         "additionalProperties": false,
         "properties": {
@@ -1556,6 +1718,64 @@
           }
         },
         "title": "Reactions",
+        "type": "object"
+      },
+      "RecordDeliveryDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/DeliveryDecision"
+          },
+          "decline_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryDeclineReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delivery_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Delivery Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "decision"
+        ],
+        "title": "RecordDeliveryDecisionRequest",
+        "type": "object"
+      },
+      "RecordDeliveryDecisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/DeliveryDecision"
+          },
+          "decline_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryDeclineReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delivery_id": {
+            "title": "Delivery Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delivery_id",
+          "decision"
+        ],
+        "title": "RecordDeliveryDecisionResponse",
         "type": "object"
       },
       "RedactionNotice": {
@@ -2129,6 +2349,110 @@
           }
         },
         "summary": "Generate Memory Stream",
+        "tags": [
+          "memory-engine"
+        ]
+      }
+    },
+    "/v1/memories/prepare-delivery": {
+      "post": {
+        "description": "Prepare one trusted squad memory for an accept-or-decline delivery.",
+        "operationId": "prepare_delivery_v1_memories_prepare_delivery_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareDeliveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryDeliveryResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Prepare Delivery",
+        "tags": [
+          "memory-engine"
+        ]
+      }
+    },
+    "/v1/memories/record-delivery-decision": {
+      "post": {
+        "description": "Record a prototype accept/decline decision for a prepared delivery.",
+        "operationId": "record_delivery_decision_v1_memories_record_delivery_decision_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordDeliveryDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordDeliveryDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Delivery Decision",
         "tags": [
           "memory-engine"
         ]
