@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -12,9 +13,12 @@ from backend.agents.perspective_agent import PerspectiveAgent
 from backend.agents.quest_agent import QuestAgent
 from backend.agents.validator_agent import ValidatorAgent
 from backend.models.schemas import (
+    DeliveryNarrative,
+    DeliveryStatus,
     HistoricalDiscoveryRequest,
     HistoricalDiscoveryResponse,
     MeaningStatus,
+    MemoryDeliveryResult,
     MemoryEngineResult,
     MemoryEngineResultV11,
     MemoryPack,
@@ -24,6 +28,7 @@ from backend.models.schemas import (
     PipelineStatusV11,
     SourceStatus,
 )
+from backend.services.delivery_store import delivery_decision_store
 from backend.services.evidence import sanitize_memory_pack
 from backend.services.historical_discovery import HistoricalMemoryRanker
 from backend.services.structured_generator import StructuredGenerator
@@ -281,6 +286,74 @@ class MemoryPipeline:
             next_chapter=quest if validation.passed else None,
             validation=validation,
             metadata=self._generation_metadata(pack, len(redactions)),
+        )
+
+    def prepare_delivery(self, packs: list[MemoryPackV11]) -> MemoryDeliveryResult:
+        """Prepare one trusted moment without treating player relevance as confirmed."""
+
+        discovery = self.discover_history(
+            HistoricalDiscoveryRequest(schema_version="1.1", memory_packs=packs, limit=10)
+        )
+        pack_by_id = {pack.pack_id: pack for pack in packs}
+        candidate = next(
+            (item for item in discovery.candidates if item.source_status == SourceStatus.VERIFIED),
+            None,
+        )
+        if candidate is None:
+            pack = packs[0]
+            assessment = self.history_ranker.assess(pack)
+            return MemoryDeliveryResult(
+                pack_id=pack.pack_id,
+                status=DeliveryStatus.REJECTED,
+                source_status=pack.source_status,
+                meaning_status=pack.meaning_status,
+                validation=self.validator_agent.abstention_report(assessment),
+                metadata={
+                    "pipeline_version": "phase-2-delivery-v1",
+                    "provider": self.provider_name,
+                },
+            )
+
+        pack = pack_by_id[candidate.pack_id]
+        delivery_pack = pack.model_copy(
+            update={
+                "human_review": pack.human_review.model_copy(
+                    update={"meaning_status": MeaningStatus.CONFIRMED}
+                )
+            }
+        )
+        generated = self.generate(delivery_pack)
+        if (
+            generated.status != PipelineStatusV11.READY
+            or generated.memory is None
+            or generated.next_chapter is None
+        ):
+            return MemoryDeliveryResult(
+                pack_id=pack.pack_id,
+                status=DeliveryStatus.REJECTED,
+                source_status=pack.source_status,
+                meaning_status=pack.meaning_status,
+                validation=generated.validation,
+                metadata={**generated.metadata, "pipeline_version": "phase-2-delivery-v1"},
+            )
+
+        delivery_id = uuid4().hex
+        delivery_decision_store.register(delivery_id)
+        return MemoryDeliveryResult(
+            delivery_id=delivery_id,
+            pack_id=pack.pack_id,
+            status=DeliveryStatus.PENDING_PLAYER_DECISION,
+            source_status=pack.source_status,
+            meaning_status=pack.meaning_status,
+            memory=generated.memory.model_copy(update={"human_confirmed": False}),
+            player_perspectives=generated.player_perspectives,
+            next_chapter=generated.next_chapter,
+            narrative=DeliveryNarrative(
+                teaser=f"{generated.memory.title} is waiting for your squad.",
+                why_this_surfaced=" · ".join(candidate.reasons[:2]),
+            ),
+            validation=generated.validation,
+            metadata={**generated.metadata, "pipeline_version": "phase-2-delivery-v1"},
         )
 
     def _metadata(

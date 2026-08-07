@@ -179,11 +179,24 @@ status, consent, ranking, or validation, and a candidate rank or ID is not a gen
 Review persistence may live in the frontend team's data layer during the prototype, but stored
 values must use the v1.1 state semantics above.
 
-The merged player view is a Phase 1 compatibility client: it calls the deprecated single-pack
-route and adds browser-side result guards before rendering. Those guards are useful defense in
-depth, but they do not replace backend validation. The next UI slice must add historical candidate
-selection plus separate source and meaning actions, then replace the hand-written v1.0 interfaces
-with types generated from the FastAPI OpenAPI document.
+The merged `/` player view remains a Phase 1 compatibility client: it calls the deprecated
+single-pack route and adds browser-side result guards before rendering. Those guards are useful
+defense in depth, but they do not replace backend validation. The `/history` UI provides historical
+candidate selection and separate source and meaning actions with types generated from the FastAPI
+OpenAPI document.
+
+The Phase 2B `/history` experience is the v1.1 client. Its state machine moves from historical
+loading to candidate selection, source review, meaning review, and generation; disputed and
+dismissed paths are terminal safe stops. It retains the full selected Memory Pack locally because
+a candidate ID, rank, or score is never authorization to generate. Browser requests use same-origin
+server proxies, while generated types and a backend snapshot test keep FastAPI as the contract
+source of truth.
+
+The consumer-facing AI Memory Inbox uses a separate delivery contract. It automatically chooses a
+source-verified candidate, prepares a grounded AI memory and mission while player meaning remains
+unreviewed, and returns `pending_player_decision`. A player can accept or decline; `details_wrong`
+is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the browser rewrite
+telemetry. The older split-review route remains available for internal quality workflows.
 
 ## Deferred production boundaries
 

@@ -326,6 +326,16 @@ Phase 2 review screens are built. Its `/api/discover` route is a server-side com
 not a second ranking engine. New historical UI work should call `/discover-history`, retain the
 selected complete Memory Pack, collect both review decisions, and then call `/generate`.
 
+The implemented Phase 2B client exposes that handoff as same-origin `/api/history` and
+`/api/generate` server routes. It sends the entire selected v1.1 pack, never a candidate ID or
+score, and treats only `status: "ready"` as permission to render generated artifacts.
+
+`POST /v1/memories/prepare-delivery` is the consumer delivery route. It ranks a submitted trusted
+history, selects the highest source-verified candidate, and returns `pending_player_decision` with
+validated artifacts while `meaning_status` remains `unreviewed`. `POST
+/v1/memories/record-delivery-decision` accepts `accepted` or `declined`; a decline must be either
+`not_relevant` or `details_wrong`. Decisions are process-local prototype data only.
+
 ## Data boundary
 
 Included JSON is synthetic evaluation data. Do not deploy this prototype with real player data

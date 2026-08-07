@@ -118,6 +118,19 @@ test("server-renders the unrevealed Battle Royale memory", async () => {
   );
 });
 
+test("server-renders the AI Memory Inbox while it safely prepares a delivery", async () => {
+  const response = await render("/history");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  const mainHtml = html.slice(html.indexOf("<main"), html.indexOf("</main>") + "</main>".length);
+  assert.match(html, /Memory inbox/i);
+  assert.match(html, /Bringing a squad moment back/i);
+  assert.match(html, /Preparing a grounded memory and a new chapter/i);
+  assert.match(mainHtml, /href="\/studio"/i);
+  assert.match(mainHtml, /Open the MemoryOS Developer Studio/i);
+  assert.doesNotMatch(mainHtml, /Did this gameplay event happen|Review squad memories|Facts:/i);
+});
+
 test("keeps the loaded player story in a simple evidence-first order", async () => {
   const source = await readFile(new URL("../app/memory-experience.tsx", import.meta.url), "utf8");
   const gist = source.indexOf("memory-gist-label");
@@ -333,6 +346,8 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.match(browserBundle, /\/api\/discover/);
   assert.match(browserBundle, /\/api\/studio\/generate-stream/);
   assert.match(browserBundle, /Pipeline snapshots/i);
+  assert.match(browserBundle, /\/api\/history/);
+  assert.match(browserBundle, /\/api\/generate/);
   assert.match(browserBundle, /Loading squad memory/i);
   assert.match(browserBundle, /The gist/i);
   assert.match(browserBundle, /What actually happened/i);
@@ -348,4 +363,19 @@ test("browser bundle never calls the local backend directly", async () => {
     browserBundle,
     /Choose a memory signal|One HP Reset|Match FF-M999|memory-pack-comeback|memory-pack-insufficient|Command Post/i,
   );
+});
+
+test("delivery routes stay server-side proxies and consumer UI has only accept or decline choices", async () => {
+  const prepareRoute = await readFile(new URL("../app/api/delivery/prepare/route.ts", import.meta.url), "utf8");
+  const decisionRoute = await readFile(new URL("../app/api/delivery/decision/route.ts", import.meta.url), "utf8");
+  const historyPage = await readFile(new URL("../app/history/page.tsx", import.meta.url), "utf8");
+  const historyClient = await readFile(new URL("../app/history/history-experience.tsx", import.meta.url), "utf8");
+  assert.match(prepareRoute, /prepare-delivery/);
+  assert.match(decisionRoute, /record-delivery-decision/);
+  assert.match(historyPage, /backend\/data\/historical_memory_packs\.json/);
+  assert.match(historyClient, /Accept mission/);
+  assert.match(historyClient, /Not relevant to me/);
+  assert.match(historyClient, /Details are wrong/);
+  assert.doesNotMatch(historyClient, /Did this gameplay event happen|Facts:|Review this moment/);
+  assert.doesNotMatch(historyClient, /127\.0\.0\.1:8000/);
 });

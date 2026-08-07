@@ -217,6 +217,7 @@ memoryos-build/
 | [Evaluation](docs/evaluation.md) | Quality metrics and regression workflow |
 | [Roadmap](docs/roadmap.md) | Integration path and production questions |
 | [Shank integration review](docs/shank-integration-review.md) | Merge choices, compatibility, and next work |
+| [Phase 2B demo and test guide](docs/prototype-demo-test.md) | Local historical-review walkthrough and acceptance checks |
 | [Phase 1 foundation](docs/phase-1-foundation.md) | Original single-memory vertical slice |
 
 ## Known limitations

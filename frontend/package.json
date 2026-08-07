@@ -9,9 +9,10 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit --incremental false",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "generate:api-types": "..\\.venv\\Scripts\\python.exe ..\\backend\\export_openapi.py && openapi-typescript openapi.json -o lib/api.generated.ts"
   },
   "dependencies": {
     "react": "19.2.8",
@@ -32,6 +33,7 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
+    "openapi-typescript": "^7.13.0",
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
@@ -42,6 +44,7 @@
   },
   "type": "module",
   "overrides": {
-    "undici": "7.29.0"
+    "undici": "7.29.0",
+    "esbuild": "0.28.1"
   }
 }
