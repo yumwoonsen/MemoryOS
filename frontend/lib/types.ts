@@ -4,7 +4,7 @@ export type MemoryStatus =
   | "rejected";
 
 export type MemoryPack = {
-  schema_version: "1.0";
+  schema_version: "1.0" | "1.1";
   pack_id: string;
   player_profile: {
     player_id: string;
@@ -44,6 +44,10 @@ export type MemoryPack = {
     author_player_id?: string | null;
     confirmed?: boolean;
   } | null;
+  human_review?: {
+    source_status: "unreviewed" | "verified" | "disputed";
+    meaning_status: "unreviewed" | "confirmed" | "dismissed";
+  };
   reactions?: {
     laugh_count?: number;
     fire_count?: number;
@@ -73,7 +77,7 @@ export type MemoryRecord = {
     event_type: string;
     significance: string;
   }>;
-  human_confirmed: boolean;
+  human_confirmed?: boolean;
 };
 
 export type PlayerPerspective = {
@@ -104,6 +108,12 @@ export type PipelineMetadata = {
   factual_renderer: string;
   redaction_count?: number;
   compatibility_conversion?: string;
+  stopped_stage?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    [key: string]: number | undefined;
+  };
 };
 
 export type MemoryApiError = {
@@ -140,4 +150,62 @@ export type MemoryEngineResult = {
     }>;
   };
   metadata: PipelineMetadata;
+};
+
+export type DeveloperPipelineStatus =
+  | MemoryStatus
+  | "needs_source_verification"
+  | "needs_meaning_confirmation";
+
+export type DeveloperMemoryEngineResult = Omit<
+  MemoryEngineResult,
+  "schema_version" | "status" | "metadata"
+> & {
+  schema_version: "1.0" | "1.1";
+  status: DeveloperPipelineStatus;
+  source_status?: "unreviewed" | "verified" | "disputed";
+  meaning_status?: "unreviewed" | "confirmed" | "dismissed";
+  metadata: PipelineMetadata;
+};
+
+export type DeveloperStageName =
+  | "review_and_discovery"
+  | "memory_discovery"
+  | "perspectives"
+  | "quest_generation"
+  | "validation";
+
+export type DeveloperStageEvent = {
+  type: "stage";
+  stage: DeveloperStageName;
+  status: "working" | "complete" | "stopped" | "failed";
+  message?: string;
+  preview?: unknown;
+};
+
+export type DeveloperErrorEvent = {
+  type: "error";
+  stage: string;
+  code: string;
+  retryable: boolean;
+  message?: string;
+};
+
+export type DeveloperResultEvent = {
+  type: "result";
+  result: DeveloperMemoryEngineResult;
+};
+
+export type DeveloperStreamEvent =
+  | DeveloperStageEvent
+  | DeveloperErrorEvent
+  | DeveloperResultEvent;
+
+export type DeveloperHealth = {
+  status: "ok" | "sample" | "error";
+  mode: "live" | "sample";
+  provider: string;
+  model: string;
+  message: string;
+  code?: string;
 };

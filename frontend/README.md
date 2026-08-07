@@ -19,6 +19,24 @@ grounded perspective. Review, rejected, malformed, or unavailable results do not
 The custom Bermuda map and clock-tower town artwork live in `public/art` as optimized WebPs. The
 dedicated MemoryOS Studio remains intentionally separate from this player prototype.
 
+## Developer Studio
+
+Open `/studio` for the developer-facing observability workspace. It accepts an editable synthetic
+Memory Pack and shows how the pipeline moves from verified match evidence into a shared memory,
+personal perspectives, a continuation quest, and deterministic validation.
+
+The Studio deliberately separates three execution states:
+
+- **Live backend** — snapshots returned by the configured MemoryOS v1.1 generation endpoint.
+- **Deterministic run** — the rules provider completed the pipeline without model calls.
+- **Sample replay** — the hosted frontend replayed the bundled canonical result because no backend
+  is configured or reachable.
+
+Pipeline events are labelled as completed snapshots rather than a live model trace. The current
+backend reports provider/model metadata and aggregate usage when available, but it does not expose
+per-stage latency, prompts, model inputs, or per-stage token usage. The Studio never displays API
+keys, server environment values, unrestricted player data, or raw provider exceptions.
+
 ## Run locally
 
 From this directory:
@@ -31,6 +49,11 @@ npm run dev
 Open the local URL printed by the development server. The frontend calls `/api/discover`, which
 uses the local MemoryOS backend when it is available. If the backend is offline, the exact included
 Battle Royale pack can use its canonical sample result; altered or unknown packs fail closed.
+
+The Studio uses `/api/studio/health` and `/api/studio/generate-stream`. During local development,
+those routes connect to `http://127.0.0.1:8000`. In a hosted environment, set `MEMORYOS_API_URL` on
+the server to enable live runs; otherwise the Studio remains usable as an explicitly labelled
+sample replay.
 
 This screen currently targets the deprecated v1.0 `/v1/memories/discover` compatibility route. It
 is safe to keep during the migration window, but it is not yet the Phase 2 historical review flow.

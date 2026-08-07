@@ -46,6 +46,48 @@ async function discover(body) {
   );
 }
 
+async function studioHealth() {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `studio-health-${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+
+  return worker.fetch(
+    new Request("https://memoryos.example/api/studio/health"),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+}
+
+async function studioGenerate(body) {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `studio-run-${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+
+  return worker.fetch(
+    new Request("https://memoryos.example/api/studio/generate-stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+}
+
 test("server-renders the unrevealed Battle Royale memory", async () => {
   const response = await render();
   assert.equal(response.status, 200);
@@ -175,9 +217,105 @@ test("ships the compact light palette and original Battle Royale artwork", async
   }
 });
 
-test("leaves the dedicated Review Studio deferred", async () => {
+test("server-renders the dedicated developer Studio", async () => {
   const response = await render("/studio");
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+
+  const html = await response.text();
+  assert.match(html, /<title>MemoryOS Studio/i);
+  assert.match(html, /Developer observability/i);
+  assert.match(html, /Synthetic gameplay pack/i);
+  assert.match(html, /Pipeline snapshots/i);
+  assert.match(html, /Generation inspector/i);
+  assert.match(html, /Run pipeline audit/i);
+  assert.match(html, /Open player view/i);
+  assert.match(html, /noindex/i);
+});
+
+test("hosted Studio labels its health state as a sample replay", async () => {
+  const response = await studioHealth();
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-memoryos-mode"), "sample");
+  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
+  assert.deepEqual(await response.json(), {
+    status: "sample",
+    mode: "sample",
+    provider: "sample-replay",
+    model: "precomputed-fixture",
+    message:
+      "No hosted MemoryOS backend is configured. Studio runs are labelled as sample replays.",
+  });
+});
+
+test("hosted Studio replays typed pipeline snapshots without claiming live AI", async () => {
+  const memoryPack = await readFile(
+    new URL("../data/funny_memory.json", import.meta.url),
+    "utf8",
+  );
+  const response = await studioGenerate(memoryPack);
+
+  assert.equal(response.status, 200);
+  assert.match(
+    response.headers.get("content-type") ?? "",
+    /^application\/x-ndjson\b/i,
+  );
+  assert.equal(response.headers.get("x-memoryos-mode"), "sample");
+  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
+
+  const events = (await response.text())
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    events.filter((event) => event.type === "stage").map((event) => event.stage),
+    [
+      "review_and_discovery",
+      "memory_discovery",
+      "perspectives",
+      "quest_generation",
+      "validation",
+    ],
+  );
+  assert.equal(events[0].status, "working");
+  assert.equal(events.at(-1).type, "result");
+  assert.equal(events.at(-1).result.metadata.provider, "deterministic");
+});
+
+test("Studio rejects unsafe or oversized developer inputs before generation", async () => {
+  const malformedNestedPack = {
+    schema_version: "1.0",
+    pack_id: "unsafe-pack",
+    player_profile: { player_id: "lee" },
+    squad: {
+      squad_id: "squad",
+      members: [null, { player_id: "lee", display_name: "Lee", opted_in: true }],
+      matches_together: 1,
+    },
+    match: { match_id: "match", mode: "battle_royale" },
+    match_events: [],
+  };
+  const malformed = await studioGenerate(JSON.stringify(malformedNestedPack));
+  assert.equal(malformed.status, 422);
+  assert.equal(JSON.parse((await malformed.text()).trim()).code, "invalid_memory_pack");
+
+  const oversized = await studioGenerate(JSON.stringify({ payload: "x".repeat(256_001) }));
+  assert.equal(oversized.status, 413);
+  assert.equal(JSON.parse((await oversized.text()).trim()).code, "memory_pack_too_large");
+});
+
+test("Studio preserves the hosted fallback reason when an edited pack has no replay", async () => {
+  const memoryPack = JSON.parse(
+    await readFile(new URL("../data/funny_memory.json", import.meta.url), "utf8"),
+  );
+  memoryPack.pack_id = "edited-pack-without-fixture";
+  const response = await studioGenerate(JSON.stringify(memoryPack));
+
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("x-memoryos-mode"), "sample");
+  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
+  assert.equal(JSON.parse((await response.text()).trim()).code, "sample_result_unavailable");
 });
 
 test("browser bundle never calls the local backend directly", async () => {
@@ -191,6 +329,8 @@ test("browser bundle never calls the local backend directly", async () => {
 
   assert.doesNotMatch(browserBundle, /127\.0\.0\.1:8000/);
   assert.match(browserBundle, /\/api\/discover/);
+  assert.match(browserBundle, /\/api\/studio\/generate-stream/);
+  assert.match(browserBundle, /Pipeline snapshots/i);
   assert.match(browserBundle, /Loading squad memory/i);
   assert.match(browserBundle, /The gist/i);
   assert.match(browserBundle, /What actually happened/i);
