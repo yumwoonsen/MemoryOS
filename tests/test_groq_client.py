@@ -279,6 +279,14 @@ def test_all_agent_contracts_convert_to_groq_compatible_strict_schema(
     assert_strict(schema)
 
 
+def test_quest_target_schema_does_not_overlap_integer_and_number() -> None:
+    schema = to_strict_json_schema(NextChapter)
+    target_options = schema["$defs"]["VerificationRule"]["properties"]["target"]["anyOf"]
+    target_types = {option["type"] for option in target_options}
+
+    assert target_types == {"string", "integer", "boolean", "array"}
+
+
 @pytest.mark.skipif(
     os.getenv("MEMORYOS_RUN_GROQ_LIVE") != "1" or not os.getenv("GROQ_API_KEY"),
     reason="set MEMORYOS_RUN_GROQ_LIVE=1 and GROQ_API_KEY for the opt-in live smoke",

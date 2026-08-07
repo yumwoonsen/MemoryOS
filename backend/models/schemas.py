@@ -396,7 +396,7 @@ class QuestRecipe(StrEnum):
 class VerificationRule(StrictModel):
     metric: str = Field(min_length=1, max_length=128)
     operator: Literal["equals", "at_least", "contains_all"]
-    target: str | int | float | bool | list[str]
+    target: str | int | bool | list[str]
 
 
 class QuestObjective(StrictModel):
