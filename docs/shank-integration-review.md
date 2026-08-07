@@ -33,7 +33,7 @@ Python/OpenAPI implementation remains authoritative.
 The teammate backend implementation was not merged wholesale because it overlapped the canonical
 pipeline and relaxed important boundaries in places, including sending broader pack data toward
 prompts and deriving facts that were not always present in a source event. Those conflicts were
-resolved in favor of the sanitized evidence ledger and closed factual renderer.
+resolved in favor of the sanitized evidence ledger and deterministic factual scaffold.
 
 ## Hardening included during integration
 

@@ -130,7 +130,7 @@ def evaluate(provider: str, fixture_path: Path, labels_path: Path) -> dict[str, 
     return {
         "provider": provider,
         "model": pipeline.model_name,
-        "prompt_version": "grounded-v1",
+        "prompt_version": "narrative-scaffold-v1",
         "pipeline_version": discovery.metadata["pipeline_version"],
         "fixture": str(fixture_path),
         "candidate_precision_at_3": round(precision_at_three, 4),

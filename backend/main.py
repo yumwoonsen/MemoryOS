@@ -244,7 +244,49 @@ def generate_memory_stream(request: GenerateMemoryRequest) -> NDJSONStreamingRes
             yield _ndjson_event(type="error", **error.as_dict())
             return
 
-        if result.memory is None:
+        stopped_stage = result.metadata.get("stopped_stage")
+        generated_stage_order = [
+            "memory_discovery",
+            "perspectives",
+            "quest_generation",
+        ]
+        if result.memory is None and stopped_stage in {
+            *generated_stage_order,
+            "validation",
+        }:
+            yield _ndjson_event(
+                type="stage",
+                stage="review_and_discovery",
+                status="complete",
+                message="Evidence, consent, and review checks passed.",
+            )
+            stop_index = (
+                generated_stage_order.index(stopped_stage)
+                if stopped_stage in generated_stage_order
+                else len(generated_stage_order)
+            )
+            for stage in generated_stage_order[:stop_index]:
+                yield _ndjson_event(
+                    type="stage",
+                    stage=stage,
+                    status="complete",
+                    observability=_stage_observability(result.metadata, stage),
+                )
+            if stopped_stage in generated_stage_order:
+                yield _ndjson_event(
+                    type="stage",
+                    stage=stopped_stage,
+                    status="stopped",
+                    message=f"Generation stopped during {stopped_stage.replace('_', ' ')}.",
+                    observability=_stage_observability(result.metadata, stopped_stage),
+                )
+            yield _ndjson_event(
+                type="stage",
+                stage="validation",
+                status="failed",
+                preview=result.validation.model_dump(mode="json"),
+            )
+        elif result.memory is None:
             yield _ndjson_event(
                 type="stage",
                 stage="review_and_discovery",

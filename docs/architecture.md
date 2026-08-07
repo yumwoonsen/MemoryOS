@@ -100,34 +100,32 @@ reviewable drafts before confirmation; new clients must not use it as the Phase 
 | Input and normalization | No | Types, cross-references, version compatibility |
 | Evidence compiler | No | Consent, redaction, fact ledger |
 | Historical ranker | No | Eligibility, scoring, deduplication, diversity |
-| Memory discovery | Yes | Bound title/type; render summary/evidence deterministically |
-| Perspectives | Yes | Require one exact server-rendered recall per opted-in member |
-| Quest | Yes | Bound framing/composition; render objective clauses deterministically |
+| Memory discovery | Yes | Select evidence; preserve confidence and review state |
+| Perspectives | Yes | Fix player identity, ordering, ownership, and evidence references |
+| Quest | Yes | Fix objective IDs, assignments, evidence, and verification rules |
 | Validation | No | Claims, evidence, identity, assignment, review status |
 | Orchestration | No | Stage order, provider errors, final status |
 
 “Agent” means a bounded typed stage, not an autonomous multi-agent runtime. Stages have no authority
 to bypass an earlier gate or weaken a later validation rule.
 
-## Closed factual rendering
+## Narrative generation on deterministic scaffolds
 
 Schema-constrained output is not, by itself, proof that free prose is grounded. MemoryOS therefore
-uses deterministic renderers for the core clauses that state gameplay facts:
+separates player-facing language from factual and consent controls:
 
-- The memory summary and evidence references/significance must exactly match the server-rendered
-  version for the selected events.
-- Each opted-in player's perspective message and evidence references must exactly match the
-  player-specific server template.
-- Every quest-objective description must exactly match the renderer for its validated metric and
-  target.
+- The model authors the memory title, type, and summary, while the server fixes the evidence set,
+  confidence, and confirmation state.
+- The model authors one message per opted-in player, while the server fixes identity, ordering, and
+  player-specific evidence references.
+- The model authors quest title, mission, recipe, and objective descriptions, while the server fixes
+  objective IDs, assignments, requirements, source events, and verification rules.
 
-Live prompts receive these templates and must return them without paraphrasing; exact equality is
-checked again before the next stage. The pipeline also replaces model-authored confidence and
-confirmation fields with the deterministic signal score and normalized meaning state. The model
-still provides bounded framing through memory title and type and quest title, mission, recipe, and
-allowed composition. Those fields remain subject to privacy, evidence, action, and conservative
-lexical checks. This deliberately narrow prototype boundary can be relaxed only after a stronger
-semantic-grounding layer is evaluated.
+Live prompts receive control-only scaffolds. The pipeline copies model-authored narrative fields
+onto the authoritative scaffold and ignores model attempts to change control fields. Narrative then
+passes deterministic privacy, evidence, action, objective-alignment, and conservative lexical
+checks before it can be returned. These checks deliberately fail closed but remain prototype
+guardrails rather than a proof of every implication in natural language.
 
 ## Provider boundary
 

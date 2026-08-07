@@ -19,12 +19,12 @@ The Phase 1/2 backend answers two questions:
 MemoryOS deliberately separates decisions that must be reliable from language that benefits from
 AI:
 
-| Deterministic code owns | AI may propose |
+| Deterministic code owns | AI authors |
 |---|---|
-| Evidence compilation and ranking | Bounded memory title and type |
-| Eligibility, consent, and redaction | Quest title, mission, and recipe |
-| Review state and final status | Composition from allowed quest templates |
-| Closed factual clauses plus final validation | No factual control state |
+| Evidence compilation, selection, and ranking | Memory title, type, and summary |
+| Eligibility, consent, identities, and redaction | One distinct perspective message per player |
+| Evidence references and quest verification controls | Quest title, mission, recipe, and objective lines |
+| Review state, safety validation, and final status | No factual or consent control state |
 
 Humans make two independent decisions: whether the source accurately describes the match and
 whether the moment is meaningful. AI is never the authority for either decision.
@@ -136,11 +136,11 @@ For a deployed server-side frontend proxy, `MEMORYOS_PROXY_TOKEN` can additional
 data-bearing POST routes through the `X-MemoryOS-Proxy-Token` header. Leave it unset for local
 development, and never expose it in client-side JavaScript.
 
-Core gameplay clauses are closed server renderings in both modes: memory summary/evidence,
-player-specific perspective messages/references, and quest-objective descriptions must match their
-deterministic templates exactly. The model retains bounded framing fields such as memory title and
-type and quest title, mission, and recipe; those still pass privacy, evidence, action, and lexical
-checks.
+In live mode, the model writes every player-facing narrative field: memory framing, personalized
+perspective messages, and quest title, mission, recipe, and objective lines. Deterministic
+scaffolds still own selected evidence, safe identities, per-player citations, assignments,
+verification rules, confirmation state, and final status. The server merges model prose onto those
+controls and then applies privacy, evidence, action, quest-alignment, and lexical checks.
 
 See [the API guide](docs/api.md) for configuration and request shapes.
 

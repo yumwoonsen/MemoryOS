@@ -137,10 +137,16 @@ export type PipelineMetadata = {
   model: string;
   mode?: InferenceMode;
   prompt_version?: string;
-  factual_renderer: string;
+  narrative_boundary?: string;
+  /** Legacy metadata accepted during rolling local upgrades. */
+  factual_renderer?: string;
   redaction_count?: number;
   compatibility_conversion?: string;
   stopped_stage?: string;
+  narrative_fallbacks?: {
+    perspectives?: number;
+    quest?: number;
+  };
   usage?: {
     input_tokens?: number;
     output_tokens?: number;

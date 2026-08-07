@@ -103,6 +103,8 @@ class OpenAIStructuredGenerator:
     """Generate one pipeline stage while preserving a strict Pydantic contract."""
 
     provider_name = "openai"
+    semantic_retry_limit = 1
+    narrative_fallback_enabled = True
 
     def __init__(self, model_name: str | None = None) -> None:
         if not os.getenv("OPENAI_API_KEY"):

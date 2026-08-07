@@ -373,7 +373,8 @@ function isPipelineMetadata(value: unknown) {
     typeof value.provider !== "string" ||
     typeof value.model !== "string" ||
     (value.mode !== undefined && !isInferenceMode(value.mode)) ||
-    typeof value.factual_renderer !== "string" ||
+    (typeof value.narrative_boundary !== "string" &&
+      typeof value.factual_renderer !== "string") ||
     (value.redaction_count !== undefined && !isFiniteNumber(value.redaction_count))
   ) {
     return false;
@@ -386,7 +387,13 @@ function isPipelineMetadata(value: unknown) {
       (value.usage.output_tokens === undefined || isFiniteNumber(value.usage.output_tokens)));
   const observabilityIsValid =
     value.observability === undefined || isPipelineObservability(value.observability);
-  return usageIsValid && observabilityIsValid;
+  const narrativeFallbacksAreValid =
+    value.narrative_fallbacks === undefined ||
+    (isRecord(value.narrative_fallbacks) &&
+      Object.values(value.narrative_fallbacks).every(
+        (count) => isFiniteNumber(count) && count >= 0 && Number.isInteger(count),
+      ));
+  return usageIsValid && observabilityIsValid && narrativeFallbacksAreValid;
 }
 
 function isDeveloperResult(
@@ -685,6 +692,9 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
           ? provider.toLowerCase() === "groq" ? "Groq AI" : "Live AI"
           : "Unconfirmed";
   const usage = result?.metadata.usage;
+  const perspectiveFallbackCount = result?.metadata.narrative_fallbacks?.perspectives ?? 0;
+  const questFallbackCount = result?.metadata.narrative_fallbacks?.quest ?? 0;
+  const narrativeFallbackCount = perspectiveFallbackCount + questFallbackCount;
   const inputTokens = observability?.totals.input_tokens ?? usage?.input_tokens ?? 0;
   const outputTokens = observability?.totals.output_tokens ?? usage?.output_tokens ?? 0;
   const totalTokens = inputTokens + outputTokens;
@@ -1174,6 +1184,16 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
             <div>
               <span>Redactions</span>
               <strong>{result?.metadata.redaction_count ?? "--"}</strong>
+            </div>
+            <div>
+              <span>Safe fallbacks</span>
+              <strong>
+                {result
+                  ? narrativeFallbackCount > 0
+                    ? `${narrativeFallbackCount} line${narrativeFallbackCount === 1 ? "" : "s"}`
+                    : "None"
+                  : "--"}
+              </strong>
             </div>
             <div>
               <span>Validation</span>

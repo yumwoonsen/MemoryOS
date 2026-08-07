@@ -9,6 +9,7 @@ from typing import Any
 
 from backend.agents.memory_agent import MemoryAgent
 from backend.agents.perspective_agent import PerspectiveAgent
+from backend.agents.quest_agent import QuestAgent
 from backend.models.schemas import (
     DiscoveryAssessment,
     IssueSeverity,
@@ -116,6 +117,7 @@ class ValidatorAgent:
         "vehicle_escape": (
             r"\bdrov(?:e|en)\b",
             r"\bdriv(?:e|es|ing)\b",
+            r"\bescap(?:e|ed|es|ing)\b",
             r"\bvehicle escape\b",
             r"\bgetaway\b",
         ),
@@ -133,8 +135,9 @@ class ValidatorAgent:
     }
     _claim_verbs = (
         "abandoned|betrayed|believed|called|calls|completed|drove|drives|"
-        "eliminated|eliminates|felt|helped|helps|hoped|killed|kills|knew|"
-        "rescued|rescues|revived|revives|sabotaged|saved|saves|surrendered|"
+        "eliminated|eliminates|escape|escaped|escapes|felt|helped|helps|hoped|"
+        "killed|kills|knew|made|rescued|rescues|revived|revives|sabotaged|saved|"
+        "saves|selected|selects|pinged|pings|takes|took|surrendered|"
         "wanted"
     )
     _generic_claim_subjects = {
@@ -210,14 +213,23 @@ class ValidatorAgent:
 
         issues = self._validate_memory_evidence(pack, memory)
         canonical_memory = MemoryAgent().preview(pack, memory.confidence)
-        if (
-            memory.summary != canonical_memory.summary
-            or memory.evidence != canonical_memory.evidence
-        ):
+        if memory.evidence != canonical_memory.evidence:
             issues.append(
                 self._error(
                     "noncanonical_memory_facts",
-                    "Memory facts must use the closed renderer for the selected evidence.",
+                    "Memory citations must match the deterministically selected evidence.",
+                )
+            )
+        if not self._has_evidence_anchor(
+            pack,
+            memory.summary,
+            [reference.event_id for reference in memory.evidence],
+        ):
+            issues.append(
+                self._error(
+                    "memory_summary_missing_evidence_anchor",
+                    "The memory summary must name a concrete action, participant, or location "
+                    "from its cited evidence.",
                 )
             )
         meaning_confirmed = pack.meaning_status == MeaningStatus.CONFIRMED
@@ -283,7 +295,6 @@ class ValidatorAgent:
         )
         if not canonical_by_player or any(
             canonical_by_player.get(perspective.player_id) is None
-            or perspective.message != canonical_by_player[perspective.player_id].message
             or perspective.evidence_event_ids
             != canonical_by_player[perspective.player_id].evidence_event_ids
             for perspective in perspectives
@@ -291,13 +302,15 @@ class ValidatorAgent:
             issues.append(
                 self._error(
                     "noncanonical_perspective_facts",
-                    "Perspective facts must use the closed player-specific renderer.",
+                    "Perspective citations must match each player's deterministic scaffold.",
                 )
             )
+        issues.extend(self._validate_perspective_narrative(pack, perspectives))
+        shared_memory_ids = tuple(reference.event_id for reference in memory.evidence)
         segments = [
             _FactualSegment(
                 perspective.message,
-                tuple(dict.fromkeys(perspective.evidence_event_ids)),
+                tuple(dict.fromkeys((*perspective.evidence_event_ids, *shared_memory_ids))),
                 speaker_player_id=perspective.player_id,
             )
             for perspective in perspectives
@@ -364,6 +377,17 @@ class ValidatorAgent:
         issues = self._validate_quest_rules(
             pack, {item.event_id for item in memory.evidence}, quest
         )
+        memory_event_ids = {item.event_id for item in memory.evidence}
+        input_event_ids = {event.event_id for event in pack.match_events}
+        if memory_event_ids and memory_event_ids <= input_event_ids:
+            canonical_quest = QuestAgent().create(pack, memory, [])
+            if self._quest_controls(quest) != self._quest_controls(canonical_quest):
+                issues.append(
+                    self._error(
+                        "noncanonical_quest_controls",
+                        "Quest verification controls must match the deterministic scaffold.",
+                    )
+                )
         issues.extend(
             issue
             for objective in quest.objectives
@@ -637,6 +661,97 @@ class ValidatorAgent:
                 )
             )
         return issues
+
+    def _validate_perspective_narrative(
+        self,
+        pack: MemoryPack,
+        perspectives: list[PlayerPerspective],
+    ) -> list[ValidationIssue]:
+        """Require direct address plus a concrete anchor from each fixed evidence set."""
+
+        issues: list[ValidationIssue] = []
+        for perspective in perspectives:
+            direct_text = self._strip_quoted_context(perspective.message)
+            if not re.search(
+                r"\b(?:you|your|yours|yourself|yourselves)\b",
+                direct_text,
+                re.IGNORECASE,
+            ):
+                issues.append(
+                    self._error(
+                        "perspective_not_second_person",
+                        "Every perspective must address its player in second person.",
+                    )
+                )
+
+            if not self._has_evidence_anchor(
+                pack,
+                perspective.message,
+                perspective.evidence_event_ids,
+                excluded_player_id=perspective.player_id,
+            ):
+                issues.append(
+                    self._error(
+                        "perspective_missing_evidence_anchor",
+                        "Every perspective must name a concrete action, participant, or location "
+                        "from that player's cited evidence.",
+                    )
+                )
+
+        return issues
+
+    def _has_evidence_anchor(
+        self,
+        pack: MemoryPack,
+        text: str,
+        event_ids: list[str],
+        *,
+        excluded_player_id: str | None = None,
+    ) -> bool:
+        """Return whether prose contains a concrete anchor supported by cited events."""
+
+        event_by_id = {event.event_id: event for event in pack.match_events}
+        events = [event_by_id[event_id] for event_id in event_ids if event_id in event_by_id]
+        if not events:
+            return False
+
+        factual_text = self._strip_quoted_context(text)
+        locations = {
+            location
+            for location in [pack.match.map_name, *(event.location for event in events)]
+            if location
+        }
+        if any(self._contains_phrase(factual_text, location) for location in locations):
+            return True
+
+        involved_player_ids = {
+            participant_id
+            for event in events
+            for participant_id in (event.actor_id, event.target_id)
+            if participant_id is not None and participant_id != excluded_player_id
+        }
+        opted_in_names = {
+            member.player_id: member.display_name
+            for member in pack.squad.members
+            if member.opted_in
+        }
+        if any(
+            self._contains_phrase(factual_text, opted_in_names[participant_id])
+            for participant_id in involved_player_ids & set(opted_in_names)
+        ):
+            return True
+
+        for event_type in {event.type for event in events}:
+            event_label = event_type.replace("_", " ")
+            if self._contains_phrase(factual_text, event_label):
+                return True
+            if any(
+                re.search(pattern, factual_text, re.IGNORECASE)
+                for pattern in self.event_action_patterns.get(event_type, ())
+            ):
+                return True
+
+        return False
 
     def _validate_generated_language(
         self,
@@ -978,11 +1093,16 @@ class ValidatorAgent:
             "defeats": "elimination",
             "drove": "vehicle_escape",
             "drives": "vehicle_escape",
+            "escape": "vehicle_escape",
+            "escaped": "vehicle_escape",
+            "escapes": "vehicle_escape",
             "eliminated": "elimination",
             "eliminates": "elimination",
             "killed": "elimination",
             "kills": "elimination",
             "knocked": "knockdown",
+            "pinged": "retreat_ping",
+            "pings": "retreat_ping",
             "rescued": "revive",
             "rescues": "revive",
             "revived": "revive",
@@ -996,12 +1116,108 @@ class ValidatorAgent:
         mismatches: set[str] = set()
         unsupported_states: set[str] = set()
 
-        for match in re.finditer(
-            rf"(?:^|[.!?]\s+|,\s*|\b(?:before|after|when|where|while)\s+)"
+        def resolve_event_type(verb: str, tail: str) -> tuple[bool, str | None]:
+            if verb == "came" and re.match(r"\s+back\s+for\b", tail, re.IGNORECASE):
+                return True, "revive"
+            if verb == "brought" and re.search(r"\bback\b", tail, re.IGNORECASE):
+                return True, "revive"
+            if verb == "became" and re.search(r"\b(?:last|surviving)\b", tail, re.IGNORECASE):
+                return True, "last_player_alive"
+            if verb == "completed" and re.search(
+                r"\b(?:vehicle\s+escape|escape|getaway)\b", tail, re.IGNORECASE
+            ):
+                return True, "vehicle_escape"
+            if verb == "made" and re.search(
+                r"\b(?:vehicle\s+escape|escape|getaway)\b", tail, re.IGNORECASE
+            ):
+                return True, "vehicle_escape"
+            if verb in {"take", "takes", "took"} and re.search(
+                r"\b(?:a\s+|the\s+)?vehicle\b.{0,80}\b(?:out|away|escape\w*)\b",
+                tail,
+                re.IGNORECASE,
+            ):
+                return True, "vehicle_escape"
+            if verb in {"select", "selected", "selects"} and re.search(
+                r"\b(?:route|rotation)\b",
+                tail,
+                re.IGNORECASE,
+            ):
+                return True, "retreat_ping"
+            if verb == "triggered":
+                return True, None
+            event_type = action_event_types.get(verb)
+            return event_type is not None, event_type
+
+        def validate_action(
+            subject_id: str | None,
+            event_type: str | None,
+            tail: str,
+        ) -> None:
+            if not events:
+                mismatches.add(event_type or "actor_event")
+                return
+            if event_type is None:
+                if bind_roles and subject_id not in {event.actor_id for event in events}:
+                    mismatches.add("actor_event")
+                return
+
+            typed_events = [event for event in events if event.type == event_type]
+            if not typed_events:
+                mismatches.add(event_type)
+                return
+            if not bind_roles:
+                return
+            if subject_id is None:
+                mismatches.add(event_type)
+                return
+
+            # An object belongs to the current action clause. Looking through a
+            # following comma can mistake the next clause's subject for this
+            # action's target ("revived him, Jo escaped").
+            clause_boundary = (
+                rf"[,;.!?]|\b(?:and|but|while|before|after|when|then)\s+"
+                rf"(?={subject_pattern}\b)"
+            )
+            object_clause = re.split(
+                clause_boundary,
+                tail,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0]
+            target_id = self._first_named_object_id(
+                object_clause,
+                pack,
+                speaker_player_id=speaker_player_id,
+            )
+            if event_type in {"revive", "elimination", "knockdown"} and target_id:
+                grounded = any(
+                    event.actor_id == subject_id and event.target_id == target_id
+                    for event in typed_events
+                )
+            else:
+                grounded = any(event.actor_id == subject_id for event in typed_events)
+            if not grounded:
+                mismatches.add(event_type)
+
+        explicit_matches = re.finditer(
+            rf"(?:^|[.!?]\s+|,\s*|\b(?:and\s+then|and|then|before|after|when|where|while)\s+)"
             rf"(?P<subject>{subject_pattern})\s+(?P<verb>[A-Za-z]+)\b",
             text,
             re.IGNORECASE,
-        ):
+        )
+        implicit_subject_starters = {
+            "a",
+            "an",
+            "he",
+            "it",
+            "she",
+            "the",
+            "they",
+            "we",
+            "you",
+            "your",
+        }
+        for match in explicit_matches:
             subject_label = match.group("subject")
             subject_id = (
                 speaker_player_id
@@ -1009,9 +1225,12 @@ class ValidatorAgent:
                 else display_to_id.get(subject_label.casefold())
             )
             verb = match.group("verb").casefold()
-            tail = text[match.end() : match.end() + 120]
+            tail = text[match.end() : match.end() + 160]
 
-            if verb == "and":
+            # Roster lists can place a player after a conjunction followed by
+            # an adverb or preposition ("Lee, Mei, and Amir together"). That
+            # is not a player-action clause.
+            if verb in {"and", "at", "for", "from", "in", "of", "to", "together", "with"}:
                 continue
             if verb in {"was", "were", "is", "are"}:
                 state_result = self._validate_copular_state(
@@ -1026,75 +1245,57 @@ class ValidatorAgent:
                     unsupported_states.add(verb)
                 elif state_result:
                     mismatches.add(state_result)
-                continue
-            if verb == "came" and re.match(r"\s+back\s+for\b", tail, re.IGNORECASE):
-                event_type = "revive"
-            elif verb == "brought" and re.search(r"\bback\b", tail, re.IGNORECASE):
-                event_type = "revive"
-            elif verb == "became" and re.search(r"\b(?:last|surviving)\b", tail, re.IGNORECASE):
-                event_type = "last_player_alive"
-            elif verb == "completed" and re.search(
-                r"\b(?:vehicle\s+escape|escape|getaway)\b", tail, re.IGNORECASE
-            ):
-                event_type = "vehicle_escape"
-            elif verb == "triggered":
-                event_type = None
             else:
-                event_type = action_event_types.get(verb)
-                if event_type is None:
+                recognized, event_type = resolve_event_type(verb, tail)
+                if not recognized:
                     unsupported.add(verb)
-                    continue
+                else:
+                    validate_action(subject_id, event_type, tail)
 
-            if not events:
-                mismatches.add(event_type or "actor_event")
-                continue
-            if event_type is None:
-                if bind_roles and subject_id not in {event.actor_id for event in events}:
-                    mismatches.add("actor_event")
-                continue
-
-            typed_events = [event for event in events if event.type == event_type]
-            if not typed_events:
-                mismatches.add(event_type)
-                continue
-            if not bind_roles:
-                continue
-            if subject_id is None:
-                mismatches.add(event_type)
-                continue
-
-            target_id = self._first_named_object_id(
-                tail,
-                pack,
-                speaker_player_id=speaker_player_id,
+            # A coordinated lower-case verb inherits the current explicit
+            # subject ("You called ... and drove ..."). Stop before any newly
+            # named subject so its own explicit clause is validated separately.
+            coordination_boundary = (
+                rf"[;.!?]|,\s*(?={subject_pattern}\b)|"
+                rf"\b(?:and\s+then|and|then|before|after|when|where|while)\s+"
+                rf"(?={subject_pattern}\b)"
             )
-            if event_type in {"revive", "elimination", "knockdown"} and target_id:
-                grounded = any(
-                    event.actor_id == subject_id and event.target_id == target_id
-                    for event in typed_events
+            coordination_text = re.split(
+                coordination_boundary,
+                tail,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0]
+            for coordinated in re.finditer(
+                r"\b(?:and\s+then|and|then)\s+(?P<verb>[a-z][a-z'-]*)\b",
+                coordination_text,
+            ):
+                coordinated_verb = coordinated.group("verb").casefold()
+                if coordinated_verb in implicit_subject_starters:
+                    continue
+                coordinated_tail = coordination_text[coordinated.end() :]
+                if coordinated_verb in {"was", "were", "is", "are"}:
+                    state_result = self._validate_copular_state(
+                        pack,
+                        subject_id,
+                        coordinated_tail,
+                        events,
+                        speaker_player_id=speaker_player_id,
+                        bind_roles=bind_roles,
+                    )
+                    if state_result == "unsupported":
+                        unsupported_states.add(coordinated_verb)
+                    elif state_result:
+                        mismatches.add(state_result)
+                    continue
+                recognized, event_type = resolve_event_type(
+                    coordinated_verb,
+                    coordinated_tail,
                 )
-            else:
-                grounded = any(event.actor_id == subject_id for event in typed_events)
-            if not grounded:
-                mismatches.add(event_type)
-
-        for match in re.finditer(r"\b(?:and|then)\s+([a-z][a-z'-]*)\b", text):
-            verb = match.group(1).casefold()
-            if verb in {
-                "became",
-                "brought",
-                "called",
-                "completed",
-                "drove",
-                "eliminated",
-                "rescued",
-                "revived",
-                "remix",
-                "survived",
-                "triggered",
-            }:
-                continue
-            unsupported.add(verb)
+                if not recognized:
+                    unsupported.add(coordinated_verb)
+                    continue
+                validate_action(subject_id, event_type, coordinated_tail)
 
         return unsupported, mismatches, unsupported_states
 
@@ -1324,7 +1525,7 @@ class ValidatorAgent:
         pack: MemoryPack,
         objective: QuestObjective,
     ) -> list[ValidationIssue]:
-        """Require one closed, deterministic wording template per verification rule."""
+        """Require generated wording to express its deterministic verification rule."""
 
         metric = objective.verification.metric
         target = objective.verification.target
@@ -1335,14 +1536,65 @@ class ValidatorAgent:
             for event_id in objective.source_event_ids
             if event_id in event_by_id
         ]
-        expected: str | None = None
+        description = objective.description
+        normalized = self._normalize_phrase(description)
+        aligned = False
 
         if metric == "squad_member_ids":
-            expected = "Complete a match with the opted-in members of the original squad."
+            target_ids = self._string_list(target) or []
+            target_names = [roster[player_id] for player_id in target_ids if player_id in roster]
+            names_complete_roster = (
+                bool(target_names)
+                and len(target_names) == len(target_ids)
+                and all(self._contains_phrase(description, name) for name in target_names)
+            )
+            has_group_phrase = any(
+                term in normalized for term in ("original squad", "members", "roster")
+            )
+            has_assembly_action = bool(
+                re.search(
+                    r"\b(?:complet\w*|gather\w*|play\w*|reassembl\w*|reunit\w*)\b", normalized
+                )
+            )
+            aligned = (
+                "match" in normalized
+                and has_assembly_action
+                and (has_group_phrase or names_complete_roster)
+            )
+            aligned = aligned and not (
+                self._requirement_action_is_negated(
+                    normalized,
+                    r"(?:complet\w*|gather\w*|match|play\w*|reassembl\w*|reunit\w*)",
+                )
+                or any(
+                    self._phrase_is_excluded(description, phrase)
+                    for phrase in (
+                        "original squad",
+                        "original members",
+                        "squad members",
+                        "opted-in members",
+                        "roster",
+                    )
+                )
+            )
         elif metric == "visited_locations":
             locations = self._string_list(target)
             if locations and len(locations) == 1:
-                expected = f"Return to {locations[0]} during the new match."
+                aligned = self._contains_phrase(description, locations[0]) and bool(
+                    re.search(
+                        r"\b(?:return\w*|visit\w*|reach\w*|enter\w*|land\w*|"
+                        r"drop\w*|rotat\w*|go)\b",
+                        normalized,
+                    )
+                )
+                aligned = aligned and not (
+                    self._requirement_action_is_negated(
+                        normalized,
+                        r"(?:return\w*|visit\w*|reach\w*|enter\w*|land\w*|"
+                        r"drop\w*|rotat\w*|go)",
+                    )
+                    or self._phrase_is_excluded(description, locations[0])
+                )
         else:
             revive_match = re.fullmatch(r"revives\.([^.]+)\.targets", metric)
             escape_match = re.fullmatch(r"vehicle_escape\.([^.]+)\.passengers", metric)
@@ -1352,9 +1604,19 @@ class ValidatorAgent:
                 if actor_id in roster and target_ids and len(target_ids) == 1:
                     target_id = target_ids[0]
                     if target_id in roster:
-                        expected = (
-                            f"{roster[actor_id]} revives {roster[target_id]}, "
-                            "reversing the original roles."
+                        aligned = self._revive_roles_match(
+                            description,
+                            actor_name=roster[actor_id],
+                            target_name=roster[target_id],
+                        )
+                        aligned = aligned and not (
+                            self._requirement_action_is_negated(
+                                normalized,
+                                r"(?:reviv\w*|rescu\w*|bring\w*)",
+                            )
+                            or self._phrase_is_excluded(description, roster[actor_id])
+                            or self._phrase_is_excluded(description, roster[target_id])
+                            or self._revive_completion_is_zero(normalized)
                         )
             elif escape_match:
                 driver_id = escape_match.group(1)
@@ -1372,21 +1634,251 @@ class ValidatorAgent:
                     and not isinstance(target, bool)
                     and escape_event is not None
                 ):
-                    expected = (
-                        f"{roster[driver_id]} drives at least {target} teammates out of "
-                        f"{escape_event.location or 'danger'}."
+                    aligned = (
+                        self._contains_phrase(description, roster[driver_id])
+                        and self._contains_numeric_target(description, target)
+                        and bool(
+                            re.search(
+                                r"\b(?:driv\w*|escape\w*|getaway|passenger\w*)\b",
+                                normalized,
+                            )
+                            or re.search(
+                                r"\btak\w*\b.{0,40}\bvehicle\b.{0,60}"
+                                r"\b(?:out|away|escape\w*)\b",
+                                normalized,
+                            )
+                        )
+                    )
+                    aligned = aligned and not (
+                        self._requirement_action_is_negated(
+                            normalized,
+                            r"(?:driv\w*|escape\w*|getaway|passenger\w*)",
+                        )
+                        or self._phrase_is_excluded(description, roster[driver_id])
+                        or self._opposes_at_least(normalized, target)
                     )
             elif metric == "initial_route_caller_id":
                 if isinstance(target, str) and target in roster:
-                    expected = f"{roster[target]} chooses the squad's first rotation route."
+                    aligned = (
+                        self._contains_phrase(description, roster[target])
+                        and bool(re.search(r"\b(?:route|rotation)\b", normalized))
+                        and bool(
+                            re.search(
+                                r"\b(?:choose\w*|call\w*|lead\w*|select\w*|set\w*)\b",
+                                normalized,
+                            )
+                        )
+                    )
+                    aligned = aligned and not (
+                        self._requirement_action_is_negated(
+                            normalized,
+                            r"(?:choose\w*|call\w*|lead\w*|select\w*|set\w*)",
+                        )
+                        or self._phrase_is_excluded(description, roster[target])
+                        or self._excludes_initial_route(normalized)
+                    )
 
-        if expected is not None and objective.description == expected:
+        if aligned:
             return []
         return [
             self._error(
                 "quest_description_rule_mismatch",
-                "Quest objective wording does not describe its verification rule.",
+                f"Quest objective {objective.objective_id!r} wording does not describe "
+                "its verification rule.",
             )
+        ]
+
+    @staticmethod
+    def _requirement_action_is_negated(text: str, action_pattern: str) -> bool:
+        """Detect a nearby negator that reverses a required objective action."""
+
+        searchable = " ".join(
+            text.casefold().replace("\N{RIGHT SINGLE QUOTATION MARK}", "'").split()
+        )
+        negator = (
+            r"(?:not|never|without|no|zero|cannot|can(?:'t|\s+t)|"
+            r"don(?:'t|\s+t)|doesn(?:'t|\s+t)|"
+            r"avoid\w*|skip\w*|exclude\w*)"
+        )
+        return bool(
+            re.search(
+                rf"\b{negator}(?:\s+\w+){{0,2}}\s+{action_pattern}\b",
+                searchable,
+            )
+        )
+
+    @staticmethod
+    def _contains_numeric_target(text: str, target: int | float) -> bool:
+        """Recognize a verification target written as digits or a small number word."""
+
+        if re.search(rf"(?<![\d.]){re.escape(str(target))}(?![\d.])", text):
+            return True
+        number_words = {
+            0: "zero",
+            1: "one",
+            2: "two",
+            3: "three",
+            4: "four",
+            5: "five",
+            6: "six",
+            7: "seven",
+            8: "eight",
+            9: "nine",
+            10: "ten",
+        }
+        return (
+            isinstance(target, int)
+            and not isinstance(target, bool)
+            and target in number_words
+            and bool(re.search(rf"\b{number_words[target]}\b", text, re.IGNORECASE))
+        )
+
+    @classmethod
+    def _phrase_is_excluded(cls, text: str, phrase: str) -> bool:
+        """Return whether a required person, place, or group is explicitly excluded."""
+
+        exclusion = (
+            r"(?:without|excluding?|except(?:\s+for)?|other\s+than|apart\s+from|"
+            r"but\s+not|not(?:\s+to)?|no)"
+        )
+        return bool(
+            re.search(
+                rf"\b{exclusion}\s+(?:(?:the|any|all)\s+)?"
+                rf"{cls._phrase_pattern(phrase)}",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    @classmethod
+    def _revive_roles_match(
+        cls,
+        text: str,
+        *,
+        actor_name: str,
+        target_name: str,
+    ) -> bool:
+        """Bind a revive instruction to its required actor and target roles."""
+
+        actor_spans = list(re.finditer(cls._phrase_pattern(actor_name), text, re.IGNORECASE))
+        target_spans = list(re.finditer(cls._phrase_pattern(target_name), text, re.IGNORECASE))
+        actions = list(re.finditer(r"\b(?:reviv\w*|rescu\w*|bring\w*)\b", text, re.IGNORECASE))
+        for actor in actor_spans:
+            for target in target_spans:
+                for action in actions:
+                    context_end = min(len(text), max(actor.end(), target.end()) + 32)
+                    if action.group(0).casefold().startswith("bring") and not re.search(
+                        r"\bback\b", text[action.end() : context_end], re.IGNORECASE
+                    ):
+                        continue
+                    active = (
+                        actor.end() <= action.start() <= target.start()
+                        and cls._word_gap(text, actor.end(), action.start()) <= 7
+                        and cls._word_gap(text, action.end(), target.start()) <= 7
+                        and not re.search(
+                            r"\bby\b",
+                            text[action.end() : target.start()],
+                            re.IGNORECASE,
+                        )
+                    )
+                    passive = (
+                        target.end() <= action.start() <= actor.start()
+                        and cls._word_gap(text, target.end(), action.start()) <= 7
+                        and cls._word_gap(text, action.end(), actor.start()) <= 7
+                        and bool(
+                            re.search(
+                                r"\bby\b",
+                                text[action.end() : actor.start()],
+                                re.IGNORECASE,
+                            )
+                        )
+                    )
+                    if active or passive:
+                        return True
+        return False
+
+    @staticmethod
+    def _word_gap(text: str, start: int, end: int) -> int:
+        return len(re.findall(r"\w+", text[start:end]))
+
+    @staticmethod
+    def _revive_completion_is_zero(text: str) -> bool:
+        """Detect wording that explicitly requires no successful revive."""
+
+        action = r"(?:reviv\w*|rescu\w*)"
+        return bool(
+            re.search(
+                rf"\b{action}\b(?:\W+\w+){{0,4}}\W+"
+                r"\b(?:zero|no)\s+(?:successful\s+)?times?\b",
+                text,
+            )
+            or re.search(
+                r"\b(?:zero|no)\s+(?:successful\s+)?(?:revives?|rescues?)\b",
+                text,
+            )
+            or re.search(
+                r"\b(?:revive|rescue)\s+count\b(?:\W+\w+){0,3}\W+"
+                r"\b(?:zero|none)\b",
+                text,
+            )
+            or re.search(
+                rf"\b{action}\b(?:\W+\w+){{0,5}}\W+"
+                r"\bnever\s+(?:count\w*|register\w*|happen\w*|occur\w*|succeed\w*)\b",
+                text,
+            )
+        )
+
+    @staticmethod
+    def _opposes_at_least(text: str, target: int | float) -> bool:
+        """Reject upper-bound wording that contradicts an at-least verification rule."""
+
+        number = rf"(?<![\d.]){re.escape(str(target))}(?![\d.])"
+        searchable = re.sub(
+            rf"\b(?:no|not)\s+(?:fewer|less)\s+than\s+{number}",
+            " compatible lower bound ",
+            text,
+        )
+        upper_bound = (
+            r"(?:at\s+most|no\s+more\s+than|fewer\s+than|less\s+than|under|below|"
+            r"up\s+to|max(?:imum)?(?:\s+of)?|limit(?:ed)?\s+to)"
+        )
+        return bool(
+            re.search(rf"\b{upper_bound}\s+{number}", searchable)
+            or re.search(
+                rf"{number}\s+(?:or\s+(?:fewer|less)|max(?:imum)?)\b",
+                searchable,
+            )
+            or re.search(
+                r"\b(?:zero|no)\s+(?:\w+\s+){0,2}(?:passengers?|teammates?|players?)\b",
+                searchable,
+            )
+        )
+
+    @staticmethod
+    def _excludes_initial_route(text: str) -> bool:
+        """Detect wording that explicitly chooses a non-initial route."""
+
+        initial = r"(?:first|initial|opening|starting)"
+        return bool(
+            re.search(
+                rf"\b(?:except(?:\s+for)?|other\s+than|apart\s+from|but(?:\s+not)?|not)"
+                rf"\s+(?:the\s+)?{initial}\s+(?:route|rotation)\b",
+                text,
+            )
+            or re.search(
+                rf"\b(?:route|rotation)\s+(?:except(?:\s+for)?|other\s+than|"
+                rf"but(?:\s+not)?)\s+(?:the\s+)?{initial}\b",
+                text,
+            )
+        )
+
+    @staticmethod
+    def _quest_controls(quest: NextChapter) -> list[dict[str, object]]:
+        """Return the non-narrative quest fields that the model may not alter."""
+
+        return [
+            objective.model_dump(mode="json", exclude={"description"})
+            for objective in quest.objectives
         ]
 
     def _quest_target_issues(
@@ -1450,7 +1942,14 @@ class ValidatorAgent:
 
     @classmethod
     def _unknown_claimed_players(cls, text: str, known_names: set[str]) -> set[str]:
-        proper_name = r"[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*){0,2}"
+        # Sentence-leading conjunctions are capitalized but are not part of a
+        # player's name (for example, "After Amir called ..."). Excluding them
+        # at each candidate start still lets the regex advance to and validate
+        # the actual name that follows.
+        connector = (
+            r"(?:After|Although|As|Because|Before|If|Later|Once|Since|Then|When|Where|While)"
+        )
+        proper_name = rf"(?!{connector}\b)[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*){{0,2}}"
         subjects = re.findall(
             rf"(?<![\w])({proper_name})\s+(?=(?:{cls._claim_verbs})\b)",
             text,

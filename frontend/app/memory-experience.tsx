@@ -132,7 +132,8 @@ function parseMemoryResult(value: unknown, pack: MemoryPack): MemoryEngineResult
     typeof metadata.provider !== "string" ||
     typeof metadata.model !== "string" ||
     (metadata.mode !== undefined && !["deterministic", "live_ai"].includes(String(metadata.mode))) ||
-    typeof metadata.factual_renderer !== "string" ||
+    (typeof metadata.narrative_boundary !== "string" &&
+      typeof metadata.factual_renderer !== "string") ||
     !Array.isArray(value.player_perspectives)
   ) {
     throw new Error("MemoryOS returned an incomplete validation result.");

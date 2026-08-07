@@ -166,6 +166,11 @@ fields, `memory` and `next_chapter` are absent when a gate stops generation or v
 the artifacts; `player_perspectives` remains an empty array. `discovery`, review states,
 `validation`, and metadata remain available to explain the result.
 
+`metadata.prompt_version: "narrative-scaffold-v1"` identifies the prompt contract used by the
+model-capable stages. `metadata.narrative_boundary: "model-prose-deterministic-controls-v1"`
+records that player-facing prose may be model-authored while evidence, consent, identity,
+assignment, and verification controls remain deterministic.
+
 The top-level `status` is the readiness contract. Only `status: "ready"` permits a client to present
 generated artifacts as ready. `validation.passed` has a narrower meaning: it reports whether the
 deterministic checks that were applicable at that stopping point completed without an error. It is
@@ -260,13 +265,12 @@ actions, relationships, emotions, and motives. These heuristics reduce obvious h
 do not prove every implication in arbitrary prose. A production service still needs broader
 semantic evaluation, moderation, adversarial testing, and human review.
 
-Core factual clauses use a stricter closed renderer. A live model must return the server-rendered
-memory summary and evidence exactly, return each player-specific perspective message and its
-evidence references exactly, and use the exact objective description associated with each validated
-quest rule. The pipeline also overwrites model-authored confidence and confirmation values with the
-deterministic score and normalized review state. Memory title and type, plus quest title, mission,
-and recipe, remain bounded model framing and still pass the privacy, evidence, action, and lexical
-checks above.
+In live mode, the model authors memory title/type/summary, each personalized perspective message,
+and quest title/mission/recipe/objective descriptions. The server preserves the deterministic
+evidence set, per-player references, safe identities, quest assignments, required flags, source
+events, and verification rules. It also overwrites model-authored confidence and confirmation with
+the deterministic score and normalized review state. The merged result must pass the privacy,
+evidence, action, objective-alignment, and lexical checks above.
 
 ## Provider configuration
 

@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 import backend.main as api
 from backend.main import app
+from backend.models.schemas import IssueSeverity, PipelineStatusV11, ValidationIssue
+from backend.pipeline import MemoryPipeline
 from backend.services.openai_client import OpenAIProviderError
 
 client = TestClient(app)
@@ -30,7 +32,9 @@ def test_health_endpoint() -> None:
 
 def test_groq_health_requires_a_server_side_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MEMORYOS_PROVIDER", "groq")
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    # An explicit empty value keeps python-dotenv from repopulating the key
+    # from a developer's local .env file during this isolated configuration test.
+    monkeypatch.setenv("GROQ_API_KEY", "")
 
     response = client.get("/health")
 
@@ -288,7 +292,11 @@ def test_v10_pack_uses_phase_2_metadata_on_generate() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["metadata"]["pipeline_version"] == "phase-2-generation-v1"
+    metadata = response.json()["metadata"]
+    assert metadata["pipeline_version"] == "phase-2-generation-v1"
+    assert metadata["prompt_version"] == "narrative-scaffold-v1"
+    assert metadata["narrative_boundary"] == "model-prose-deterministic-controls-v1"
+    assert "factual_renderer" not in metadata
 
 
 def test_review_gate_precedes_live_provider_initialization(
@@ -367,3 +375,56 @@ def test_stream_emits_typed_provider_error(monkeypatch: pytest.MonkeyPatch) -> N
         "code": "provider_timeout",
         "retryable": True,
     }
+
+
+def test_stream_reports_the_actual_rejected_generation_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RejectedPerspectivePipeline:
+        def generate(self, memory_pack: object):
+            ready = MemoryPipeline().generate(memory_pack)
+            validation = ready.validation.model_copy(
+                update={
+                    "passed": False,
+                    "human_review_required": True,
+                    "issues": [
+                        ValidationIssue(
+                            code="event_action_mismatch",
+                            severity=IssueSeverity.ERROR,
+                            message="A perspective used an action outside its evidence scope.",
+                        )
+                    ],
+                }
+            )
+            return ready.model_copy(
+                update={
+                    "status": PipelineStatusV11.REJECTED,
+                    "memory": None,
+                    "player_perspectives": [],
+                    "next_chapter": None,
+                    "validation": validation,
+                    "metadata": {**ready.metadata, "stopped_stage": "perspectives"},
+                }
+            )
+
+    monkeypatch.setattr(api, "build_pipeline", lambda: RejectedPerspectivePipeline())
+    response = client.post(
+        "/v1/memories/generate-stream",
+        json={"schema_version": "1.1", "memory_pack": load_history_payload()[0]},
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    stage_states = [
+        (event["stage"], event["status"])
+        for event in events
+        if event["type"] == "stage"
+    ]
+
+    assert stage_states == [
+        ("review_and_discovery", "working"),
+        ("review_and_discovery", "complete"),
+        ("memory_discovery", "complete"),
+        ("perspectives", "stopped"),
+        ("validation", "failed"),
+    ]
+    assert events[-1]["result"]["metadata"]["stopped_stage"] == "perspectives"

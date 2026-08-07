@@ -174,7 +174,8 @@ test("hosted discovery returns a JSON sample instead of proxying localhost", asy
   assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
   const result = await response.json();
   assert.equal(result.status, "ready");
-  assert.equal(result.metadata.factual_renderer, "closed-v1");
+  assert.equal(result.metadata.prompt_version, "narrative-scaffold-v1");
+  assert.equal(result.metadata.narrative_boundary, "model-prose-deterministic-controls-v1");
   assert.match(result.player_perspectives[0].message, /Mei came back for you/);
   assert.match(result.next_chapter.mission, /remix Worst Plan, Best Night/);
 });

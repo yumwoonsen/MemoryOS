@@ -24,8 +24,10 @@ from backend.models.schemas import (
     MemoryPack,
     MemoryPackV11,
     MemoryRecord,
+    NextChapter,
     PipelineStatus,
     PipelineStatusV11,
+    PlayerPerspective,
     SourceStatus,
 )
 from backend.services.delivery_store import delivery_decision_store
@@ -39,6 +41,8 @@ class LazyOpenAIStructuredGenerator:
     """Expose provider metadata immediately but create the SDK client only on first generation."""
 
     provider_name = "openai"
+    semantic_retry_limit = 1
+    narrative_fallback_enabled = True
 
     def __init__(self) -> None:
         from backend.services.openai_client import DEFAULT_MODEL
@@ -85,6 +89,8 @@ class LazyGroqStructuredGenerator:
     """Expose Groq metadata while deferring key validation until a model stage runs."""
 
     provider_name = "groq"
+    semantic_retry_limit = 1
+    narrative_fallback_enabled = True
 
     def __init__(self) -> None:
         from backend.services.groq_client import DEFAULT_MODEL
@@ -152,6 +158,19 @@ class MemoryPipeline:
         return "live_ai" if self._generator else "deterministic"
 
     @property
+    def semantic_retry_limit(self) -> int:
+        """Return the bounded number of model correction passes allowed per stage."""
+
+        value = getattr(self._generator, "semantic_retry_limit", 0)
+        return value if isinstance(value, int) and value > 0 else 0
+
+    @property
+    def narrative_fallback_enabled(self) -> bool:
+        """Return whether a live provider opts into deterministic narrative recovery."""
+
+        return getattr(self._generator, "narrative_fallback_enabled", False) is True
+
+    @property
     def usage_totals(self) -> dict[str, int]:
         usage = getattr(self._generator, "usage_totals", None)
         return dict(usage) if usage is not None else {"input_tokens": 0, "output_tokens": 0}
@@ -198,13 +217,32 @@ class MemoryPipeline:
 
         memory = self._authoritative_memory_state(pack, assessment.signal_score, memory)
 
-        memory_stage = self.validator_agent.stage_failure_report(
-            self.validator_agent.validate_memory_stage(
+        memory_issues = self.validator_agent.validate_memory_stage(
+            safe_pack,
+            memory,
+            forbidden_terms=forbidden_terms,
+        )
+        for _ in range(self.semantic_retry_limit):
+            if not memory_issues:
+                break
+            _, retried_memory = self.memory_agent.discover_from_assessment(
+                safe_pack,
+                assessment,
+                validation_feedback_codes=[issue.code for issue in memory_issues],
+            )
+            if retried_memory is None:  # pragma: no cover - assessment remains eligible
+                break
+            memory = self._authoritative_memory_state(
+                pack,
+                assessment.signal_score,
+                retried_memory,
+            )
+            memory_issues = self.validator_agent.validate_memory_stage(
                 safe_pack,
                 memory,
                 forbidden_terms=forbidden_terms,
             )
-        )
+        memory_stage = self.validator_agent.stage_failure_report(memory_issues)
         if not memory_stage.passed:
             return MemoryEngineResult(
                 pack_id=pack.pack_id,
@@ -215,24 +253,57 @@ class MemoryPipeline:
             )
 
         perspectives = self.perspective_agent.create(safe_pack, memory)
-        perspective_stage = self.validator_agent.stage_failure_report(
-            self.validator_agent.validate_perspective_stage(
+        perspective_fallback_count = 0
+        perspective_issues = self.validator_agent.validate_perspective_stage(
+            safe_pack,
+            memory,
+            perspectives,
+            forbidden_terms=forbidden_terms,
+        )
+        for _ in range(self.semantic_retry_limit):
+            if not perspective_issues:
+                break
+            perspectives = self.perspective_agent.create(
+                safe_pack,
+                memory,
+                validation_feedback_codes=[issue.code for issue in perspective_issues],
+            )
+            perspective_issues = self.validator_agent.validate_perspective_stage(
                 safe_pack,
                 memory,
                 perspectives,
                 forbidden_terms=forbidden_terms,
             )
-        )
+        if perspective_issues and self.narrative_fallback_enabled:
+            perspectives, perspective_fallback_count = self._retain_safe_perspectives(
+                safe_pack,
+                memory,
+                perspectives,
+                forbidden_terms=forbidden_terms,
+            )
+            perspective_issues = self.validator_agent.validate_perspective_stage(
+                safe_pack,
+                memory,
+                perspectives,
+                forbidden_terms=forbidden_terms,
+            )
+        perspective_stage = self.validator_agent.stage_failure_report(perspective_issues)
         if not perspective_stage.passed:
             return MemoryEngineResult(
                 pack_id=pack.pack_id,
                 status=PipelineStatus.REJECTED,
                 discovery=assessment,
                 validation=perspective_stage,
-                metadata=self._stage_metadata(pack, len(redactions), "perspectives"),
+                metadata=self._stage_metadata(
+                    pack,
+                    len(redactions),
+                    "perspectives",
+                    perspective_fallback_count=perspective_fallback_count,
+                ),
             )
 
         quest = self.quest_agent.create(safe_pack, memory, perspectives)
+        quest_fallback_count = 0
         validation = self.validator_agent.validate(
             safe_pack,
             memory,
@@ -240,6 +311,37 @@ class MemoryPipeline:
             quest,
             forbidden_terms=forbidden_terms,
         )
+        for _ in range(self.semantic_retry_limit):
+            if validation.passed:
+                break
+            quest = self.quest_agent.create(
+                safe_pack,
+                memory,
+                perspectives,
+                validation_feedback_codes=[issue.code for issue in validation.issues],
+            )
+            validation = self.validator_agent.validate(
+                safe_pack,
+                memory,
+                perspectives,
+                quest,
+                forbidden_terms=forbidden_terms,
+            )
+        if not validation.passed and self.narrative_fallback_enabled:
+            quest, quest_fallback_count = self._retain_safe_quest(
+                safe_pack,
+                memory,
+                perspectives,
+                quest,
+                forbidden_terms=forbidden_terms,
+            )
+            validation = self.validator_agent.validate(
+                safe_pack,
+                memory,
+                perspectives,
+                quest,
+                forbidden_terms=forbidden_terms,
+            )
 
         if not validation.passed:
             status = PipelineStatus.REJECTED
@@ -256,7 +358,12 @@ class MemoryPipeline:
             player_perspectives=perspectives if validation.passed else [],
             next_chapter=quest if validation.passed else None,
             validation=validation,
-            metadata=self._metadata(pack, len(redactions)),
+            metadata=self._metadata(
+                pack,
+                len(redactions),
+                perspective_fallback_count=perspective_fallback_count,
+                quest_fallback_count=quest_fallback_count,
+            ),
         )
 
     def discover_history(self, request: HistoricalDiscoveryRequest) -> HistoricalDiscoveryResponse:
@@ -319,13 +426,32 @@ class MemoryPipeline:
 
         memory = self._authoritative_memory_state(pack, assessment.signal_score, memory)
 
-        memory_stage = self.validator_agent.stage_failure_report(
-            self.validator_agent.validate_memory_stage(
+        memory_issues = self.validator_agent.validate_memory_stage(
+            safe_pack,
+            memory,
+            forbidden_terms=forbidden_terms,
+        )
+        for _ in range(self.semantic_retry_limit):
+            if not memory_issues:
+                break
+            _, retried_memory = self.memory_agent.discover_from_assessment(
+                safe_pack,
+                assessment,
+                validation_feedback_codes=[issue.code for issue in memory_issues],
+            )
+            if retried_memory is None:  # pragma: no cover - assessment remains eligible
+                break
+            memory = self._authoritative_memory_state(
+                pack,
+                assessment.signal_score,
+                retried_memory,
+            )
+            memory_issues = self.validator_agent.validate_memory_stage(
                 safe_pack,
                 memory,
                 forbidden_terms=forbidden_terms,
             )
-        )
+        memory_stage = self.validator_agent.stage_failure_report(memory_issues)
         if not memory_stage.passed:
             return MemoryEngineResultV11(
                 pack_id=pack.pack_id,
@@ -338,14 +464,41 @@ class MemoryPipeline:
             )
 
         perspectives = self.perspective_agent.create(safe_pack, memory)
-        perspective_stage = self.validator_agent.stage_failure_report(
-            self.validator_agent.validate_perspective_stage(
+        perspective_fallback_count = 0
+        perspective_issues = self.validator_agent.validate_perspective_stage(
+            safe_pack,
+            memory,
+            perspectives,
+            forbidden_terms=forbidden_terms,
+        )
+        for _ in range(self.semantic_retry_limit):
+            if not perspective_issues:
+                break
+            perspectives = self.perspective_agent.create(
+                safe_pack,
+                memory,
+                validation_feedback_codes=[issue.code for issue in perspective_issues],
+            )
+            perspective_issues = self.validator_agent.validate_perspective_stage(
                 safe_pack,
                 memory,
                 perspectives,
                 forbidden_terms=forbidden_terms,
             )
-        )
+        if perspective_issues and self.narrative_fallback_enabled:
+            perspectives, perspective_fallback_count = self._retain_safe_perspectives(
+                safe_pack,
+                memory,
+                perspectives,
+                forbidden_terms=forbidden_terms,
+            )
+            perspective_issues = self.validator_agent.validate_perspective_stage(
+                safe_pack,
+                memory,
+                perspectives,
+                forbidden_terms=forbidden_terms,
+            )
+        perspective_stage = self.validator_agent.stage_failure_report(perspective_issues)
         if not perspective_stage.passed:
             return MemoryEngineResultV11(
                 pack_id=pack.pack_id,
@@ -354,10 +507,16 @@ class MemoryPipeline:
                 source_status=pack.source_status,
                 meaning_status=pack.meaning_status,
                 validation=perspective_stage,
-                metadata=self._generation_stage_metadata(pack, len(redactions), "perspectives"),
+                metadata=self._generation_stage_metadata(
+                    pack,
+                    len(redactions),
+                    "perspectives",
+                    perspective_fallback_count=perspective_fallback_count,
+                ),
             )
 
         quest = self.quest_agent.create(safe_pack, memory, perspectives)
+        quest_fallback_count = 0
         validation = self.validator_agent.validate(
             safe_pack,
             memory,
@@ -365,6 +524,37 @@ class MemoryPipeline:
             quest,
             forbidden_terms=forbidden_terms,
         )
+        for _ in range(self.semantic_retry_limit):
+            if validation.passed:
+                break
+            quest = self.quest_agent.create(
+                safe_pack,
+                memory,
+                perspectives,
+                validation_feedback_codes=[issue.code for issue in validation.issues],
+            )
+            validation = self.validator_agent.validate(
+                safe_pack,
+                memory,
+                perspectives,
+                quest,
+                forbidden_terms=forbidden_terms,
+            )
+        if not validation.passed and self.narrative_fallback_enabled:
+            quest, quest_fallback_count = self._retain_safe_quest(
+                safe_pack,
+                memory,
+                perspectives,
+                quest,
+                forbidden_terms=forbidden_terms,
+            )
+            validation = self.validator_agent.validate(
+                safe_pack,
+                memory,
+                perspectives,
+                quest,
+                forbidden_terms=forbidden_terms,
+            )
         status = PipelineStatusV11.READY if validation.passed else PipelineStatusV11.REJECTED
         return MemoryEngineResultV11(
             pack_id=pack.pack_id,
@@ -376,7 +566,22 @@ class MemoryPipeline:
             player_perspectives=perspectives if validation.passed else [],
             next_chapter=quest if validation.passed else None,
             validation=validation,
-            metadata=self._generation_metadata(pack, len(redactions)),
+            metadata=(
+                self._generation_metadata(
+                    pack,
+                    len(redactions),
+                    perspective_fallback_count=perspective_fallback_count,
+                    quest_fallback_count=quest_fallback_count,
+                )
+                if validation.passed
+                else self._generation_stage_metadata(
+                    pack,
+                    len(redactions),
+                    "validation",
+                    perspective_fallback_count=perspective_fallback_count,
+                    quest_fallback_count=quest_fallback_count,
+                )
+            ),
         )
 
     def prepare_delivery(self, packs: list[MemoryPackV11]) -> MemoryDeliveryResult:
@@ -453,6 +658,8 @@ class MemoryPipeline:
         redaction_count: int = 0,
         *,
         pipeline_version: str | None = None,
+        perspective_fallback_count: int = 0,
+        quest_fallback_count: int = 0,
     ) -> dict[str, object]:
         metadata: dict[str, object] = {
             "pipeline_version": pipeline_version
@@ -460,8 +667,8 @@ class MemoryPipeline:
             "provider": self.provider_name,
             "model": self.model_name,
             "mode": self.execution_mode,
-            "prompt_version": "grounded-v1",
-            "factual_renderer": "closed-v1",
+            "prompt_version": "narrative-scaffold-v1",
+            "narrative_boundary": "model-prose-deterministic-controls-v1",
             "redaction_count": redaction_count,
             "compatibility_conversion": (
                 "v1.0 confirmed normalized to split review states"
@@ -472,16 +679,33 @@ class MemoryPipeline:
         usage = getattr(self._generator, "usage_totals", None)
         if usage is not None:
             metadata["usage"] = usage
+        narrative_fallbacks = {
+            key: count
+            for key, count in (
+                ("perspectives", perspective_fallback_count),
+                ("quest", quest_fallback_count),
+            )
+            if count
+        }
+        if narrative_fallbacks:
+            metadata["narrative_fallbacks"] = narrative_fallbacks
         metadata["observability"] = self.observability
         return metadata
 
     def _generation_metadata(
-        self, pack: MemoryPack | MemoryPackV11, redaction_count: int = 0
+        self,
+        pack: MemoryPack | MemoryPackV11,
+        redaction_count: int = 0,
+        *,
+        perspective_fallback_count: int = 0,
+        quest_fallback_count: int = 0,
     ) -> dict[str, object]:
         return self._metadata(
             pack,
             redaction_count,
             pipeline_version="phase-2-generation-v1",
+            perspective_fallback_count=perspective_fallback_count,
+            quest_fallback_count=quest_fallback_count,
         )
 
     def _stage_metadata(
@@ -489,8 +713,16 @@ class MemoryPipeline:
         pack: MemoryPack | MemoryPackV11,
         redaction_count: int,
         stage: str,
+        *,
+        perspective_fallback_count: int = 0,
+        quest_fallback_count: int = 0,
     ) -> dict[str, object]:
-        metadata = self._metadata(pack, redaction_count)
+        metadata = self._metadata(
+            pack,
+            redaction_count,
+            perspective_fallback_count=perspective_fallback_count,
+            quest_fallback_count=quest_fallback_count,
+        )
         metadata["stopped_stage"] = stage
         return metadata
 
@@ -499,8 +731,16 @@ class MemoryPipeline:
         pack: MemoryPack | MemoryPackV11,
         redaction_count: int,
         stage: str,
+        *,
+        perspective_fallback_count: int = 0,
+        quest_fallback_count: int = 0,
     ) -> dict[str, object]:
-        metadata = self._generation_metadata(pack, redaction_count)
+        metadata = self._generation_metadata(
+            pack,
+            redaction_count,
+            perspective_fallback_count=perspective_fallback_count,
+            quest_fallback_count=quest_fallback_count,
+        )
         metadata["stopped_stage"] = stage
         return metadata
 
@@ -527,6 +767,87 @@ class MemoryPipeline:
             if not member.opted_in
             for term in (member.player_id, member.display_name)
         }
+
+    def _retain_safe_perspectives(
+        self,
+        pack: MemoryPack | MemoryPackV11,
+        memory: MemoryRecord,
+        generated: list[PlayerPerspective],
+        *,
+        forbidden_terms: set[str],
+    ) -> tuple[list[PlayerPerspective], int]:
+        """Keep each model message only when the complete mixed set still validates."""
+
+        canonical = PerspectiveAgent().create(pack, memory)
+        generated_by_player = {item.player_id: item for item in generated}
+        selected = list(canonical)
+        retained_count = 0
+        for index, scaffold in enumerate(canonical):
+            candidate = generated_by_player.get(scaffold.player_id)
+            if candidate is None:
+                continue
+            trial = list(selected)
+            trial[index] = scaffold.model_copy(update={"message": candidate.message})
+            trial_issues = self.validator_agent.validate_perspective_stage(
+                pack,
+                memory,
+                trial,
+                forbidden_terms=forbidden_terms,
+            )
+            if not any(issue.severity.value == "error" for issue in trial_issues):
+                selected = trial
+                retained_count += 1
+        return selected, len(canonical) - retained_count
+
+    def _retain_safe_quest(
+        self,
+        pack: MemoryPack | MemoryPackV11,
+        memory: MemoryRecord,
+        perspectives: list[PlayerPerspective],
+        generated: NextChapter,
+        *,
+        forbidden_terms: set[str],
+    ) -> tuple[NextChapter, int]:
+        """Retain model-authored quest prose one field at a time behind validation."""
+
+        canonical = QuestAgent().create(pack, memory, perspectives)
+        selected = canonical.model_copy(update={"recipe": generated.recipe})
+        fallback_count = 0
+
+        for field in ("title", "mission"):
+            trial = selected.model_copy(update={field: getattr(generated, field)})
+            if self.validator_agent.validate_quest_stage(
+                pack,
+                memory,
+                trial,
+                forbidden_terms=forbidden_terms,
+            ):
+                fallback_count += 1
+            else:
+                selected = trial
+
+        generated_by_objective = {
+            objective.objective_id: objective for objective in generated.objectives
+        }
+        for index, scaffold in enumerate(canonical.objectives):
+            candidate = generated_by_objective.get(scaffold.objective_id)
+            if candidate is None:
+                fallback_count += 1
+                continue
+            objectives = list(selected.objectives)
+            objectives[index] = scaffold.model_copy(update={"description": candidate.description})
+            trial = selected.model_copy(update={"objectives": objectives})
+            if self.validator_agent.validate_quest_stage(
+                pack,
+                memory,
+                trial,
+                forbidden_terms=forbidden_terms,
+            ):
+                fallback_count += 1
+            else:
+                selected = trial
+
+        return selected, fallback_count
 
 
 def build_pipeline(provider: str | None = None) -> MemoryPipeline:

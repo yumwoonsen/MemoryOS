@@ -17,7 +17,12 @@ class PerspectiveAgent:
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
 
-    def create(self, pack: MemoryPack, memory: MemoryRecord) -> list[PlayerPerspective]:
+    def create(
+        self,
+        pack: MemoryPack,
+        memory: MemoryRecord,
+        validation_feedback_codes: list[str] | None = None,
+    ) -> list[PlayerPerspective]:
         if self._generator:
             canonical = [
                 self._perspective_for(member.player_id, member.display_name, pack, memory)
@@ -28,14 +33,31 @@ class PerspectiveAgent:
                 prompt_name="perspective_prompt.txt",
                 payload=safe_generation_payload(
                     pack,
+                    validation_feedback_codes=validation_feedback_codes or [],
                     discovered_memory=memory.model_dump(mode="json"),
-                    required_perspective_templates=[
-                        perspective.model_dump(mode="json") for perspective in canonical
+                    required_perspective_scaffolds=[
+                        {
+                            **perspective.model_dump(mode="json", exclude={"message"}),
+                            "required_meaning": perspective.message,
+                        }
+                        for perspective in canonical
                     ],
                 ),
                 response_model=PerspectiveSet,
                 stage="perspectives",
             )
+            if self._perspective_ids_match(canonical, result.perspectives):
+                generated_by_player = {
+                    perspective.player_id: perspective for perspective in result.perspectives
+                }
+                return [
+                    perspective.model_copy(
+                        update={
+                            "message": generated_by_player[perspective.player_id].message,
+                        }
+                    )
+                    for perspective in canonical
+                ]
             return result.perspectives
 
         return [
@@ -43,6 +65,21 @@ class PerspectiveAgent:
             for member in pack.squad.members
             if member.opted_in
         ]
+
+    @staticmethod
+    def _perspective_ids_match(
+        canonical: list[PlayerPerspective], generated: list[PlayerPerspective]
+    ) -> bool:
+        if len(canonical) != len(generated):
+            return False
+
+        canonical_by_player = {item.player_id: item for item in canonical}
+        generated_by_player = {item.player_id: item for item in generated}
+        if len(generated_by_player) != len(generated):
+            return False
+        if set(canonical_by_player) != set(generated_by_player):
+            return False
+        return True
 
     def _perspective_for(
         self,

@@ -26,23 +26,72 @@ class QuestAgent:
         pack: MemoryPack,
         memory: MemoryRecord,
         perspectives: list[PlayerPerspective],
+        validation_feedback_codes: list[str] | None = None,
     ) -> NextChapter:
         if self._generator:
             canonical = self._create_deterministically(pack, memory)
-            return self._generator.generate(
+            generated = self._generator.generate(
                 prompt_name="quest_prompt.txt",
                 payload=safe_generation_payload(
                     pack,
+                    validation_feedback_codes=validation_feedback_codes or [],
                     discovered_memory=memory.model_dump(mode="json"),
                     player_perspectives=[
                         perspective.model_dump(mode="json") for perspective in perspectives
                     ],
-                    allowed_quest_template=canonical.model_dump(mode="json"),
+                    required_quest_scaffold={
+                        "required_mission_meaning": canonical.mission,
+                        "objectives": [
+                            {
+                                **objective.model_dump(
+                                    mode="json",
+                                    exclude={"description"},
+                                ),
+                                "required_meaning": objective.description,
+                            }
+                            for objective in canonical.objectives
+                        ]
+                    },
                 ),
                 response_model=NextChapter,
                 stage="quest_generation",
             )
+            if self._objective_ids_match(canonical, generated):
+                generated_by_objective = {
+                    objective.objective_id: objective for objective in generated.objectives
+                }
+                return canonical.model_copy(
+                    update={
+                        "title": generated.title,
+                        "mission": generated.mission,
+                        "recipe": generated.recipe,
+                        "objectives": [
+                            objective.model_copy(
+                                update={
+                                    "description": generated_by_objective[
+                                        objective.objective_id
+                                    ].description,
+                                }
+                            )
+                            for objective in canonical.objectives
+                        ],
+                    }
+                )
+            return generated
         return self._create_deterministically(pack, memory)
+
+    @staticmethod
+    def _objective_ids_match(canonical: NextChapter, generated: NextChapter) -> bool:
+        if len(canonical.objectives) != len(generated.objectives):
+            return False
+
+        canonical_by_id = {item.objective_id: item for item in canonical.objectives}
+        generated_by_id = {item.objective_id: item for item in generated.objectives}
+        if len(generated_by_id) != len(generated.objectives):
+            return False
+        if set(canonical_by_id) != set(generated_by_id):
+            return False
+        return True
 
     def _create_deterministically(self, pack: MemoryPack, memory: MemoryRecord) -> NextChapter:
         evidence_ids = {item.event_id for item in memory.evidence}
