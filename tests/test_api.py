@@ -86,6 +86,48 @@ def test_generate_endpoint_stops_before_ai_when_review_is_incomplete() -> None:
     assert "next_chapter" not in body
 
 
+def test_prepare_delivery_generates_a_pending_player_decision_and_records_choices() -> None:
+    payload = load_history_payload()
+    for pack in payload:
+        if pack["human_review"]["source_status"] == "verified":
+            pack["human_review"]["meaning_status"] = "unreviewed"
+
+    response = client.post(
+        "/v1/memories/prepare-delivery",
+        json={"schema_version": "1.1", "memory_packs": payload},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "pending_player_decision"
+    assert body["source_status"] == "verified"
+    assert body["meaning_status"] == "unreviewed"
+    assert body["memory"]["human_confirmed"] is False
+    assert body["narrative"]["teaser"]
+    assert body["next_chapter"]
+
+    accepted = client.post(
+        "/v1/memories/record-delivery-decision",
+        json={"delivery_id": body["delivery_id"], "decision": "accepted"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["decision"] == "accepted"
+
+
+def test_delivery_decline_requires_a_structured_reason_and_unknown_delivery_fails_closed() -> None:
+    invalid = client.post(
+        "/v1/memories/record-delivery-decision",
+        json={"delivery_id": "missing", "decision": "declined"},
+    )
+    assert invalid.status_code == 422
+
+    unknown = client.post(
+        "/v1/memories/record-delivery-decision",
+        json={"delivery_id": "missing", "decision": "declined", "decline_reason": "details_wrong"},
+    )
+    assert unknown.status_code == 404
+
+
 def test_legacy_endpoint_rejects_v11_input() -> None:
     response = client.post("/v1/memories/discover", json=load_history_payload()[0])
 
