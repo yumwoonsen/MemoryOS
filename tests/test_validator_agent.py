@@ -57,6 +57,33 @@ def test_memory_stage_rejects_unknown_people_emotion_and_intent() -> None:
     } <= issue_codes(issues)
 
 
+def test_memory_stage_accepts_known_player_after_temporal_connector() -> None:
+    pack, memory, _, _ = generated_artifacts()
+    grounded = memory.model_copy(
+        update={"summary": "After Amir called for retreat, Mei revived Lee at Clock Tower."}
+    )
+
+    issues = ValidatorAgent().validate_memory_stage(pack, grounded)
+
+    assert issues == []
+
+
+def test_memory_stage_keeps_later_clause_subject_out_of_revive_target() -> None:
+    pack, memory, _, _ = generated_artifacts()
+    grounded = memory.model_copy(
+        update={
+            "summary": (
+                "Lee survived the final zone after Mei revived him and Jo escaped the vehicle, "
+                "while Amir called for retreat three times."
+            )
+        }
+    )
+
+    issues = ValidatorAgent().validate_memory_stage(pack, grounded)
+
+    assert issues == []
+
+
 def test_memory_stage_rejects_actions_outside_closed_grounded_vocabulary() -> None:
     pack, memory, _, _ = generated_artifacts()
     fabricated = memory.model_copy(
@@ -66,6 +93,15 @@ def test_memory_stage_rejects_actions_outside_closed_grounded_vocabulary() -> No
     issues = ValidatorAgent().validate_memory_stage(pack, fabricated)
 
     assert "unsupported_action_claim" in issue_codes(issues)
+
+
+def test_memory_stage_rejects_generic_summary_without_cited_detail() -> None:
+    pack, memory, _, _ = generated_artifacts()
+    generic = memory.model_copy(update={"summary": "A grounded memory selected for the squad."})
+
+    issues = ValidatorAgent().validate_memory_stage(pack, generic)
+
+    assert "memory_summary_missing_evidence_anchor" in issue_codes(issues)
 
 
 def test_memory_stage_rejects_unverified_player_state_and_relationship() -> None:
@@ -134,6 +170,160 @@ def test_perspective_action_is_bound_to_owner_and_its_own_citation() -> None:
     )
 
     assert "event_action_mismatch" in issue_codes(issues)
+
+
+def test_perspective_stage_rejects_generic_or_third_person_model_text() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    generic_messages = [
+        "This is your selected memory.",
+        "A grounded memory for the player.",
+        "Your verified moment is ready.",
+        "The selected memory remains available.",
+    ]
+    generic = [
+        perspective.model_copy(update={"message": message})
+        for perspective, message in zip(perspectives, generic_messages, strict=True)
+    ]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, generic)
+
+    assert {
+        "perspective_not_second_person",
+        "perspective_missing_evidence_anchor",
+    } <= issue_codes(issues)
+
+
+def test_perspective_stage_does_not_treat_quoted_you_as_direct_address() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    lee = next(item for item in perspectives if item.player_id == "lee")
+    third_person = lee.model_copy(
+        update={"message": 'Mei revived Lee at Clock Tower; the caption says "you were there".'}
+    )
+
+    issues = ValidatorAgent().validate_perspective_stage(
+        pack,
+        memory,
+        [third_person, *(item for item in perspectives if item.player_id != "lee")],
+    )
+
+    assert "perspective_not_second_person" in issue_codes(issues)
+
+
+def test_perspective_stage_accepts_grounded_second_person_paraphrases() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    messages = {
+        "lee": "At Clock Tower, Mei's verified revive brought you back into the match.",
+        "mei": "Your revive of Lee at Clock Tower is the event this perspective follows.",
+        "jo": "Your drive out of Clock Tower with 3 passengers anchors the getaway.",
+        "amir": "Your retreat call at Clock Tower is the cited event in this memory.",
+    }
+    paraphrased = [
+        perspective.model_copy(update={"message": messages[perspective.player_id]})
+        for perspective in perspectives
+    ]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, paraphrased)
+
+    assert issues == []
+
+
+def test_perspective_may_use_verified_shared_memory_as_secondary_context() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    amir = next(item for item in perspectives if item.player_id == "amir")
+    contextualized = amir.model_copy(
+        update={
+            "message": (
+                "After Mei revived Lee, your retreat call led into the verified escape "
+                "at Clock Tower."
+            )
+        }
+    )
+    updated = [contextualized if item.player_id == "amir" else item for item in perspectives]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, updated)
+
+    assert issues == []
+
+
+def test_perspective_accepts_grounded_retreat_ping_wording() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    amir = next(item for item in perspectives if item.player_id == "amir")
+    pinged = amir.model_copy(update={"message": "You pinged for retreat 3 times from Clock Tower."})
+    updated = [pinged if item.player_id == "amir" else item for item in perspectives]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, updated)
+
+    assert issues == []
+
+
+def test_perspective_accepts_grounded_ping_after_connector() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    amir = next(item for item in perspectives if item.player_id == "amir")
+    pinged = amir.model_copy(
+        update={
+            "message": (
+                "You called for retreat at Clock Tower and then pinged for retreat 3 times."
+            )
+        }
+    )
+    updated = [pinged if item.player_id == "amir" else item for item in perspectives]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, updated)
+
+    assert issues == []
+
+
+def test_perspective_rejects_inferred_help_after_grounded_retreat_ping() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    amir = next(item for item in perspectives if item.player_id == "amir")
+    inferred = amir.model_copy(
+        update={
+            "message": (
+                "You pinged for retreat 3 times and then helped the squad escape from Clock Tower."
+            )
+        }
+    )
+    updated = [inferred if item.player_id == "amir" else item for item in perspectives]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, updated)
+
+    assert "unsupported_action_claim" in issue_codes(issues)
+
+
+def test_perspective_binds_coordinated_action_to_the_same_player() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    amir = next(item for item in perspectives if item.player_id == "amir")
+    wrong_driver = amir.model_copy(
+        update={
+            "message": (
+                "You called for retreat 3 times and drove the squad out of Clock Tower "
+                "with 3 passengers."
+            )
+        }
+    )
+    updated = [wrong_driver if item.player_id == "amir" else item for item in perspectives]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, updated)
+
+    assert "event_action_mismatch" in issue_codes(issues)
+
+
+def test_perspective_accepts_explicit_shared_action_actor() -> None:
+    pack, memory, perspectives, _ = generated_artifacts()
+    amir = next(item for item in perspectives if item.player_id == "amir")
+    grounded = amir.model_copy(
+        update={
+            "message": (
+                "You called for retreat 3 times before Jo drove the squad out of "
+                "Clock Tower with 3 passengers."
+            )
+        }
+    )
+    updated = [grounded if item.player_id == "amir" else item for item in perspectives]
+
+    issues = ValidatorAgent().validate_perspective_stage(pack, memory, updated)
+
+    assert issues == []
 
 
 def test_quest_rejects_unknown_roster_targets() -> None:
@@ -256,6 +446,213 @@ def test_quest_description_must_match_its_verification_rule() -> None:
     issues = ValidatorAgent().validate_quest_stage(pack, memory, bad_quest)
 
     assert "quest_description_rule_mismatch" in issue_codes(issues)
+
+
+def test_quest_descriptions_reject_negated_or_excluded_requirements() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    roster = {member.player_id: member.display_name for member in pack.squad.members}
+    objectives = {objective.objective_id: objective for objective in quest.objectives}
+    location = objectives["return-to-location"].verification.target[0]
+    route = objectives["caller-chooses-route"]
+    route_caller = route.verification.target
+    adversarial_descriptions = {
+        "reassemble-original-squad": ("Complete a match without the original squad members."),
+        "return-to-location": f"Do not return to {location} during the new match.",
+        "caller-chooses-route": (
+            f"{roster[route_caller]} chooses any rotation route except the first."
+        ),
+    }
+
+    for objective_id, description in adversarial_descriptions.items():
+        bad_quest = quest.model_copy(deep=True)
+        index = next(
+            index
+            for index, objective in enumerate(bad_quest.objectives)
+            if objective.objective_id == objective_id
+        )
+        bad_quest.objectives[index] = bad_quest.objectives[index].model_copy(
+            update={"description": description}
+        )
+
+        issues = ValidatorAgent().validate_quest_stage(pack, memory, bad_quest)
+
+        assert "quest_description_rule_mismatch" in issue_codes(issues), objective_id
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        "zero times.",
+        "no times.",
+        "once, but it never counts.",
+    ],
+)
+def test_quest_description_rejects_zeroed_revive_instruction(ending: str) -> None:
+    pack, memory, _, quest = generated_artifacts()
+    roster = {member.player_id: member.display_name for member in pack.squad.members}
+    index = next(
+        index
+        for index, objective in enumerate(quest.objectives)
+        if objective.verification.metric.startswith("revives.")
+    )
+    objective = quest.objectives[index]
+    actor_id = objective.verification.metric.split(".")[1]
+    target_id = objective.verification.target[0]
+    bad_quest = quest.model_copy(deep=True)
+    bad_quest.objectives[index] = objective.model_copy(
+        update={"description": (f"{roster[actor_id]} revives {roster[target_id]} {ending}")}
+    )
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, bad_quest)
+
+    assert "quest_description_rule_mismatch" in issue_codes(issues)
+
+
+def test_quest_description_binds_revive_actor_and_target_roles() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    roster = {member.player_id: member.display_name for member in pack.squad.members}
+    index = next(
+        index
+        for index, objective in enumerate(quest.objectives)
+        if objective.verification.metric.startswith("revives.")
+    )
+    objective = quest.objectives[index]
+    actor_id = objective.verification.metric.split(".")[1]
+    target_id = objective.verification.target[0]
+    reversed_descriptions = (
+        f"{roster[target_id]} revives {roster[actor_id]}.",
+        f"{roster[actor_id]} is rescued by {roster[target_id]}.",
+    )
+
+    for description in reversed_descriptions:
+        bad_quest = quest.model_copy(deep=True)
+        bad_quest.objectives[index] = objective.model_copy(update={"description": description})
+
+        issues = ValidatorAgent().validate_quest_stage(pack, memory, bad_quest)
+
+        assert "quest_description_rule_mismatch" in issue_codes(issues), description
+
+
+def test_quest_description_allows_passive_revive_roles() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    roster = {member.player_id: member.display_name for member in pack.squad.members}
+    index = next(
+        index
+        for index, objective in enumerate(quest.objectives)
+        if objective.verification.metric.startswith("revives.")
+    )
+    objective = quest.objectives[index]
+    actor_id = objective.verification.metric.split(".")[1]
+    target_id = objective.verification.target[0]
+    passive_quest = quest.model_copy(deep=True)
+    passive_quest.objectives[index] = objective.model_copy(
+        update={
+            "description": (
+                f"{roster[target_id]} is rescued by {roster[actor_id]} in the new match."
+            )
+        }
+    )
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, passive_quest)
+
+    assert "quest_description_rule_mismatch" not in issue_codes(issues)
+
+
+def test_quest_description_rejects_upper_bound_for_at_least_rule() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    bad_quest = quest.model_copy(deep=True)
+    index = next(
+        index
+        for index, objective in enumerate(bad_quest.objectives)
+        if objective.verification.metric.startswith("vehicle_escape.")
+    )
+    objective = bad_quest.objectives[index]
+    driver_id = objective.verification.metric.split(".")[1]
+    driver_name = next(
+        member.display_name for member in pack.squad.members if member.player_id == driver_id
+    )
+    bad_quest.objectives[index] = objective.model_copy(
+        update={
+            "description": (
+                f"{driver_name} drives at most {objective.verification.target} teammates "
+                "out of danger."
+            )
+        }
+    )
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, bad_quest)
+
+    assert "quest_description_rule_mismatch" in issue_codes(issues)
+
+
+def test_quest_description_allows_equivalent_natural_paraphrases() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    roster = {member.player_id: member.display_name for member in pack.squad.members}
+    descriptions: dict[str, str] = {}
+    for objective in quest.objectives:
+        metric = objective.verification.metric
+        if metric == "squad_member_ids":
+            descriptions[objective.objective_id] = (
+                "Reunite the entire original squad for one match."
+            )
+        elif metric == "visited_locations":
+            descriptions[objective.objective_id] = (
+                f"Visit {objective.verification.target[0]} again in the new match."
+            )
+        elif metric.startswith("revives."):
+            actor_id = metric.split(".")[1]
+            target_id = objective.verification.target[0]
+            descriptions[objective.objective_id] = (
+                f"{roster[actor_id]} rescues {roster[target_id]} without hesitation."
+            )
+        elif metric.startswith("vehicle_escape."):
+            driver_id = metric.split(".")[1]
+            descriptions[objective.objective_id] = (
+                f"{roster[driver_id]} drives no fewer than "
+                f"{objective.verification.target} teammates to safety."
+            )
+        elif metric == "initial_route_caller_id":
+            descriptions[objective.objective_id] = (
+                f"{roster[objective.verification.target]} calls the opening rotation route."
+            )
+
+    paraphrased = quest.model_copy(
+        update={
+            "objectives": [
+                objective.model_copy(update={"description": descriptions[objective.objective_id]})
+                for objective in quest.objectives
+            ]
+        }
+    )
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, paraphrased)
+
+    assert "quest_description_rule_mismatch" not in issue_codes(issues)
+
+
+def test_quest_stage_accepts_grounded_model_style_paraphrases() -> None:
+    pack, memory, _, quest = generated_artifacts()
+    descriptions = {
+        "reassemble-original-squad": "Gather Lee, Mei, Jo, and Amir together in one match.",
+        "return-to-location": "Visit Clock Tower during the new match.",
+        "return-the-favour": "Lee revives Mei in the new match.",
+        "driver-seat-open": (
+            "Jo takes a vehicle out of Clock Tower with at least three teammates."
+        ),
+        "caller-chooses-route": "Amir selects the squad's first rotation route.",
+    }
+    paraphrased = quest.model_copy(
+        update={
+            "objectives": [
+                objective.model_copy(update={"description": descriptions[objective.objective_id]})
+                for objective in quest.objectives
+            ]
+        }
+    )
+
+    issues = ValidatorAgent().validate_quest_stage(pack, memory, paraphrased)
+
+    assert issues == []
 
 
 def test_aggregate_quest_rule_rejects_unverifiable_unsafe_player_action() -> None:

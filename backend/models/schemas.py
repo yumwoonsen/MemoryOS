@@ -396,14 +396,15 @@ class QuestRecipe(StrEnum):
 class VerificationRule(StrictModel):
     metric: str = Field(min_length=1, max_length=128)
     operator: Literal["equals", "at_least", "contains_all"]
-    target: str | int | float | bool | list[str]
+    target: str | int | bool | list[str]
 
 
 class QuestObjective(StrictModel):
     objective_id: str = Field(min_length=1, max_length=128)
     description: str = Field(min_length=1, max_length=400)
     assigned_player_id: str | None = Field(default=None, max_length=128)
-    required: bool = True
+    # Explicitly required so the provider JSON Schema has no unsupported default.
+    required: bool
     verification: VerificationRule
     source_event_ids: list[str] = Field(min_length=1, max_length=10)
 
@@ -644,6 +645,7 @@ class GenerateStreamStageEvent(StrictModel):
     status: Literal["working", "complete", "stopped", "failed"]
     message: str | None = None
     preview: MemoryRecord | list[PlayerPerspective] | NextChapter | ValidationReport | None = None
+    observability: dict[str, Any] | None = None
 
 
 class GenerateStreamErrorEvent(StrictModel):

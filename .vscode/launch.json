@@ -17,6 +17,21 @@
       "justMyCode": true
     },
     {
+      "name": "MemoryOS: Run API (Live Groq GPT-OSS 20B)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "backend.main:app",
+        "--reload"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "MEMORYOS_PROVIDER": "groq"
+      },
+      "justMyCode": true
+    },
+    {
       "name": "MemoryOS: Run API (Live OpenAI)",
       "type": "debugpy",
       "request": "launch",

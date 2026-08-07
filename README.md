@@ -19,12 +19,12 @@ The Phase 1/2 backend answers two questions:
 MemoryOS deliberately separates decisions that must be reliable from language that benefits from
 AI:
 
-| Deterministic code owns | AI may propose |
+| Deterministic code owns | AI authors |
 |---|---|
-| Evidence compilation and ranking | Bounded memory title and type |
-| Eligibility, consent, and redaction | Quest title, mission, and recipe |
-| Review state and final status | Composition from allowed quest templates |
-| Closed factual clauses plus final validation | No factual control state |
+| Evidence compilation, selection, and ranking | Memory title, type, and summary |
+| Eligibility, consent, identities, and redaction | One distinct perspective message per player |
+| Evidence references and quest verification controls | Quest title, mission, recipe, and objective lines |
+| Review state, safety validation, and final status | No factual or consent control state |
 
 Humans make two independent decisions: whether the source accurately describes the match and
 whether the moment is meaningful. AI is never the authority for either decision.
@@ -39,7 +39,7 @@ whether the moment is meaningful. AI is never the authority for either decision.
 - Bounded discovery, perspective, and quest generation stages
 - Deterministic evidence-reference, assignment, lexical-claim, distinctness, and safe-abstention
   checks
-- A credential-free deterministic provider plus an optional OpenAI Structured Outputs provider
+- A credential-free deterministic provider plus Groq GPT-OSS and OpenAI live providers
 - FastAPI, command-line, pytest, and generated OpenAPI entry points
 
 ## Quick start
@@ -103,6 +103,8 @@ Open the repository folder and accept the recommended Python extension. The work
 `.venv\Scripts\python.exe` and enables pytest discovery automatically. In **Run and Debug**:
 
 - **MemoryOS: Run API** starts FastAPI in deterministic mode.
+- **MemoryOS: Run API (Live Groq GPT-OSS 20B)** selects the recommended live provider and reads
+  `GROQ_API_KEY` from the local environment or `.env`.
 - **MemoryOS: Run API (Live OpenAI)** explicitly selects the paid provider and reads the key from
   the local environment or `.env`.
 - **MemoryOS: Run Golden Path** processes the original confirmed fixture in the terminal.
@@ -116,10 +118,10 @@ credits accidentally. To opt in to live generation:
 Copy-Item .env.example .env
 ```
 
-Add a server-side `OPENAI_API_KEY` to `.env`, then launch with an explicit provider selection:
+Add a server-side `GROQ_API_KEY` to `.env`, then launch the recommended free-tier provider:
 
 ```powershell
-$env:MEMORYOS_PROVIDER = "openai"
+$env:MEMORYOS_PROVIDER = "groq"
 uvicorn backend.main:app --reload
 ```
 
@@ -127,24 +129,28 @@ Never commit `.env` or expose the key to browser code. The model receives a sani
 ledger plus the preceding typed stage output. It produces typed semantic outputs; deterministic
 validation still decides whether the result may be returned as ready. Validation combines exact
 schema/reference checks with conservative lexical heuristics, so human source and meaning review
-remain essential. The default live model is documented in the official
-[gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
+remain essential. Groq defaults to `openai/gpt-oss-20b`; the existing OpenAI provider remains
+available by selecting `MEMORYOS_PROVIDER=openai` and setting `OPENAI_API_KEY`.
 
-Core gameplay clauses are closed server renderings in both modes: memory summary/evidence,
-player-specific perspective messages/references, and quest-objective descriptions must match their
-deterministic templates exactly. The model retains bounded framing fields such as memory title and
-type and quest title, mission, and recipe; those still pass privacy, evidence, action, and lexical
-checks.
+For a deployed server-side frontend proxy, `MEMORYOS_PROXY_TOKEN` can additionally protect all
+data-bearing POST routes through the `X-MemoryOS-Proxy-Token` header. Leave it unset for local
+development, and never expose it in client-side JavaScript.
+
+In live mode, the model writes every player-facing narrative field: memory framing, personalized
+perspective messages, and quest title, mission, recipe, and objective lines. Deterministic
+scaffolds still own selected evidence, safe identities, per-player citations, assignments,
+verification rules, confirmation state, and final status. The server merges model prose onto those
+controls and then applies privacy, evidence, action, quest-alignment, and lexical checks.
 
 See [the API guide](docs/api.md) for configuration and request shapes.
 
 ## Player prototype
 
-The integrated `frontend/` is the teammate-built, mobile-first Phase 1 player experience. It reveals
-one grounded memory, shows evidence and the current player's perspective, then previews the Next
-Chapter quest. It currently uses the deprecated single-pack `/v1/memories/discover` adapter, which
-the backend keeps during migration. The historical candidate picker and split verification flow are
-the next frontend integration milestone.
+The integrated `frontend/` contains the mobile-first player experience, the Phase 2 AI Memory
+Inbox, and the Developer Dashboard. The player view reveals one grounded memory, shows evidence and
+the current player's perspective, then previews the Next Chapter quest. It still uses the deprecated
+single-pack `/v1/memories/discover` adapter during migration; `/history` uses the v1.1 delivery flow,
+and `/studio` exposes safe provider and stage observability.
 
 ```powershell
 cd frontend
@@ -155,6 +161,11 @@ npm run dev
 Run the deterministic backend from the repository root before opening the frontend. When the
 backend is unavailable, only the exact committed demo fixture can use the hosted sample; modified
 or unknown packs fail closed.
+
+The hosted Vinext/Cloudflare site does not run the Python service. Live hosted AI therefore needs a
+separately deployed HTTPS FastAPI backend. Store `GROQ_API_KEY`, `MEMORYOS_PROVIDER=groq`, and the
+optional `MEMORYOS_PROXY_TOKEN` on that backend; configure only `MEMORYOS_API_URL` and the matching
+proxy token in the frontend server environment. Never place the Groq key in the browser bundle.
 
 ## Verify changes
 
@@ -186,6 +197,7 @@ python -m backend.evaluate
 Live evaluation is deliberately opt-in and may incur API cost:
 
 ```powershell
+python -m backend.evaluate --provider groq
 python -m backend.evaluate --provider openai
 ```
 
@@ -223,7 +235,8 @@ memoryos-build/
 ## Known limitations
 
 - Fixtures represent data Garena could plausibly assemble; they are not a published Garena schema.
-- There is no backend persistence, authentication, notification delivery, or live telemetry feed.
+- Delivery decisions are process-local, there is no player authentication or notification delivery,
+  and observability is reported as completed stage snapshots rather than a live token trace.
 - Deterministic ranking weights are prototype hypotheses and need calibration against player labels.
 - The validator checks typed references and selected lexical patterns; it cannot prove that every
   possible natural-language implication is supported by telemetry.
@@ -231,11 +244,12 @@ memoryos-build/
   are exact-string/reference proxies, not human judgments of story quality.
 - Stable anonymization protects generated content inside one request; production identity handling
   requires a broader privacy and retention design.
-- OpenAI mode needs a valid server-side key and separate cost, latency, and output-quality testing.
+- Live Groq or OpenAI mode needs a valid server-side key and separate latency and output-quality
+  testing.
 - Disconnecting an NDJSON client does not reliably cancel its synchronous worker or an in-flight
   provider request; work may continue until completion or timeout.
-- The integrated frontend still carries hand-written v1.0 compatibility types. Replace them with
-  OpenAPI-generated v1.1 types when implementing the historical review flow.
+- The legacy player adapter still carries hand-written v1.0 compatibility guards; the v1.1 API
+  surface is generated from OpenAPI and checked for drift.
 
 ## License
 

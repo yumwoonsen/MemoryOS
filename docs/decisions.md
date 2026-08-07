@@ -34,9 +34,9 @@ the source is accurate and whether they want the memory resurfaced.
 
 **Status:** accepted
 
-Bounded framing and quest composition may use a model. Eligibility, identity references, evidence
-integrity, consent, closed factual clauses, review state, verification rules, and final status
-remain deterministic.
+Player-facing memory framing, personalized perspectives, and quest wording may use a model.
+Eligibility, selected evidence, identity references, consent, review state, quest verification
+controls, validation, and final status remain deterministic.
 
 ## ADR-006 — One bounded model call per semantic stage
 
@@ -114,8 +114,8 @@ Validation combines exact type, evidence, identity, and quest-rule checks with c
 heuristics for known hallucination patterns. It fails closed, but it is not a proof system for every
 possible implication in natural language; source and meaning review remain human decisions.
 
-Core factual language is closed rather than freely paraphrased: memory summary/evidence,
-player-specific perspective messages/references, and quest-objective descriptions must equal the
-deterministic server renderings. Model-authored confidence and confirmation are overwritten from
-trusted pipeline state. Bounded title, type, mission, recipe, and other framing fields remain model-
-capable and pass the deterministic checks above.
+The model authors all player-facing prose, but not its factual control plane. Memory evidence,
+player-specific references, safe identities, quest assignments, required flags, source IDs, and
+verification rules come from deterministic scaffolds. Model-authored confidence and confirmation
+are overwritten from trusted pipeline state. The merged narrative must still pass the deterministic
+checks above.

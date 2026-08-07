@@ -532,6 +532,7 @@ def test_opted_out_identity_in_structured_quest_fields_is_never_returned() -> No
 
     assert result.status == PipelineStatusV11.REJECTED
     assert result.next_chapter is None
+    assert result.metadata["stopped_stage"] == "validation"
     assert "opted_out_identity_leak" in {issue.code for issue in result.validation.issues}
     assert not re.search(r"(?<!\w)jo(?!\w)", result.model_dump_json(), re.IGNORECASE)
 

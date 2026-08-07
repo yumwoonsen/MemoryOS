@@ -30,6 +30,11 @@ type PendingDelivery = MemoryDeliveryResult & {
   player_perspectives: NonNullable<MemoryDeliveryResult["player_perspectives"]>;
   next_chapter: NonNullable<MemoryDeliveryResult["next_chapter"]>;
   narrative: NonNullable<MemoryDeliveryResult["narrative"]>;
+  metadata?: {
+    provider?: string;
+    model?: string;
+    mode?: "deterministic" | "live_ai";
+  };
 };
 
 type DecisionRequest =
@@ -65,7 +70,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isRuleTarget(value: unknown) {
   return (
     typeof value === "string"
-    || typeof value === "number"
+    || (typeof value === "number" && Number.isInteger(value))
     || typeof value === "boolean"
     || (Array.isArray(value) && value.every((item) => typeof item === "string"))
   );
@@ -115,6 +120,7 @@ function isPendingDelivery(value: unknown): value is PendingDelivery {
     || !isRecord(value.narrative)
     || typeof value.narrative.teaser !== "string"
     || typeof value.narrative.why_this_surfaced !== "string"
+    || !isDeliveryMetadata(value.metadata)
     || !isRecord(value.validation)
     || value.validation.passed !== true
   ) {
@@ -145,6 +151,34 @@ function isDecisionConfirmation(
 
 function challengeTitle(title: string) {
   return title.split(":").at(-1)?.trim() || title;
+}
+
+function isDeliveryMetadata(value: unknown) {
+  return value === undefined || (
+    isRecord(value)
+    && (value.provider === undefined || typeof value.provider === "string")
+    && (value.model === undefined || typeof value.model === "string")
+    && (value.mode === undefined || ["deterministic", "live_ai"].includes(String(value.mode)))
+  );
+}
+
+function deliveryProvenance(delivery: PendingDelivery) {
+  const provider = delivery.metadata?.provider?.toLowerCase() ?? "";
+  if (
+    delivery.metadata?.mode === "live_ai" ||
+    !["", "deterministic", "unknown", "unavailable"].includes(provider)
+  ) {
+    return {
+      className: "live-ai",
+      label: "Live AI",
+      detail: `${provider === "groq" ? "Groq" : delivery.metadata?.provider ?? "Model"} · evidence-checked`,
+    };
+  }
+  return {
+    className: "deterministic",
+    label: "Rules engine",
+    detail: "Deterministic fallback · evidence-checked",
+  };
 }
 
 export function HistoryExperience({ initialPacks }: { initialPacks: MemoryPackV11[] }) {
@@ -411,6 +445,7 @@ function MemoryCard({
     (candidate) => candidate.player_id === targetPlayerId,
   );
   const clipMoment = delivery.memory.evidence[0];
+  const provenance = deliveryProvenance(delivery);
 
   return (
     <>
@@ -426,6 +461,10 @@ function MemoryCard({
       <section className="player-hero" aria-labelledby="memory-title">
         <div className="player-memory-copy">
           <p className="demo-kicker">A memory from your squad</p>
+          <div className={`player-ai-provenance provenance-${provenance.className}`}>
+            <span><i aria-hidden="true" />{provenance.label}</span>
+            <small>{provenance.detail}</small>
+          </div>
           <div className="memory-gist-label">{delivery.narrative.teaser}</div>
           <h1 id="memory-title">{delivery.memory.title}</h1>
           <p>{delivery.memory.summary}</p>

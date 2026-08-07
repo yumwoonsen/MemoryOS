@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from typing import Any
 
 import openai
@@ -11,12 +13,14 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from backend.services.prompt_loader import load_prompt
+from backend.services.provider_observability import ProviderObservability
 from backend.services.structured_generator import ModelT
 
 DEFAULT_MODEL = "gpt-5.6-luna"
 MAX_OUTPUT_TOKENS = 2_000
 REQUEST_TIMEOUT_SECONDS = 30.0
 SDK_MAX_RETRIES = 2
+logger = logging.getLogger(__name__)
 
 
 class OpenAIProviderError(RuntimeError):
@@ -30,7 +34,7 @@ class OpenAIProviderError(RuntimeError):
         self.stage = stage
         self.code = code
         self.retryable = retryable
-        super().__init__("The OpenAI provider could not complete the requested stage.")
+        super().__init__("The configured AI provider could not complete the requested stage.")
 
     def as_dict(self) -> dict[str, str | bool]:
         """Return the fields an API layer may safely expose to clients."""
@@ -42,27 +46,31 @@ class OpenAIProviderError(RuntimeError):
         }
 
 
-def _translate_sdk_error(stage: str, error: openai.OpenAIError) -> OpenAIProviderError:
+def _translate_sdk_error(
+    stage: str,
+    error: openai.OpenAIError,
+    error_type: type[OpenAIProviderError] = OpenAIProviderError,
+) -> OpenAIProviderError:
     """Map SDK-specific failures to the stable MemoryOS provider contract."""
 
     if isinstance(error, openai.APITimeoutError):
-        return OpenAIProviderError(stage=stage, code="provider_timeout", retryable=True)
+        return error_type(stage=stage, code="provider_timeout", retryable=True)
     if isinstance(error, openai.RateLimitError):
         if _sdk_error_code(error) == "insufficient_quota":
-            return OpenAIProviderError(
+            return error_type(
                 stage=stage,
                 code="provider_quota_exhausted",
                 retryable=False,
             )
-        return OpenAIProviderError(stage=stage, code="provider_rate_limited", retryable=True)
+        return error_type(stage=stage, code="provider_rate_limited", retryable=True)
     if isinstance(error, openai.APIConnectionError):
-        return OpenAIProviderError(stage=stage, code="provider_connection_error", retryable=True)
+        return error_type(stage=stage, code="provider_connection_error", retryable=True)
     if isinstance(error, openai.APIResponseValidationError):
-        return OpenAIProviderError(stage=stage, code="provider_invalid_response", retryable=False)
+        return error_type(stage=stage, code="provider_invalid_response", retryable=False)
     if isinstance(error, openai.ContentFilterFinishReasonError):
-        return OpenAIProviderError(stage=stage, code="provider_refusal", retryable=False)
+        return error_type(stage=stage, code="provider_refusal", retryable=False)
     if isinstance(error, openai.LengthFinishReasonError):
-        return OpenAIProviderError(stage=stage, code="provider_output_limit", retryable=False)
+        return error_type(stage=stage, code="provider_output_limit", retryable=False)
     if isinstance(error, openai.APIStatusError):
         if error.status_code == 401:
             code, retryable = "provider_authentication_failed", False
@@ -72,8 +80,8 @@ def _translate_sdk_error(stage: str, error: openai.OpenAIError) -> OpenAIProvide
             code, retryable = "provider_unavailable", True
         else:
             code, retryable = "provider_request_rejected", False
-        return OpenAIProviderError(stage=stage, code=code, retryable=retryable)
-    return OpenAIProviderError(stage=stage, code="provider_error", retryable=False)
+        return error_type(stage=stage, code=code, retryable=retryable)
+    return error_type(stage=stage, code="provider_error", retryable=False)
 
 
 def _sdk_error_code(error: openai.OpenAIError) -> str | None:
@@ -95,6 +103,8 @@ class OpenAIStructuredGenerator:
     """Generate one pipeline stage while preserving a strict Pydantic contract."""
 
     provider_name = "openai"
+    semantic_retry_limit = 1
+    narrative_fallback_enabled = True
 
     def __init__(self, model_name: str | None = None) -> None:
         if not os.getenv("OPENAI_API_KEY"):
@@ -108,13 +118,24 @@ class OpenAIStructuredGenerator:
             timeout=REQUEST_TIMEOUT_SECONDS,
             max_retries=SDK_MAX_RETRIES,
         )
-        self._usage_totals = {"input_tokens": 0, "output_tokens": 0}
+        self._observability = ProviderObservability(
+            provider=self.provider_name,
+            model=self.model_name,
+            mode="live_ai",
+            configured_max_retries=SDK_MAX_RETRIES,
+        )
 
     @property
     def usage_totals(self) -> dict[str, int]:
         """Return aggregate non-secret usage for evaluation and observability."""
 
-        return dict(self._usage_totals)
+        return self._observability.usage_totals
+
+    @property
+    def observability(self) -> dict[str, object]:
+        """Return payload-free aggregate and per-stage call metrics."""
+
+        return self._observability.snapshot()
 
     def generate(
         self,
@@ -124,6 +145,7 @@ class OpenAIStructuredGenerator:
         response_model: type[ModelT],
         stage: str,
     ) -> ModelT:
+        started = time.perf_counter()
         safe_error: OpenAIProviderError | None = None
         try:
             response = self._client.responses.parse(
@@ -158,24 +180,87 @@ class OpenAIStructuredGenerator:
         # Raise outside the handler so the SDK exception is not retained as
         # ``__context__`` on the safe public exception.
         if safe_error is not None:
+            latency_ms = (time.perf_counter() - started) * 1000
+            self._observability.record(
+                stage=stage,
+                status="failed",
+                latency_ms=latency_ms,
+            )
+            logger.warning(
+                "provider_call_failed provider=%s model=%s stage=%s code=%s "
+                "retryable=%s latency_ms=%.2f",
+                self.provider_name,
+                self.model_name,
+                stage,
+                safe_error.code,
+                safe_error.retryable,
+                latency_ms,
+            )
             raise safe_error
 
         usage = getattr(response, "usage", None)
-        if usage is not None:
-            self._usage_totals["input_tokens"] += int(getattr(usage, "input_tokens", 0) or 0)
-            self._usage_totals["output_tokens"] += int(getattr(usage, "output_tokens", 0) or 0)
+        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
 
         parsed = getattr(response, "output_parsed", None)
         if parsed is None:
             code = "provider_refusal" if _contains_refusal(response) else "provider_no_output"
+            self._record_invalid_response(
+                stage=stage,
+                code=code,
+                started=started,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
             raise OpenAIProviderError(stage=stage, code=code, retryable=False)
         if not isinstance(parsed, BaseModel) or not isinstance(parsed, response_model):
+            self._record_invalid_response(
+                stage=stage,
+                code="provider_invalid_response",
+                started=started,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
             raise OpenAIProviderError(
                 stage=stage,
                 code="provider_invalid_response",
                 retryable=False,
             )
+        self._observability.record(
+            stage=stage,
+            status="succeeded",
+            latency_ms=(time.perf_counter() - started) * 1000,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
         return parsed
+
+    def _record_invalid_response(
+        self,
+        *,
+        stage: str,
+        code: str,
+        started: float,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        latency_ms = (time.perf_counter() - started) * 1000
+        self._observability.record(
+            stage=stage,
+            status="failed",
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        logger.warning(
+            "provider_call_failed provider=%s model=%s stage=%s code=%s "
+            "retryable=false latency_ms=%.2f",
+            self.provider_name,
+            self.model_name,
+            stage,
+            code,
+            latency_ms,
+        )
 
 
 def _contains_refusal(response: Any) -> bool:

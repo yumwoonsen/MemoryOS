@@ -31,7 +31,7 @@ application version advances to `0.2.0`.
 
 ## `POST /v1/memories/discover-history`
 
-Ranks historical packs without an OpenAI call. The request accepts 1-50 v1.0 or v1.1 packs and
+Ranks historical packs without a model call. The request accepts 1-50 v1.0 or v1.1 packs and
 `limit` defaults to 3 with a maximum of 10. Every pack in one request must use:
 
 - the same `squad_id` and target `player_profile.player_id`;
@@ -157,14 +157,19 @@ still apply. A generated response has one of four statuses:
 |---|---|---:|
 | `needs_source_verification` | The candidate is promising but its events are unreviewed | No |
 | `needs_meaning_confirmation` | Events are verified, but the player has not confirmed meaning | No |
-| `ready` | Verified, confirmed, generated, and deterministically valid | Yes, in OpenAI mode |
-| `rejected` | Filtered, ineligible, or generated output failed validation | No before a gate; in OpenAI mode, possibly yes if generated output was later rejected |
+| `ready` | Verified, confirmed, generated, and deterministically valid | Yes, in a live-provider mode |
+| `rejected` | Filtered, ineligible, or generated output failed validation | No before a gate; in a live-provider mode, possibly yes if generated output was later rejected |
 
 The `ready` body contains the memory, opted-in player perspectives, next-chapter quest, validation
 report, and provider/prompt/pipeline version metadata. Because the route excludes `null` response
 fields, `memory` and `next_chapter` are absent when a gate stops generation or validation rejects
 the artifacts; `player_perspectives` remains an empty array. `discovery`, review states,
 `validation`, and metadata remain available to explain the result.
+
+`metadata.prompt_version: "narrative-scaffold-v1"` identifies the prompt contract used by the
+model-capable stages. `metadata.narrative_boundary: "model-prose-deterministic-controls-v1"`
+records that player-facing prose may be model-authored while evidence, consent, identity,
+assignment, and verification controls remain deterministic.
 
 The top-level `status` is the readiness contract. Only `status: "ready"` permits a client to present
 generated artifacts as ready. `validation.passed` has a narrower meaning: it reports whether the
@@ -252,7 +257,7 @@ because those identifiers are preserved for traceability.
 }
 ```
 
-The service does not silently switch a failed OpenAI request to deterministic content.
+The service does not silently switch a failed live-provider request to deterministic content.
 
 Final validation checks exact schemas, IDs, evidence types, perspective ownership, and quest-rule
 shapes, plus conservative lexical checks for selected unsupported names, locations, numbers,
@@ -260,13 +265,12 @@ actions, relationships, emotions, and motives. These heuristics reduce obvious h
 do not prove every implication in arbitrary prose. A production service still needs broader
 semantic evaluation, moderation, adversarial testing, and human review.
 
-Core factual clauses use a stricter closed renderer. A live model must return the server-rendered
-memory summary and evidence exactly, return each player-specific perspective message and its
-evidence references exactly, and use the exact objective description associated with each validated
-quest rule. The pipeline also overwrites model-authored confidence and confirmation values with the
-deterministic score and normalized review state. Memory title and type, plus quest title, mission,
-and recipe, remain bounded model framing and still pass the privacy, evidence, action, and lexical
-checks above.
+In live mode, the model authors memory title/type/summary, each personalized perspective message,
+and quest title/mission/recipe/objective descriptions. The server preserves the deterministic
+evidence set, per-player references, safe identities, quest assignments, required flags, source
+events, and verification rules. It also overwrites model-authored confidence and confirmation with
+the deterministic score and normalized review state. The merged result must pass the privacy,
+evidence, action, objective-alignment, and lexical checks above.
 
 ## Provider configuration
 
@@ -276,7 +280,15 @@ The default needs no credentials:
 MEMORYOS_PROVIDER=deterministic
 ```
 
-To opt into live generation, copy `.env.example` to `.env` and set:
+To opt into the recommended Groq live generation path, copy `.env.example` to `.env` and set:
+
+```dotenv
+MEMORYOS_PROVIDER=groq
+GROQ_API_KEY=your_server_side_key
+GROQ_MODEL=openai/gpt-oss-20b
+```
+
+The existing OpenAI path remains available:
 
 ```dotenv
 MEMORYOS_PROVIDER=openai
@@ -294,13 +306,23 @@ uvicorn backend.main:app --reload
 # Opt-in live mode; reads OPENAI_API_KEY from .env
 $env:MEMORYOS_PROVIDER = "openai"
 uvicorn backend.main:app --reload
+
+# Recommended free-tier live mode; reads GROQ_API_KEY from .env
+$env:MEMORYOS_PROVIDER = "groq"
+uvicorn backend.main:app --reload
 ```
 
 Keep the key server-side. The live provider uses structured typed responses, but deterministic code
 still owns evidence, consent, eligibility, review state, and final validation.
 
+For a deployed server-to-server frontend proxy, optionally set `MEMORYOS_PROXY_TOKEN`. When it is
+non-empty, data-bearing POST routes require the same value in the `X-MemoryOS-Proxy-Token` header;
+`/health` remains public. Keep this value in server environment variables only—never bundle it into
+browser JavaScript. Local development remains unchanged while the variable is unset.
+
 Each model request uses low reasoning effort, a 30-second timeout, at most two SDK retries, and a
-2,000-token output ceiling. Responses use `store=False`. See the official
+2,000-token output ceiling. OpenAI responses use `store=False`; Groq requests omit the unsupported
+`store` field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
 configured model's current capabilities and pricing.
 

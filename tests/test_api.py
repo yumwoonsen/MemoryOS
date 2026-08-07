@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 import backend.main as api
 from backend.main import app
+from backend.models.schemas import IssueSeverity, PipelineStatusV11, ValidationIssue
+from backend.pipeline import MemoryPipeline
 from backend.services.openai_client import OpenAIProviderError
 
 client = TestClient(app)
@@ -24,6 +26,24 @@ def test_health_endpoint() -> None:
         "phase": "1",
         "provider": "deterministic",
         "model": "rules-v1",
+        "mode": "deterministic",
+    }
+
+
+def test_groq_health_requires_a_server_side_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "groq")
+    # An explicit empty value keeps python-dotenv from repopulating the key
+    # from a developer's local .env file during this isolated configuration test.
+    monkeypatch.setenv("GROQ_API_KEY", "")
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "stage": "configuration",
+        "code": "missing_api_key",
+        "retryable": False,
+        "message": "The live AI provider could not complete this generation stage.",
     }
 
 
@@ -195,6 +215,34 @@ def test_local_frontend_origin_is_allowed() -> None:
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "x-memoryos-proxy-token" in response.headers["access-control-allow-headers"].lower()
+
+
+def test_optional_proxy_token_protects_data_routes_but_not_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROXY_TOKEN", "server-only-secret")
+    request = {"schema_version": "1.1", "memory_packs": load_history_payload(), "limit": 3}
+
+    health_response = client.get("/health")
+    missing = client.post("/v1/memories/discover-history", json=request)
+    wrong = client.post(
+        "/v1/memories/discover-history",
+        json=request,
+        headers={"X-MemoryOS-Proxy-Token": "wrong-secret"},
+    )
+    allowed = client.post(
+        "/v1/memories/discover-history",
+        json=request,
+        headers={"X-MemoryOS-Proxy-Token": "server-only-secret"},
+    )
+
+    assert health_response.status_code == 200
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert missing.json()["code"] == "proxy_authentication_failed"
+    assert "server-only-secret" not in missing.text
+    assert allowed.status_code == 200
 
 
 def test_openapi_exposes_v11_contracts_and_deprecated_legacy_route() -> None:
@@ -231,6 +279,8 @@ def test_openapi_exposes_v11_contracts_and_deprecated_legacy_route() -> None:
         "GenerateStreamErrorEvent",
         "GenerateStreamResultEvent",
     }
+    stage_schema = schema["components"]["schemas"]["GenerateStreamStageEvent"]
+    assert "observability" in stage_schema["properties"]
 
 
 def test_v10_pack_uses_phase_2_metadata_on_generate() -> None:
@@ -242,7 +292,11 @@ def test_v10_pack_uses_phase_2_metadata_on_generate() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["metadata"]["pipeline_version"] == "phase-2-generation-v1"
+    metadata = response.json()["metadata"]
+    assert metadata["pipeline_version"] == "phase-2-generation-v1"
+    assert metadata["prompt_version"] == "narrative-scaffold-v1"
+    assert metadata["narrative_boundary"] == "model-prose-deterministic-controls-v1"
+    assert "factual_renderer" not in metadata
 
 
 def test_review_gate_precedes_live_provider_initialization(
@@ -264,6 +318,21 @@ def test_review_gate_precedes_live_provider_initialization(
     assert all(event["type"] != "error" for event in events)
     assert events[-1]["type"] == "result"
     assert events[-1]["result"]["status"] == "needs_source_verification"
+
+
+def test_review_gate_also_precedes_groq_provider_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    request = {"schema_version": "1.1", "memory_pack": load_history_payload()[1]}
+
+    response = client.post("/v1/memories/generate", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "needs_source_verification"
+    assert response.json()["metadata"]["provider"] == "groq"
+    assert response.json()["metadata"]["mode"] == "live_ai"
 
 
 class BrokenPipeline:
@@ -306,3 +375,56 @@ def test_stream_emits_typed_provider_error(monkeypatch: pytest.MonkeyPatch) -> N
         "code": "provider_timeout",
         "retryable": True,
     }
+
+
+def test_stream_reports_the_actual_rejected_generation_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RejectedPerspectivePipeline:
+        def generate(self, memory_pack: object):
+            ready = MemoryPipeline().generate(memory_pack)
+            validation = ready.validation.model_copy(
+                update={
+                    "passed": False,
+                    "human_review_required": True,
+                    "issues": [
+                        ValidationIssue(
+                            code="event_action_mismatch",
+                            severity=IssueSeverity.ERROR,
+                            message="A perspective used an action outside its evidence scope.",
+                        )
+                    ],
+                }
+            )
+            return ready.model_copy(
+                update={
+                    "status": PipelineStatusV11.REJECTED,
+                    "memory": None,
+                    "player_perspectives": [],
+                    "next_chapter": None,
+                    "validation": validation,
+                    "metadata": {**ready.metadata, "stopped_stage": "perspectives"},
+                }
+            )
+
+    monkeypatch.setattr(api, "build_pipeline", lambda: RejectedPerspectivePipeline())
+    response = client.post(
+        "/v1/memories/generate-stream",
+        json={"schema_version": "1.1", "memory_pack": load_history_payload()[0]},
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    stage_states = [
+        (event["stage"], event["status"])
+        for event in events
+        if event["type"] == "stage"
+    ]
+
+    assert stage_states == [
+        ("review_and_discovery", "working"),
+        ("review_and_discovery", "complete"),
+        ("memory_discovery", "complete"),
+        ("perspectives", "stopped"),
+        ("validation", "failed"),
+    ]
+    assert events[-1]["result"]["metadata"]["stopped_stage"] == "perspectives"

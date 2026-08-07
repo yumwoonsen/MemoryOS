@@ -1,4 +1,5 @@
 import { getDemoResult } from "@/lib/demo-results";
+import { backendRequestHeaders } from "@/lib/memoryos-server";
 import type { MemoryApiError, MemoryPack } from "@/lib/types";
 
 const normalizedConfiguredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
@@ -129,9 +130,9 @@ export async function POST(request: Request) {
   try {
     response = await fetch(`${backendApi}/v1/memories/discover`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: backendRequestHeaders(),
       body: JSON.stringify(memoryPack),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(90_000),
       cache: "no-store",
     });
   } catch {

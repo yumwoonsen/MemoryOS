@@ -22,28 +22,52 @@ class MemoryAgent:
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
 
-    def discover(self, pack: MemoryPack) -> tuple[DiscoveryAssessment, MemoryRecord | None]:
+    def discover(
+        self,
+        pack: MemoryPack,
+        validation_feedback_codes: list[str] | None = None,
+    ) -> tuple[DiscoveryAssessment, MemoryRecord | None]:
         assessment = self.assess(pack)
-        return self.discover_from_assessment(pack, assessment)
+        return self.discover_from_assessment(
+            pack,
+            assessment,
+            validation_feedback_codes=validation_feedback_codes,
+        )
 
     def discover_from_assessment(
-        self, pack: MemoryPack, assessment: DiscoveryAssessment
+        self,
+        pack: MemoryPack,
+        assessment: DiscoveryAssessment,
+        validation_feedback_codes: list[str] | None = None,
     ) -> tuple[DiscoveryAssessment, MemoryRecord | None]:
         if not assessment.eligible:
             return assessment, None
 
         if self._generator:
             canonical = self._discover_deterministically(pack, assessment.signal_score)
-            memory = self._generator.generate(
+            generated = self._generator.generate(
                 prompt_name="memory_prompt.txt",
                 payload=safe_generation_payload(
                     pack,
-                    required_factual_template=canonical.model_dump(mode="json"),
+                    validation_feedback_codes=validation_feedback_codes or [],
+                    required_memory_scaffold={
+                        "confidence": canonical.confidence,
+                        "evidence": [
+                            reference.model_dump(mode="json") for reference in canonical.evidence
+                        ],
+                        "human_confirmed": canonical.human_confirmed,
+                    },
                 ),
                 response_model=MemoryRecord,
                 stage="memory_discovery",
             )
-            return assessment, memory
+            return assessment, canonical.model_copy(
+                update={
+                    "title": generated.title,
+                    "memory_type": generated.memory_type,
+                    "summary": generated.summary,
+                }
+            )
 
         return assessment, self._discover_deterministically(pack, assessment.signal_score)
 

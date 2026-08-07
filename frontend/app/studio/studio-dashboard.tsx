@@ -9,7 +9,10 @@ import type {
   DeveloperStageEvent,
   DeveloperStageName,
   DeveloperStreamEvent,
+  InferenceMode,
   MemoryPack,
+  PipelineObservability,
+  ProviderStageObservability,
 } from "@/lib/types";
 
 type StageStatus = "idle" | "working" | "complete" | "stopped" | "failed" | "skipped";
@@ -23,6 +26,7 @@ type StageState = {
   status: StageStatus;
   message?: string;
   preview?: unknown;
+  observability?: ProviderStageObservability;
 };
 
 const stageDefinitions: Array<{
@@ -90,6 +94,59 @@ function isOptionalString(value: unknown) {
 
 function isOptionalNumber(value: unknown) {
   return value === undefined || value === null || isFiniteNumber(value);
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function isOptionalNonNegativeNumber(value: unknown) {
+  return value === undefined || isNonNegativeNumber(value);
+}
+
+function isInferenceMode(value: unknown): value is InferenceMode {
+  return value === "deterministic" || value === "live_ai";
+}
+
+function isStageObservability(value: unknown): value is ProviderStageObservability {
+  return (
+    isRecord(value) &&
+    typeof value.stage === "string" &&
+    ["succeeded", "failed"].includes(String(value.status)) &&
+    isNonNegativeNumber(value.request_count) &&
+    isOptionalNonNegativeNumber(value.retry_count) &&
+    isOptionalNonNegativeNumber(value.max_retries) &&
+    isOptionalNonNegativeNumber(value.configured_max_retries) &&
+    isNonNegativeNumber(value.input_tokens) &&
+    isNonNegativeNumber(value.output_tokens) &&
+    isNonNegativeNumber(value.latency_ms)
+  );
+}
+
+function isPipelineObservability(value: unknown): value is PipelineObservability {
+  if (
+    !isRecord(value) ||
+    typeof value.provider !== "string" ||
+    typeof value.model !== "string" ||
+    !isInferenceMode(value.mode) ||
+    !isRecord(value.totals) ||
+    !Array.isArray(value.stages) ||
+    !value.stages.every(isStageObservability) ||
+    !isOptionalNonNegativeNumber(value.configured_max_retries)
+  ) {
+    return false;
+  }
+
+  const totals = value.totals;
+  return (
+    isNonNegativeNumber(totals.request_count) &&
+    isOptionalNonNegativeNumber(totals.retry_count) &&
+    isOptionalNonNegativeNumber(totals.max_retries) &&
+    isOptionalNonNegativeNumber(totals.configured_max_retries) &&
+    isNonNegativeNumber(totals.input_tokens) &&
+    isNonNegativeNumber(totals.output_tokens) &&
+    isNonNegativeNumber(totals.latency_ms)
+  );
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -315,18 +372,28 @@ function isPipelineMetadata(value: unknown) {
     typeof value.pipeline_version !== "string" ||
     typeof value.provider !== "string" ||
     typeof value.model !== "string" ||
-    typeof value.factual_renderer !== "string" ||
+    (value.mode !== undefined && !isInferenceMode(value.mode)) ||
+    (typeof value.narrative_boundary !== "string" &&
+      typeof value.factual_renderer !== "string") ||
     (value.redaction_count !== undefined && !isFiniteNumber(value.redaction_count))
   ) {
     return false;
   }
 
-  return (
+  const usageIsValid =
     value.usage === undefined ||
     (isRecord(value.usage) &&
       (value.usage.input_tokens === undefined || isFiniteNumber(value.usage.input_tokens)) &&
-      (value.usage.output_tokens === undefined || isFiniteNumber(value.usage.output_tokens)))
-  );
+      (value.usage.output_tokens === undefined || isFiniteNumber(value.usage.output_tokens)));
+  const observabilityIsValid =
+    value.observability === undefined || isPipelineObservability(value.observability);
+  const narrativeFallbacksAreValid =
+    value.narrative_fallbacks === undefined ||
+    (isRecord(value.narrative_fallbacks) &&
+      Object.values(value.narrative_fallbacks).every(
+        (count) => isFiniteNumber(count) && count >= 0 && Number.isInteger(count),
+      ));
+  return usageIsValid && observabilityIsValid && narrativeFallbacksAreValid;
 }
 
 function isDeveloperResult(
@@ -361,6 +428,10 @@ function parseHealth(value: unknown): DeveloperHealth | null {
     !isRecord(value) ||
     !["ok", "sample", "error"].includes(String(value.status)) ||
     !["live", "sample"].includes(String(value.mode)) ||
+    (value.inference_mode !== undefined &&
+      !["deterministic", "live_ai", "sample_replay", "unknown"].includes(
+        String(value.inference_mode),
+      )) ||
     typeof value.provider !== "string" ||
     typeof value.model !== "string" ||
     typeof value.message !== "string" ||
@@ -372,6 +443,17 @@ function parseHealth(value: unknown): DeveloperHealth | null {
   return {
     status: value.status as DeveloperHealth["status"],
     mode: value.mode as DeveloperHealth["mode"],
+    inference_mode:
+      value.inference_mode === "deterministic" ||
+      value.inference_mode === "live_ai" ||
+      value.inference_mode === "sample_replay" ||
+      value.inference_mode === "unknown"
+        ? value.inference_mode
+        : value.mode === "sample"
+          ? "sample_replay"
+          : value.provider === "deterministic"
+            ? "deterministic"
+            : "unknown",
     provider: value.provider,
     model: value.model,
     message: value.message,
@@ -389,7 +471,8 @@ function parseStreamEvent(line: string, expectedPackId: string): DeveloperStream
     value.type === "stage" &&
     isStageName(value.stage) &&
     ["working", "complete", "stopped", "failed"].includes(String(value.status)) &&
-    (value.message === undefined || value.message === null || typeof value.message === "string")
+    (value.message === undefined || value.message === null || typeof value.message === "string") &&
+    (value.observability === undefined || isStageObservability(value.observability))
   ) {
     return {
       type: "stage",
@@ -397,6 +480,9 @@ function parseStreamEvent(line: string, expectedPackId: string): DeveloperStream
       status: value.status as DeveloperStageEvent["status"],
       ...(typeof value.message === "string" ? { message: value.message } : {}),
       ...(Object.hasOwn(value, "preview") ? { preview: value.preview } : {}),
+      ...(isStageObservability(value.observability)
+        ? { observability: value.observability }
+        : {}),
     };
   }
 
@@ -433,14 +519,71 @@ function formatDuration(value: number | null) {
   return `${(value / 1_000).toFixed(2)} s`;
 }
 
+function formatTokenCount(value: number) {
+  return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k` : String(value);
+}
+
 function formatScore(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
-function sourceLabel(mode: RunMode) {
-  if (mode === "live") return "Live backend";
-  if (mode === "sample") return "Sample replay";
+function sourceLabel(
+  mode: RunMode,
+  inferenceMode: InferenceMode | "sample_replay" | "unknown",
+) {
+  if (mode === "sample" || inferenceMode === "sample_replay") return "Sample replay";
+  if (mode === "live" && inferenceMode === "live_ai") return "Live AI";
+  if (mode === "live" && inferenceMode === "deterministic") return "Rules engine";
+  if (inferenceMode === "live_ai") return "Ready for live AI";
+  if (inferenceMode === "deterministic") return "Ready: rules engine";
   return "Waiting to run";
+}
+
+function inferenceModeFromProvider(provider: string): InferenceMode | "unknown" {
+  if (provider.trim().toLowerCase() === "deterministic") return "deterministic";
+  return isConfiguredModelProvider(provider) ? "live_ai" : "unknown";
+}
+
+function stageObservabilityFor(
+  stage: DeveloperStageName,
+  observability?: PipelineObservability,
+) {
+  if (!observability) return undefined;
+  return observability.stages.find((item) => item.stage === stage);
+}
+
+function runtimeCopy(
+  runMode: RunMode,
+  inferenceMode: InferenceMode | "sample_replay" | "unknown",
+  provider: string,
+  model: string,
+) {
+  if (runMode === "sample" || inferenceMode === "sample_replay") {
+    return {
+      label: "Sample replay",
+      title: "A saved, precomputed run is on screen.",
+      detail: "No model was called. Use this mode to inspect the interface when the live backend is unavailable.",
+    };
+  }
+  if (inferenceMode === "live_ai") {
+    return {
+      label: "Live AI enabled",
+      title: `${provider.toLowerCase() === "groq" ? "Groq" : formatWords(provider)} · ${model} is shaping this memory.`,
+      detail: "Three model-backed stages run between deterministic consent checks and grounded validation.",
+    };
+  }
+  if (inferenceMode === "deterministic") {
+    return {
+      label: "Deterministic fallback",
+      title: "The rules engine is producing this run without an LLM.",
+      detail: "The same schemas and safety gates remain active, but semantic generation is not model-backed.",
+    };
+  }
+  return {
+    label: "Provider check",
+    title: "Run a pack to confirm the active generation path.",
+    detail: "Provider choice stays on the server; credentials and raw provider exceptions never enter the browser.",
+  };
 }
 
 function isConfiguredModelProvider(provider: string) {
@@ -478,7 +621,8 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
   const parsedPack = useMemo(() => parsePack(inputText), [inputText]);
   const [health, setHealth] = useState<DeveloperHealth>({
     status: "sample",
-    mode: "sample",
+    mode: "live",
+    inference_mode: "unknown",
     provider: "checking",
     model: "checking",
     message: "Checking the MemoryOS backend.",
@@ -508,6 +652,7 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
         setHealth({
           status: "error",
           mode: "sample",
+          inference_mode: "unknown",
           provider: "unavailable",
           model: "unavailable",
           message: "Studio could not check the MemoryOS backend.",
@@ -528,31 +673,69 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
     parsedPack?.squad.members.filter((member) => member.opted_in !== false).length ?? 0;
   const provider = result?.metadata.provider ?? health.provider;
   const model = result?.metadata.model ?? health.model;
-  const modelConfigured = isConfiguredModelProvider(provider);
+  const observability = result?.metadata.observability;
+  const reportedInferenceMode = result
+    ? result.metadata.mode ?? observability?.mode ?? inferenceModeFromProvider(result.metadata.provider)
+    : health.inference_mode === "sample_replay" ? undefined : health.inference_mode;
+  const inferenceMode: InferenceMode | "sample_replay" | "unknown" =
+    runMode === "sample" || (runMode === "waiting" && health.mode === "sample")
+      ? "sample_replay"
+      : reportedInferenceMode === "live_ai" || reportedInferenceMode === "deterministic"
+        ? reportedInferenceMode
+        : inferenceModeFromProvider(provider);
   const semanticOwner =
-    runMode === "sample"
+    inferenceMode === "sample_replay"
       ? "Replay"
-      : provider === "deterministic"
+      : inferenceMode === "deterministic"
         ? "Rules engine"
-        : modelConfigured
-          ? "Model-capable"
+        : inferenceMode === "live_ai"
+          ? provider.toLowerCase() === "groq" ? "Groq AI" : "Live AI"
           : "Unconfirmed";
   const usage = result?.metadata.usage;
-  const inputTokens = usage?.input_tokens ?? 0;
-  const outputTokens = usage?.output_tokens ?? 0;
+  const perspectiveFallbackCount = result?.metadata.narrative_fallbacks?.perspectives ?? 0;
+  const questFallbackCount = result?.metadata.narrative_fallbacks?.quest ?? 0;
+  const narrativeFallbackCount = perspectiveFallbackCount + questFallbackCount;
+  const inputTokens = observability?.totals.input_tokens ?? usage?.input_tokens ?? 0;
+  const outputTokens = observability?.totals.output_tokens ?? usage?.output_tokens ?? 0;
   const totalTokens = inputTokens + outputTokens;
+  const requestCount = observability?.totals.request_count ?? 0;
+  const retryCount = observability?.totals.retry_count ?? 0;
+  const configuredMaxRetries =
+    observability?.totals.configured_max_retries ??
+    observability?.totals.max_retries ??
+    observability?.configured_max_retries ?? 0;
+  const aiLatencyMs = observability?.totals.latency_ms ?? null;
   const modelActivity =
-    runMode === "sample"
-      ? "Not invoked in replay"
-      : provider === "deterministic"
-        ? "No model configured"
-        : totalTokens > 0
-          ? `${totalTokens.toLocaleString()} tokens reported`
-          : modelConfigured
-            ? result
-              ? "Configured; no invocation reported"
-              : "Model-capable; invocation not observed"
+    inferenceMode === "sample_replay"
+      ? "No model call · saved replay"
+      : inferenceMode === "deterministic"
+        ? "No model call · rules only"
+        : requestCount > 0
+          ? `${requestCount} model ${requestCount === 1 ? "call" : "calls"} · ${formatTokenCount(totalTokens)} tokens`
+          : inferenceMode === "live_ai"
+            ? result ? "Live AI · usage unavailable" : "Ready for live inference"
             : "Model provider not confirmed";
+  const runtime = runtimeCopy(runMode, inferenceMode, provider, model);
+  const runtimeClass =
+    inferenceMode === "live_ai"
+      ? "live-ai"
+      : inferenceMode === "deterministic"
+        ? "deterministic"
+        : inferenceMode === "sample_replay"
+          ? "sample"
+          : "unknown";
+  const connectionLabel =
+    health.provider === "checking"
+      ? "Checking backend"
+      : health.status === "error"
+      ? "Backend issue"
+      : health.inference_mode === "live_ai"
+        ? "Live AI connected"
+        : health.inference_mode === "deterministic"
+          ? "Rules engine connected"
+          : health.mode === "sample"
+            ? "Replay mode"
+            : "Backend connected";
   const groundingPack = submittedPack ?? parsedPack;
   const eventMap = new Map(
     (groundingPack?.match_events ?? []).map((event) => [event.event_id, event]),
@@ -575,6 +758,7 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
           status: event.status,
           message: event.message,
           preview: event.preview,
+          observability: event.observability,
         };
         return next;
       });
@@ -599,12 +783,27 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
     setResult(event.result);
     setStages((current) => {
       const next = { ...current };
+      const finalObservability = event.result.metadata.observability;
       for (const definition of stageDefinitions) {
         const currentStage = next[definition.id];
+        const stageObservability = stageObservabilityFor(
+          definition.id,
+          finalObservability,
+        );
         if (currentStage.status === "working") {
-          next[definition.id] = { ...currentStage, status: "complete" };
+          next[definition.id] = {
+            ...currentStage,
+            status: "complete",
+            observability: currentStage.observability ?? stageObservability,
+          };
         } else if (currentStage.status === "idle") {
-          next[definition.id] = { ...currentStage, status: "skipped" };
+          next[definition.id] = {
+            ...currentStage,
+            status: stageObservability ? "complete" : "skipped",
+            observability: stageObservability,
+          };
+        } else if (stageObservability && !currentStage.observability) {
+          next[definition.id] = { ...currentStage, observability: stageObservability };
         }
       }
       return next;
@@ -735,7 +934,7 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
         <div className="studio-topbar-actions">
           <span className={`studio-connection studio-connection-${health.status}`}>
             <i aria-hidden="true" />
-            {health.status === "ok" ? "Backend connected" : health.status === "sample" ? "Replay mode" : "Backend issue"}
+            {connectionLabel}
           </span>
           <Link className="studio-player-link" href="/">Open player view</Link>
         </div>
@@ -761,11 +960,41 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
           </div>
           <div>
             <dt>Run source</dt>
-            <dd>{sourceLabel(runMode)}</dd>
+            <dd>{sourceLabel(runMode, inferenceMode)}</dd>
           </div>
           <div>
             <dt>End-to-end</dt>
             <dd>{formatDuration(durationMs)}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section
+        className={`studio-runtime-banner runtime-${runtimeClass}`}
+        aria-label="Active generation mode"
+        aria-live="polite"
+      >
+        <div className="studio-runtime-copy">
+          <span>{runtime.label}</span>
+          <strong>{runtime.title}</strong>
+          <p>{runtime.detail}</p>
+          {fallbackReason ? (
+            <small>Fallback reason: {formatWords(fallbackReason)}</small>
+          ) : null}
+        </div>
+        <dl className="studio-runtime-metrics">
+          <div><dt>Model calls</dt><dd>{requestCount || "--"}</dd></div>
+          <div><dt>AI tokens</dt><dd>{totalTokens ? totalTokens.toLocaleString() : "--"}</dd></div>
+          <div><dt>AI latency</dt><dd>{formatDuration(aiLatencyMs)}</dd></div>
+          <div>
+            <dt>Retry policy</dt>
+            <dd>
+              {retryCount > 0
+                ? `${retryCount} observed`
+                : configuredMaxRetries > 0
+                  ? `Up to ${configuredMaxRetries} automatic`
+                  : "--"}
+            </dd>
           </div>
         </dl>
       </section>
@@ -778,9 +1007,9 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
         </div>
         <div className="studio-boundary-arrow" aria-hidden="true">+</div>
         <div className="studio-boundary-step boundary-ai">
-          <span>Model-capable</span>
-          <strong>Semantic generation</strong>
-          <small>Frame, personalize, compose</small>
+          <span>{inferenceMode === "live_ai" ? "Live AI" : inferenceMode === "sample_replay" ? "Replay" : "Model-capable"}</span>
+          <strong>Three semantic stages</strong>
+          <small>Frame memory, personalize perspectives, compose mission</small>
         </div>
         <div className="studio-boundary-arrow" aria-hidden="true">+</div>
         <div className="studio-boundary-step boundary-output">
@@ -842,7 +1071,9 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
               <p className="studio-panel-index">Pipeline snapshots</p>
               <h2 id="studio-trace-title">Decision path</h2>
             </div>
-            <span className={`studio-run-source source-${runMode}`}>{sourceLabel(runMode)}</span>
+            <span className={`studio-run-source source-${runMode}`}>
+              {sourceLabel(runMode, inferenceMode)}
+            </span>
           </div>
 
           <p className="studio-panel-note">
@@ -853,6 +1084,13 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
             {stageDefinitions.map((definition) => {
               const stage = stages[definition.id];
               const owner = definition.fixedOwner ?? semanticOwner;
+              const stageTelemetry =
+                stage.observability ?? stageObservabilityFor(definition.id, observability);
+              const stageTokens = stageTelemetry
+                ? stageTelemetry.input_tokens + stageTelemetry.output_tokens
+                : 0;
+              const stageRetryLimit =
+                stageTelemetry?.configured_max_retries ?? stageTelemetry?.max_retries ?? 0;
               return (
                 <li key={definition.id}>
                   <article className={`studio-stage stage-${stage.status}`}>
@@ -864,6 +1102,18 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
                       </div>
                       <p>{definition.description}</p>
                       {stage.message ? <small>{stage.message}</small> : null}
+                      {stageTelemetry ? (
+                        <dl className="studio-stage-telemetry" aria-label={`${definition.label} model telemetry`}>
+                          <div><dt>Latency</dt><dd>{formatDuration(stageTelemetry.latency_ms)}</dd></div>
+                          <div><dt>Tokens</dt><dd>{stageTokens.toLocaleString()}</dd></div>
+                          <div><dt>Calls</dt><dd>{stageTelemetry.request_count}</dd></div>
+                          {stageTelemetry.retry_count && stageTelemetry.retry_count > 0 ? (
+                            <div><dt>Retries</dt><dd>{stageTelemetry.retry_count}</dd></div>
+                          ) : stageRetryLimit > 0 ? (
+                            <div><dt>Retry policy</dt><dd>Up to {stageRetryLimit}</dd></div>
+                          ) : null}
+                        </dl>
+                      ) : null}
                       {stage.preview !== undefined ? (
                         <details className="studio-stage-preview">
                           <summary>Inspect structured snapshot</summary>
@@ -883,6 +1133,20 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
               <strong>{formatWords(runError.code)}</strong>
               <p>{runError.message ?? "The pipeline stopped safely."}</p>
               <small>Stage: {formatWords(runError.stage)} · Retryable: {runError.retryable ? "yes" : "no"}</small>
+              {runError.code === "provider_rate_limited" ? (
+                <p className="studio-rate-limit-note">
+                  Groq is rate-limited. Wait for the usage window to reset before running this pack again.
+                </p>
+              ) : runError.retryable ? (
+                <button
+                  className="studio-error-retry"
+                  type="button"
+                  onClick={() => void runPipeline()}
+                  disabled={!parsedPack || running}
+                >
+                  Retry this run
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>
@@ -904,8 +1168,32 @@ export function StudioDashboard({ initialPack }: { initialPack: MemoryPack }) {
               <strong>{modelActivity}</strong>
             </div>
             <div>
+              <span>AI latency</span>
+              <strong>{formatDuration(aiLatencyMs)}</strong>
+            </div>
+            <div>
+              <span>Retry policy</span>
+              <strong>
+                {retryCount > 0
+                  ? `${retryCount} observed`
+                  : configuredMaxRetries > 0
+                    ? `Up to ${configuredMaxRetries}`
+                    : "--"}
+              </strong>
+            </div>
+            <div>
               <span>Redactions</span>
-              <strong>{result?.metadata.redaction_count ?? 0}</strong>
+              <strong>{result?.metadata.redaction_count ?? "--"}</strong>
+            </div>
+            <div>
+              <span>Safe fallbacks</span>
+              <strong>
+                {result
+                  ? narrativeFallbackCount > 0
+                    ? `${narrativeFallbackCount} line${narrativeFallbackCount === 1 ? "" : "s"}`
+                    : "None"
+                  : "--"}
+              </strong>
             </div>
             <div>
               <span>Validation</span>

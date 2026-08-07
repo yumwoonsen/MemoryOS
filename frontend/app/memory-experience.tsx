@@ -15,10 +15,12 @@ type ReadyResult = MemoryEngineResult & {
   next_chapter: NonNullable<MemoryEngineResult["next_chapter"]>;
 };
 
+type EngineSource = "live" | "sample";
+
 type ViewState =
   | { kind: "unrevealed" }
   | { kind: "loading" }
-  | { kind: "ready"; result: ReadyResult }
+  | { kind: "ready"; result: ReadyResult; source: EngineSource }
   | { kind: "unavailable" };
 
 const avatarClasses = ["avatar-lime", "avatar-gold", "avatar-blue", "avatar-pink"];
@@ -54,10 +56,36 @@ function formatClock(seconds?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function assertEngineSource(response: Response) {
+function readEngineSource(response: Response): EngineSource {
   const source = response.headers.get("x-memoryos-mode");
-  if (source === "live" || source === "sample") return;
+  if (source === "live" || source === "sample") return source;
   throw new Error("MemoryOS returned an unidentified response source.");
+}
+
+function provenanceDetails(result: ReadyResult, source: EngineSource) {
+  if (source === "sample") {
+    return {
+      className: "sample",
+      label: "Sample replay",
+      detail: "Saved output · no live model call",
+    };
+  }
+  const provider = result.metadata.provider.toLowerCase();
+  if (
+    result.metadata.mode === "live_ai" ||
+    !["", "deterministic", "unknown", "unavailable"].includes(provider)
+  ) {
+    return {
+      className: "live-ai",
+      label: "Live AI",
+      detail: `${provider === "groq" ? "Groq" : formatWords(result.metadata.provider)} · evidence-checked`,
+    };
+  }
+  return {
+    className: "deterministic",
+    label: "Rules engine",
+    detail: "Deterministic fallback · evidence-checked",
+  };
 }
 
 function parseMemoryResult(value: unknown, pack: MemoryPack): MemoryEngineResult {
@@ -103,7 +131,9 @@ function parseMemoryResult(value: unknown, pack: MemoryPack): MemoryEngineResult
     typeof metadata.pipeline_version !== "string" ||
     typeof metadata.provider !== "string" ||
     typeof metadata.model !== "string" ||
-    typeof metadata.factual_renderer !== "string" ||
+    (metadata.mode !== undefined && !["deterministic", "live_ai"].includes(String(metadata.mode))) ||
+    (typeof metadata.narrative_boundary !== "string" &&
+      typeof metadata.factual_renderer !== "string") ||
     !Array.isArray(value.player_perspectives)
   ) {
     throw new Error("MemoryOS returned an incomplete validation result.");
@@ -231,6 +261,9 @@ export function MemoryExperience({ initialPack }: { initialPack: MemoryPack }) {
   }, []);
 
   const storyResult = view.kind === "ready" ? view.result : null;
+  const provenance = view.kind === "ready"
+    ? provenanceDetails(view.result, view.source)
+    : null;
   const memory = storyResult?.memory;
   const quest = storyResult?.next_chapter;
   const optedInMembers = initialPack.squad.members.filter(isOptedIn);
@@ -307,13 +340,13 @@ export function MemoryExperience({ initialPack }: { initialPack: MemoryPack }) {
       }
 
       if (!response.ok) throw new Error("MemoryOS could not read this match.");
-      assertEngineSource(response);
+      const source = readEngineSource(response);
       const result = parseMemoryResult(payload, initialPack);
       await minimumDelay;
       if (controller.signal.aborted || requestId !== requestSequence.current) return;
 
       if (result.status === "ready") {
-        setView({ kind: "ready", result: result as ReadyResult });
+        setView({ kind: "ready", result: result as ReadyResult, source });
         setAnnouncement(`${result.memory?.title ?? "Memory"} is ready.`);
       } else {
         setView({ kind: "unavailable" });
@@ -404,6 +437,12 @@ export function MemoryExperience({ initialPack }: { initialPack: MemoryPack }) {
 
                 <div className="player-memory-copy">
                   <div className="memory-gist-label">The gist</div>
+                  {provenance ? (
+                    <div className={`player-ai-provenance provenance-${provenance.className}`}>
+                      <span><i aria-hidden="true" />{provenance.label}</span>
+                      <small>{provenance.detail}</small>
+                    </div>
+                  ) : null}
                   <div className="player-context-strip">
                     <strong>Free Fire</strong>
                     <span>{formatWords(initialPack.match.mode)}</span>

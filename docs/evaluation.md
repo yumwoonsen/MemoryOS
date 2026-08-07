@@ -2,7 +2,7 @@
 
 Fluent prose alone is not a success criterion. MemoryOS must find the right episodes, know when to
 abstain, protect consent, keep structured evidence references traceable, and reject the unsupported
-factual patterns covered by its closed renderers and conservative lexical rules.
+factual patterns covered by its deterministic scaffolds and conservative lexical rules.
 
 ## Deterministic acceptance criteria
 
@@ -15,10 +15,11 @@ The automated suite covers:
 - V1.0 review-state normalization into v1.1
 - Prompt and output redaction for opted-out identities
 - Rejection when fewer than two squad members are currently opted in
-- One perspective per opted-in participant, with no duplicates
+- One second-person perspective per opted-in participant, with no duplicates and at least one
+  concrete anchor from that player's deterministic evidence set
 - Known, opted-in quest assignees and at least two grounded objectives
-- Exact enforcement of server-rendered memory facts, player-perspective facts, and quest-objective
-  descriptions
+- Enforcement of deterministic memory evidence, player ownership/citations, and quest verification
+  controls while preserving model-authored narrative
 - Rejection of invented IDs, mismatched event types, and tested unsupported patterns involving
   names, places, numbers, actions, and relationship claims
 - No model call before source verification and meaning confirmation
@@ -60,10 +61,10 @@ useful role diversity; and the serialized-output leak scan does not inspect prov
 logs. Prompt redaction is covered by separate tests. Human-labeled datasets and qualitative review
 are still required before treating these values as product-quality measurements.
 
-The closed renderers make the tested memory, perspective, and objective clauses exact contractual
-checks, but they do not turn the remaining model-authored title, type, quest title, mission, or
-recipe into semantic proofs. Those framing fields still rely on bounded schemas, evidence/privacy
-checks, conservative lexical rules, and human review.
+The scaffold checks make evidence, identity, ownership, assignment, and verification controls exact,
+but they do not turn model-authored memory, perspective, or quest prose into semantic proofs. Those
+narrative fields still rely on bounded schemas, evidence/privacy checks, conservative lexical rules,
+and human review.
 
 There are a few mechanical edge cases to remember: no selected candidates yields precision `0`;
 no labeled abstention cases yields abstention correctness `0`; no output references yields evidence
@@ -85,6 +86,7 @@ expected-to-abstain pack IDs; they are synthetic expectations, not collected pla
 live run is explicit:
 
 ```powershell
+python -m backend.evaluate --provider groq
 python -m backend.evaluate --provider openai
 ```
 
@@ -96,7 +98,7 @@ The cost field uses configurable `OPENAI_INPUT_COST_PER_MILLION` and
 For any prompt or model change:
 
 1. Run deterministic CI gates to protect schemas and guardrails.
-2. Run the complete eligible fixture set in explicit OpenAI mode.
+2. Run the complete eligible fixture set in explicit Groq or OpenAI mode.
 3. Save results outside source fixtures and remove any secret-bearing logs.
 4. Compare ranking labels and generation metrics against the previous run.
 5. Add a regression fixture for every newly observed failure mode.
