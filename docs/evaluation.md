@@ -85,6 +85,7 @@ expected-to-abstain pack IDs; they are synthetic expectations, not collected pla
 live run is explicit:
 
 ```powershell
+python -m backend.evaluate --provider groq
 python -m backend.evaluate --provider openai
 ```
 
@@ -96,7 +97,7 @@ The cost field uses configurable `OPENAI_INPUT_COST_PER_MILLION` and
 For any prompt or model change:
 
 1. Run deterministic CI gates to protect schemas and guardrails.
-2. Run the complete eligible fixture set in explicit OpenAI mode.
+2. Run the complete eligible fixture set in explicit Groq or OpenAI mode.
 3. Save results outside source fixtures and remove any secret-bearing logs.
 4. Compare ranking labels and generation metrics against the previous run.
 5. Add a regression fixture for every newly observed failure mode.

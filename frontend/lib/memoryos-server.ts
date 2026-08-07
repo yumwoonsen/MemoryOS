@@ -2,9 +2,18 @@ import type { ProviderErrorBody } from "@/lib/history-types";
 
 const normalizedConfiguredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
 const backendApi = normalizedConfiguredApi || "http://127.0.0.1:8000";
+const proxyToken = process.env.MEMORYOS_PROXY_TOKEN?.trim();
+const GENERATION_TIMEOUT_MS = 90_000;
 
 export function backendUrl(path: string) {
   return `${backendApi}${path}`;
+}
+
+export function backendRequestHeaders({ json = true }: { json?: boolean } = {}) {
+  const headers = new Headers();
+  if (json) headers.set("content-type", "application/json");
+  if (proxyToken) headers.set("x-memoryos-proxy-token", proxyToken);
+  return headers;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,9 +48,9 @@ export async function proxyMemoryOs(request: Request, path: string): Promise<Res
   try {
     const response = await fetch(backendUrl(path), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: backendRequestHeaders(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
       cache: "no-store",
     });
     const text = await response.text();
@@ -53,6 +62,6 @@ export async function proxyMemoryOs(request: Request, path: string): Promise<Res
       ? Response.json(payload, { status: response.status, headers: { "x-memoryos-mode": "live" } })
       : Response.json(errorResponse(payload, response.status), { status: response.status, headers: { "x-memoryos-mode": "live" } });
   } catch {
-    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "MemoryOS is unavailable. Start the deterministic backend and try again." }, { status: 503 });
+    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "The configured MemoryOS backend is unavailable. Start it and try again." }, { status: 503 });
   }
 }

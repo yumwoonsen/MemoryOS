@@ -244,6 +244,11 @@ test("server-renders the dedicated developer Studio", async () => {
   assert.match(html, /Synthetic gameplay pack/i);
   assert.match(html, /Pipeline snapshots/i);
   assert.match(html, /Generation inspector/i);
+  assert.match(html, /Active generation mode/i);
+  assert.match(html, /Provider check/i);
+  assert.match(html, /Model calls/i);
+  assert.match(html, /AI latency/i);
+  assert.match(html, /Retry policy/i);
   assert.match(html, /Run pipeline audit/i);
   assert.match(html, /Open player view/i);
   assert.match(html, /noindex/i);
@@ -258,6 +263,7 @@ test("hosted Studio labels its health state as a sample replay", async () => {
   assert.deepEqual(await response.json(), {
     status: "sample",
     mode: "sample",
+    inference_mode: "sample_replay",
     provider: "sample-replay",
     model: "precomputed-fixture",
     message:
@@ -344,9 +350,16 @@ test("browser bundle never calls the local backend directly", async () => {
   ).join("\n");
 
   assert.doesNotMatch(browserBundle, /127\.0\.0\.1:8000/);
+  assert.doesNotMatch(browserBundle, /MEMORYOS_PROXY_TOKEN|x-memoryos-proxy-token/i);
   assert.match(browserBundle, /\/api\/discover/);
   assert.match(browserBundle, /\/api\/studio\/generate-stream/);
   assert.match(browserBundle, /Pipeline snapshots/i);
+  assert.match(browserBundle, /Live AI enabled/i);
+  assert.match(browserBundle, /Deterministic fallback/i);
+  assert.match(browserBundle, /Sample replay/i);
+  assert.match(browserBundle, /Retry this run/i);
+  assert.match(browserBundle, /Wait for the usage window to reset/i);
+  assert.match(browserBundle, /evidence-checked/i);
   assert.match(browserBundle, /\/api\/history/);
   assert.match(browserBundle, /\/api\/generate/);
   assert.match(browserBundle, /Loading squad memory/i);

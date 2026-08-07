@@ -24,6 +24,22 @@ def test_health_endpoint() -> None:
         "phase": "1",
         "provider": "deterministic",
         "model": "rules-v1",
+        "mode": "deterministic",
+    }
+
+
+def test_groq_health_requires_a_server_side_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "stage": "configuration",
+        "code": "missing_api_key",
+        "retryable": False,
+        "message": "The live AI provider could not complete this generation stage.",
     }
 
 
@@ -195,6 +211,34 @@ def test_local_frontend_origin_is_allowed() -> None:
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "x-memoryos-proxy-token" in response.headers["access-control-allow-headers"].lower()
+
+
+def test_optional_proxy_token_protects_data_routes_but_not_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROXY_TOKEN", "server-only-secret")
+    request = {"schema_version": "1.1", "memory_packs": load_history_payload(), "limit": 3}
+
+    health_response = client.get("/health")
+    missing = client.post("/v1/memories/discover-history", json=request)
+    wrong = client.post(
+        "/v1/memories/discover-history",
+        json=request,
+        headers={"X-MemoryOS-Proxy-Token": "wrong-secret"},
+    )
+    allowed = client.post(
+        "/v1/memories/discover-history",
+        json=request,
+        headers={"X-MemoryOS-Proxy-Token": "server-only-secret"},
+    )
+
+    assert health_response.status_code == 200
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert missing.json()["code"] == "proxy_authentication_failed"
+    assert "server-only-secret" not in missing.text
+    assert allowed.status_code == 200
 
 
 def test_openapi_exposes_v11_contracts_and_deprecated_legacy_route() -> None:
@@ -231,6 +275,8 @@ def test_openapi_exposes_v11_contracts_and_deprecated_legacy_route() -> None:
         "GenerateStreamErrorEvent",
         "GenerateStreamResultEvent",
     }
+    stage_schema = schema["components"]["schemas"]["GenerateStreamStageEvent"]
+    assert "observability" in stage_schema["properties"]
 
 
 def test_v10_pack_uses_phase_2_metadata_on_generate() -> None:
@@ -264,6 +310,21 @@ def test_review_gate_precedes_live_provider_initialization(
     assert all(event["type"] != "error" for event in events)
     assert events[-1]["type"] == "result"
     assert events[-1]["result"]["status"] == "needs_source_verification"
+
+
+def test_review_gate_also_precedes_groq_provider_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    request = {"schema_version": "1.1", "memory_pack": load_history_payload()[1]}
+
+    response = client.post("/v1/memories/generate", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "needs_source_verification"
+    assert response.json()["metadata"]["provider"] == "groq"
+    assert response.json()["metadata"]["mode"] == "live_ai"
 
 
 class BrokenPipeline:

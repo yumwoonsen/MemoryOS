@@ -11,7 +11,9 @@ The experience moves through four clear states:
 3. the shared gist, chronological evidence, and the current player's perspective; and
 4. a grounded “Next Chapter” challenge with a safe preview dialog.
 
-The player story never exposes internal validation scores, rule IDs, or model metadata. A navigation
+The player story never exposes internal validation scores, rule IDs, prompts, or credentials. It
+does show a compact provenance label so a live AI result, deterministic fallback, and saved sample
+replay cannot be confused. A navigation
 link opens the separate Developer Studio without mixing its controls into the story itself. The
 checks still run behind the interface: results are bound to the submitted Memory Pack,
 evidence must reference real match events, and every opted-in player must receive exactly one
@@ -26,17 +28,17 @@ Open `/studio` for the developer-facing observability workspace. It accepts an e
 Memory Pack and shows how the pipeline moves from verified match evidence into a shared memory,
 personal perspectives, a continuation quest, and deterministic validation.
 
-The Studio deliberately separates three execution states:
+The Studio deliberately separates three generation states:
 
-- **Live backend** — snapshots returned by the configured MemoryOS v1.1 generation endpoint.
+- **Live AI** — Groq GPT-OSS generated the semantic stages through the configured backend.
 - **Deterministic run** — the rules provider completed the pipeline without model calls.
 - **Sample replay** — the hosted frontend replayed the bundled canonical result because no backend
   is configured or reachable.
 
-Pipeline events are labelled as completed snapshots rather than a live model trace. The current
-backend reports provider/model metadata and aggregate usage when available, but it does not expose
-per-stage latency, prompts, model inputs, or per-stage token usage. The Studio never displays API
-keys, server environment values, unrestricted player data, or raw provider exceptions.
+Pipeline events are labelled as completed snapshots rather than a live token trace. When the
+backend supplies them, the Studio displays safe aggregate and per-stage request counts, token
+counts, latency, and configured retry limits. It never displays prompts, model inputs, API keys,
+server environment values, unrestricted player data, or raw provider exceptions.
 
 ## Run locally
 
@@ -54,7 +56,9 @@ Battle Royale pack can use its canonical sample result; altered or unknown packs
 The Studio uses `/api/studio/health` and `/api/studio/generate-stream`. During local development,
 those routes connect to `http://127.0.0.1:8000`. In a hosted environment, set `MEMORYOS_API_URL` on
 the server to enable live runs; otherwise the Studio remains usable as an explicitly labelled
-sample replay.
+sample replay. If the public backend is protected with the optional proxy boundary, set
+`MEMORYOS_PROXY_TOKEN` only in the frontend server environment. It is attached to server-to-server
+requests and is never serialized into the browser bundle.
 
 This screen currently targets the deprecated v1.0 `/v1/memories/discover` compatibility route. It
 is safe to keep during the migration window, but it is not the Phase 2 historical review flow.

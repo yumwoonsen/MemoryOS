@@ -31,7 +31,7 @@ application version advances to `0.2.0`.
 
 ## `POST /v1/memories/discover-history`
 
-Ranks historical packs without an OpenAI call. The request accepts 1-50 v1.0 or v1.1 packs and
+Ranks historical packs without a model call. The request accepts 1-50 v1.0 or v1.1 packs and
 `limit` defaults to 3 with a maximum of 10. Every pack in one request must use:
 
 - the same `squad_id` and target `player_profile.player_id`;
@@ -157,8 +157,8 @@ still apply. A generated response has one of four statuses:
 |---|---|---:|
 | `needs_source_verification` | The candidate is promising but its events are unreviewed | No |
 | `needs_meaning_confirmation` | Events are verified, but the player has not confirmed meaning | No |
-| `ready` | Verified, confirmed, generated, and deterministically valid | Yes, in OpenAI mode |
-| `rejected` | Filtered, ineligible, or generated output failed validation | No before a gate; in OpenAI mode, possibly yes if generated output was later rejected |
+| `ready` | Verified, confirmed, generated, and deterministically valid | Yes, in a live-provider mode |
+| `rejected` | Filtered, ineligible, or generated output failed validation | No before a gate; in a live-provider mode, possibly yes if generated output was later rejected |
 
 The `ready` body contains the memory, opted-in player perspectives, next-chapter quest, validation
 report, and provider/prompt/pipeline version metadata. Because the route excludes `null` response
@@ -252,7 +252,7 @@ because those identifiers are preserved for traceability.
 }
 ```
 
-The service does not silently switch a failed OpenAI request to deterministic content.
+The service does not silently switch a failed live-provider request to deterministic content.
 
 Final validation checks exact schemas, IDs, evidence types, perspective ownership, and quest-rule
 shapes, plus conservative lexical checks for selected unsupported names, locations, numbers,
@@ -276,7 +276,15 @@ The default needs no credentials:
 MEMORYOS_PROVIDER=deterministic
 ```
 
-To opt into live generation, copy `.env.example` to `.env` and set:
+To opt into the recommended Groq live generation path, copy `.env.example` to `.env` and set:
+
+```dotenv
+MEMORYOS_PROVIDER=groq
+GROQ_API_KEY=your_server_side_key
+GROQ_MODEL=openai/gpt-oss-20b
+```
+
+The existing OpenAI path remains available:
 
 ```dotenv
 MEMORYOS_PROVIDER=openai
@@ -294,13 +302,23 @@ uvicorn backend.main:app --reload
 # Opt-in live mode; reads OPENAI_API_KEY from .env
 $env:MEMORYOS_PROVIDER = "openai"
 uvicorn backend.main:app --reload
+
+# Recommended free-tier live mode; reads GROQ_API_KEY from .env
+$env:MEMORYOS_PROVIDER = "groq"
+uvicorn backend.main:app --reload
 ```
 
 Keep the key server-side. The live provider uses structured typed responses, but deterministic code
 still owns evidence, consent, eligibility, review state, and final validation.
 
+For a deployed server-to-server frontend proxy, optionally set `MEMORYOS_PROXY_TOKEN`. When it is
+non-empty, data-bearing POST routes require the same value in the `X-MemoryOS-Proxy-Token` header;
+`/health` remains public. Keep this value in server environment variables only—never bundle it into
+browser JavaScript. Local development remains unchanged while the variable is unset.
+
 Each model request uses low reasoning effort, a 30-second timeout, at most two SDK retries, and a
-2,000-token output ceiling. Responses use `store=False`. See the official
+2,000-token output ceiling. OpenAI responses use `store=False`; Groq requests omit the unsupported
+`store` field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
 configured model's current capabilities and pricing.
 

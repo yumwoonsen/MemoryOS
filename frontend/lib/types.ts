@@ -100,10 +100,42 @@ export type QuestObjective = {
   source_event_ids: string[];
 };
 
+export type InferenceMode = "deterministic" | "live_ai";
+
+export type ProviderStageObservability = {
+  stage: string;
+  status: "succeeded" | "failed";
+  request_count: number;
+  retry_count?: number;
+  max_retries?: number;
+  configured_max_retries?: number;
+  input_tokens: number;
+  output_tokens: number;
+  latency_ms: number;
+};
+
+export type PipelineObservability = {
+  provider: string;
+  model: string;
+  mode: InferenceMode;
+  configured_max_retries?: number;
+  totals: {
+    request_count: number;
+    retry_count?: number;
+    max_retries?: number;
+    configured_max_retries?: number;
+    input_tokens: number;
+    output_tokens: number;
+    latency_ms: number;
+  };
+  stages: ProviderStageObservability[];
+};
+
 export type PipelineMetadata = {
   pipeline_version: string;
   provider: string;
   model: string;
+  mode?: InferenceMode;
   prompt_version?: string;
   factual_renderer: string;
   redaction_count?: number;
@@ -114,6 +146,7 @@ export type PipelineMetadata = {
     output_tokens?: number;
     [key: string]: number | undefined;
   };
+  observability?: PipelineObservability;
 };
 
 export type MemoryApiError = {
@@ -181,6 +214,7 @@ export type DeveloperStageEvent = {
   status: "working" | "complete" | "stopped" | "failed";
   message?: string;
   preview?: unknown;
+  observability?: ProviderStageObservability;
 };
 
 export type DeveloperErrorEvent = {
@@ -204,6 +238,7 @@ export type DeveloperStreamEvent =
 export type DeveloperHealth = {
   status: "ok" | "sample" | "error";
   mode: "live" | "sample";
+  inference_mode: InferenceMode | "sample_replay" | "unknown";
   provider: string;
   model: string;
   message: string;

@@ -56,6 +56,7 @@ class QuestAgent:
             QuestObjective(
                 objective_id="reassemble-original-squad",
                 description="Complete a match with the opted-in members of the original squad.",
+                required=True,
                 verification=VerificationRule(
                     metric="squad_member_ids",
                     operator="contains_all",
@@ -70,6 +71,7 @@ class QuestAgent:
                 QuestObjective(
                     objective_id="return-to-location",
                     description=f"Return to {location} during the new match.",
+                    required=True,
                     verification=VerificationRule(
                         metric="visited_locations",
                         operator="contains_all",
@@ -95,6 +97,7 @@ class QuestAgent:
                         f"{rescued_name} revives {rescuer_name}, reversing the original roles."
                     ),
                     assigned_player_id=revive.target_id,
+                    required=True,
                     verification=VerificationRule(
                         metric=f"revives.{revive.target_id}.targets",
                         operator="contains_all",

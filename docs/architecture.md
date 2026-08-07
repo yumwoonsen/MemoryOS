@@ -131,18 +131,19 @@ semantic-grounding layer is evaluated.
 
 ## Provider boundary
 
-Deterministic mode is the default and the regression baseline. OpenAI mode may replace the three
-semantic stages, but each receives the same sanitized ledger plus the previous typed output and
+Deterministic mode is the default and the regression baseline. Groq or OpenAI mode may replace the
+three semantic stages, but each receives the same sanitized ledger plus the previous typed output and
 returns the same Pydantic output types.
 
 ```text
 sanitized evidence
     |-- deterministic stage implementation --|
-    `-- structured OpenAI stage call ---------|--> typed output --> deterministic validator
+    `-- structured live-provider stage call --|--> typed output --> deterministic validator
 ```
 
-The live adapter uses the Responses API with Pydantic Structured Outputs, low reasoning effort,
-`store=False`, a 30-second timeout, at most two SDK retries, and a 2,000-token output ceiling. On a
+The live adapters use the Responses API with Pydantic Structured Outputs, low reasoning effort, a
+30-second timeout, at most two SDK retries, and a 2,000-token output ceiling. OpenAI sets
+`store=False`; Groq omits that unsupported field. On a
 direct JSON route, a provider failure is reported as a structured HTTP `503`; the service never
 silently changes a live request to deterministic prose. Once an NDJSON response has begun, the
 equivalent failure is a typed `error` event under HTTP `200`.

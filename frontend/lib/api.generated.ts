@@ -268,6 +268,10 @@ export interface components {
         GenerateStreamStageEvent: {
             /** Message */
             message?: string | null;
+            /** Observability */
+            observability?: {
+                [key: string]: unknown;
+            } | null;
             /** Preview */
             preview?: components["schemas"]["MemoryRecord"] | components["schemas"]["PlayerPerspective"][] | components["schemas"]["NextChapter"] | components["schemas"]["ValidationReport"] | null;
             /**
@@ -716,10 +720,7 @@ export interface components {
             description: string;
             /** Objective Id */
             objective_id: string;
-            /**
-             * Required
-             * @default true
-             */
+            /** Required */
             required: boolean;
             /** Source Event Ids */
             source_event_ids: string[];

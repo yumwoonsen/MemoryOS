@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.requests import Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from backend.models.schemas import (
@@ -72,14 +74,45 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-MemoryOS-Proxy-Token"],
 )
+
+PROTECTED_POST_PATHS = {
+    "/v1/memories/discover",
+    "/v1/memories/discover-history",
+    "/v1/memories/generate",
+    "/v1/memories/generate-stream",
+    "/v1/memories/prepare-delivery",
+    "/v1/memories/record-delivery-decision",
+}
+
+
+@app.middleware("http")
+async def require_trusted_proxy(request: Request, call_next):
+    """Optionally restrict data-bearing POST routes to a trusted server-side proxy."""
+
+    expected = os.getenv("MEMORYOS_PROXY_TOKEN")
+    if expected and request.method == "POST" and request.url.path in PROTECTED_POST_PATHS:
+        supplied = request.headers.get("X-MemoryOS-Proxy-Token", "")
+        if not hmac.compare_digest(supplied.encode(), expected.encode()):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "stage": "authentication",
+                    "code": "proxy_authentication_failed",
+                    "retryable": False,
+                    "message": "A valid trusted-proxy token is required.",
+                },
+                headers={"Cache-Control": "no-store"},
+            )
+    return await call_next(request)
 
 
 @app.get("/health", tags=["system"], response_model=None)
 def health() -> dict[str, str] | JSONResponse:
     try:
         pipeline = _build_configured_pipeline()
+        pipeline.validate_provider_configuration()
     except OpenAIProviderError as error:
         return _provider_error_response(error)
     return {
@@ -87,6 +120,7 @@ def health() -> dict[str, str] | JSONResponse:
         "phase": "1",
         "provider": pipeline.provider_name,
         "model": pipeline.model_name,
+        "mode": pipeline.execution_mode,
     }
 
 
@@ -223,12 +257,14 @@ def generate_memory_stream(request: GenerateMemoryRequest) -> NDJSONStreamingRes
                 stage="memory_discovery",
                 status="complete",
                 preview=result.memory.model_dump(mode="json"),
+                observability=_stage_observability(result.metadata, "memory_discovery"),
             )
             yield _ndjson_event(
                 type="stage",
                 stage="perspectives",
                 status="complete",
                 preview=[item.model_dump(mode="json") for item in result.player_perspectives],
+                observability=_stage_observability(result.metadata, "perspectives"),
             )
             yield _ndjson_event(
                 type="stage",
@@ -237,6 +273,7 @@ def generate_memory_stream(request: GenerateMemoryRequest) -> NDJSONStreamingRes
                 preview=(
                     result.next_chapter.model_dump(mode="json") if result.next_chapter else None
                 ),
+                observability=_stage_observability(result.metadata, "quest_generation"),
             )
             yield _ndjson_event(
                 type="stage",
@@ -279,3 +316,22 @@ def _build_configured_pipeline() -> MemoryPipeline:
 
 def _ndjson_event(**payload: object) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+
+def _stage_observability(metadata: dict[str, object], stage: str) -> dict[str, object] | None:
+    """Select one safe provider metric snapshot for a completed stream stage."""
+
+    observability = metadata.get("observability")
+    if not isinstance(observability, dict):
+        return None
+    stages = observability.get("stages")
+    if not isinstance(stages, list):
+        return None
+    return next(
+        (
+            dict(item)
+            for item in reversed(stages)
+            if isinstance(item, dict) and item.get("stage") == stage
+        ),
+        None,
+    )

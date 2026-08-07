@@ -1,4 +1,5 @@
 import type { DeveloperHealth } from "@/lib/types";
+import { backendRequestHeaders } from "@/lib/memoryos-server";
 
 const normalizedConfiguredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
 const configuredApi = normalizedConfiguredApi || undefined;
@@ -16,6 +17,7 @@ function sampleHealth(reason: "hosted-sample" | "backend-unavailable") {
     {
       status: "sample",
       mode: "sample",
+      inference_mode: "sample_replay",
       provider: "sample-replay",
       model: "precomputed-fixture",
       message:
@@ -44,6 +46,7 @@ export async function GET(request: Request) {
   try {
     response = await fetch(`${backendApi}/health`, {
       cache: "no-store",
+      headers: backendRequestHeaders({ json: false }),
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -67,6 +70,7 @@ export async function GET(request: Request) {
       {
         status: "error",
         mode: "live",
+        inference_mode: "unknown",
         provider: "unavailable",
         model: "unavailable",
         code,
@@ -83,6 +87,12 @@ export async function GET(request: Request) {
     {
       status: "ok",
       mode: "live",
+      inference_mode:
+        payload.mode === "live_ai" || payload.mode === "deterministic"
+          ? payload.mode
+          : payload.provider === "deterministic"
+            ? "deterministic"
+            : "unknown",
       provider: typeof payload.provider === "string" ? payload.provider : "unknown",
       model: typeof payload.model === "string" ? payload.model : "unknown",
       message: "Connected to the live MemoryOS backend.",

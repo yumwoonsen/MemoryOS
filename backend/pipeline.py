@@ -31,6 +31,7 @@ from backend.models.schemas import (
 from backend.services.delivery_store import delivery_decision_store
 from backend.services.evidence import sanitize_memory_pack
 from backend.services.historical_discovery import HistoricalMemoryRanker
+from backend.services.provider_observability import empty_observability
 from backend.services.structured_generator import StructuredGenerator
 
 
@@ -51,11 +52,79 @@ class LazyOpenAIStructuredGenerator:
             return {"input_tokens": 0, "output_tokens": 0}
         return dict(getattr(self._delegate, "usage_totals", {}))
 
+    @property
+    def observability(self) -> dict[str, object]:
+        if self._delegate is None:
+            return empty_observability(
+                provider=self.provider_name,
+                model=self.model_name,
+                mode="live_ai",
+                configured_max_retries=2,
+            )
+        return dict(getattr(self._delegate, "observability", {}))
+
+    def validate_configuration(self) -> None:
+        if not os.getenv("OPENAI_API_KEY"):
+            from backend.services.openai_client import OpenAIProviderError
+
+            raise OpenAIProviderError(
+                stage="configuration",
+                code="missing_api_key",
+                retryable=False,
+            )
+
     def generate(self, **kwargs: Any) -> Any:
         if self._delegate is None:
             from backend.services.openai_client import OpenAIStructuredGenerator
 
             self._delegate = OpenAIStructuredGenerator(self.model_name)
+        return self._delegate.generate(**kwargs)
+
+
+class LazyGroqStructuredGenerator:
+    """Expose Groq metadata while deferring key validation until a model stage runs."""
+
+    provider_name = "groq"
+
+    def __init__(self) -> None:
+        from backend.services.groq_client import DEFAULT_MODEL
+
+        self.model_name = os.getenv("GROQ_MODEL") or DEFAULT_MODEL
+        self._delegate: StructuredGenerator | None = None
+
+    @property
+    def usage_totals(self) -> dict[str, int]:
+        if self._delegate is None:
+            return {"input_tokens": 0, "output_tokens": 0}
+        return dict(getattr(self._delegate, "usage_totals", {}))
+
+    @property
+    def observability(self) -> dict[str, object]:
+        if self._delegate is None:
+            return empty_observability(
+                provider=self.provider_name,
+                model=self.model_name,
+                mode="live_ai",
+                configured_max_retries=2,
+            )
+        return dict(getattr(self._delegate, "observability", {}))
+
+    def validate_configuration(self) -> None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key or not api_key.strip():
+            from backend.services.groq_client import GroqProviderError
+
+            raise GroqProviderError(
+                stage="configuration",
+                code="missing_api_key",
+                retryable=False,
+            )
+
+    def generate(self, **kwargs: Any) -> Any:
+        if self._delegate is None:
+            from backend.services.groq_client import GroqStructuredGenerator
+
+            self._delegate = GroqStructuredGenerator(self.model_name)
         return self._delegate.generate(**kwargs)
 
 
@@ -79,9 +148,31 @@ class MemoryPipeline:
         return self._generator.model_name if self._generator else "rules-v1"
 
     @property
+    def execution_mode(self) -> str:
+        return "live_ai" if self._generator else "deterministic"
+
+    @property
     def usage_totals(self) -> dict[str, int]:
         usage = getattr(self._generator, "usage_totals", None)
         return dict(usage) if usage is not None else {"input_tokens": 0, "output_tokens": 0}
+
+    @property
+    def observability(self) -> dict[str, object]:
+        snapshot = getattr(self._generator, "observability", None)
+        if snapshot is not None:
+            return dict(snapshot)
+        return empty_observability(
+            provider=self.provider_name,
+            model=self.model_name,
+            mode="deterministic" if self._generator is None else "live_ai",
+        )
+
+    def validate_provider_configuration(self) -> None:
+        """Check credential presence without constructing a client or making a model call."""
+
+        validate = getattr(self._generator, "validate_configuration", None)
+        if validate is not None:
+            validate()
 
     def run(self, pack: MemoryPack) -> MemoryEngineResult:
         if not pack.target_player_opted_in:
@@ -368,6 +459,7 @@ class MemoryPipeline:
             or ("phase-1-v1" if pack.schema_version == "1.0" else "phase-2-generation-v1"),
             "provider": self.provider_name,
             "model": self.model_name,
+            "mode": self.execution_mode,
             "prompt_version": "grounded-v1",
             "factual_renderer": "closed-v1",
             "redaction_count": redaction_count,
@@ -380,6 +472,7 @@ class MemoryPipeline:
         usage = getattr(self._generator, "usage_totals", None)
         if usage is not None:
             metadata["usage"] = usage
+        metadata["observability"] = self.observability
         return metadata
 
     def _generation_metadata(
@@ -447,4 +540,6 @@ def build_pipeline(provider: str | None = None) -> MemoryPipeline:
         return MemoryPipeline()
     if selected_provider == "openai":
         return MemoryPipeline(LazyOpenAIStructuredGenerator())
-    raise ValueError("MEMORYOS_PROVIDER must be either 'deterministic' or 'openai'")
+    if selected_provider == "groq":
+        return MemoryPipeline(LazyGroqStructuredGenerator())
+    raise ValueError("MEMORYOS_PROVIDER must be 'deterministic', 'openai', or 'groq'")

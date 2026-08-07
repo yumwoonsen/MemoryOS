@@ -292,6 +292,18 @@
             ],
             "title": "Message"
           },
+          "observability": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observability"
+          },
           "preview": {
             "anyOf": [
               {
@@ -1661,7 +1673,6 @@
             "type": "string"
           },
           "required": {
-            "default": true,
             "title": "Required",
             "type": "boolean"
           },
@@ -1681,6 +1692,7 @@
         "required": [
           "objective_id",
           "description",
+          "required",
           "verification",
           "source_event_ids"
         ],

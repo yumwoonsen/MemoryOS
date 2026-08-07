@@ -269,3 +269,5 @@ def test_generic_actor_perspectives_remain_distinct() -> None:
 
 def test_provider_name_is_trimmed_and_case_normalized() -> None:
     assert build_pipeline("  DeTeRmInIsTiC  ").provider_name == "deterministic"
+    assert build_pipeline("  GrOq  ").provider_name == "groq"
+    assert build_pipeline("groq").model_name == "openai/gpt-oss-20b"

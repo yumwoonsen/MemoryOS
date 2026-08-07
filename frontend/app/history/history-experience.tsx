@@ -12,6 +12,11 @@ type Delivery = {
   player_perspectives: Array<{ player_id: string; message: string }>;
   next_chapter: { title: string; mission: string; objectives: Array<{ objective_id: string; description: string; required: boolean }> };
   narrative: { teaser: string; why_this_surfaced: string };
+  metadata?: {
+    provider?: string;
+    model?: string;
+    mode?: "deterministic" | "live_ai";
+  };
 };
 
 type View =
@@ -36,7 +41,33 @@ function isDelivery(value: unknown): value is Delivery {
     && typeof value.memory.summary === "string"
     && Array.isArray(value.player_perspectives)
     && isRecord(value.next_chapter)
-    && isRecord(value.narrative);
+    && isRecord(value.narrative)
+    && (
+      value.metadata === undefined ||
+      (isRecord(value.metadata) &&
+        (value.metadata.provider === undefined || typeof value.metadata.provider === "string") &&
+        (value.metadata.model === undefined || typeof value.metadata.model === "string") &&
+        (value.metadata.mode === undefined || ["deterministic", "live_ai"].includes(String(value.metadata.mode))))
+    );
+}
+
+function deliveryProvenance(delivery: Delivery) {
+  const provider = delivery.metadata?.provider?.toLowerCase() ?? "";
+  if (
+    delivery.metadata?.mode === "live_ai" ||
+    !["", "deterministic", "unknown", "unavailable"].includes(provider)
+  ) {
+    return {
+      className: "live-ai",
+      label: "Live AI",
+      detail: `${provider === "groq" ? "Groq" : delivery.metadata?.provider ?? "Model"} · evidence-checked`,
+    };
+  }
+  return {
+    className: "deterministic",
+    label: "Rules engine",
+    detail: "Deterministic fallback · evidence-checked",
+  };
 }
 
 export function HistoryExperience({ initialPacks }: { initialPacks: MemoryPackV11[] }) {
@@ -98,7 +129,8 @@ export function HistoryExperience({ initialPacks }: { initialPacks: MemoryPackV1
 
 function MemoryCard({ delivery, onAccept, onDecline }: { delivery: Delivery; onAccept: () => void; onDecline: () => void }) {
   const perspective = delivery.player_perspectives[0];
-  return <><section className="player-hero" aria-labelledby="memory-title"><div className="player-memory-copy"><p className="demo-kicker">A memory from your squad</p><div className="memory-gist-label">{delivery.narrative.teaser}</div><h1 id="memory-title">{delivery.memory.title}</h1><p>{delivery.memory.summary}</p><p className="history-note">{delivery.narrative.why_this_surfaced}</p></div></section>{perspective && <section className="player-section your-perspective-card"><h2>Your side of the story</h2><p className="your-message">{perspective.message}</p></section>}<section className="player-section player-next"><div className="next-chapter-label">A new chapter</div><h2>{delivery.next_chapter.title}</h2><p className="player-next-mission">{delivery.next_chapter.mission}</p></section><div className="review-actions"><button className="reveal-memory-button" type="button" onClick={onAccept}>Accept mission</button><button className="secondary-action" type="button" onClick={onDecline}>Decline</button></div></>;
+  const provenance = deliveryProvenance(delivery);
+  return <><section className="player-hero" aria-labelledby="memory-title"><div className="player-memory-copy"><p className="demo-kicker">A memory from your squad</p><div className={`player-ai-provenance provenance-${provenance.className}`}><span><i aria-hidden="true" />{provenance.label}</span><small>{provenance.detail}</small></div><div className="memory-gist-label">{delivery.narrative.teaser}</div><h1 id="memory-title">{delivery.memory.title}</h1><p>{delivery.memory.summary}</p><p className="history-note">{delivery.narrative.why_this_surfaced}</p></div></section>{perspective && <section className="player-section your-perspective-card"><h2>Your side of the story</h2><p className="your-message">{perspective.message}</p></section>}<section className="player-section player-next"><div className="next-chapter-label">A new chapter</div><h2>{delivery.next_chapter.title}</h2><p className="player-next-mission">{delivery.next_chapter.mission}</p></section><div className="review-actions"><button className="reveal-memory-button" type="button" onClick={onAccept}>Accept mission</button><button className="secondary-action" type="button" onClick={onDecline}>Decline</button></div></>;
 }
 
 function StateCard({ title, message, action, onAction }: { title: string; message: string; action: string; onAction: () => void }) {

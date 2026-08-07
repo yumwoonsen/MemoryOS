@@ -1,4 +1,5 @@
 import { getDemoResult } from "@/lib/demo-results";
+import { backendRequestHeaders } from "@/lib/memoryos-server";
 import type {
   DeveloperErrorEvent,
   DeveloperMemoryEngineResult,
@@ -340,7 +341,7 @@ export async function POST(request: Request) {
   try {
     response = await fetch(`${backendApi}/v1/memories/generate-stream`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: backendRequestHeaders(),
       body: JSON.stringify({ schema_version: "1.1", memory_pack: memoryPack }),
       signal: upstreamController.signal,
       cache: "no-store",
