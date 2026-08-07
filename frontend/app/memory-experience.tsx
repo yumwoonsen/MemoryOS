@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import type {
@@ -346,10 +347,19 @@ export function MemoryExperience({ initialPack }: { initialPack: MemoryPack }) {
             <span className="player-brand-mark">M</span>
             <span>MemoryOS</span>
           </a>
-          <span className={`engine-badge ${view.kind === "loading" ? "checking" : ""}`}>
-            <i aria-hidden="true" />
-            {statusLabel}
-          </span>
+          <div className="player-topbar-actions">
+            <span className={`engine-badge ${view.kind === "loading" ? "checking" : ""}`}>
+              <i aria-hidden="true" />
+              {statusLabel}
+            </span>
+            <Link
+              className="player-studio-link"
+              href="/studio"
+              aria-label="Open the MemoryOS Developer Studio"
+            >
+              <span className="player-studio-long">Developer </span>Studio
+            </Link>
+          </div>
         </header>
 
         <div className="player-page" id="player-story" aria-busy={view.kind === "loading"}>

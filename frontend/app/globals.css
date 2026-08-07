@@ -170,6 +170,43 @@ summary:focus-visible {
   animation: engine-pulse 1.1s ease-in-out infinite;
 }
 
+.player-topbar-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.player-studio-link {
+  min-height: 30px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #171a15;
+  border: 1px solid #aeb6a6;
+  border-radius: 6px;
+  background: #fffef9;
+  font: 800 7px var(--font-mono);
+  letter-spacing: .055em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: border-color .16s ease, background-color .16s ease, transform .16s ease;
+}
+
+.player-studio-link:hover {
+  border-color: var(--olive);
+  background: var(--lime);
+  transform: translateY(-1px);
+}
+
+.player-studio-link:focus-visible {
+  outline: 3px solid rgba(93, 112, 0, .24);
+  outline-offset: 2px;
+}
+
 .player-page {
   width: 100%;
   padding: 6px;
@@ -1029,6 +1066,19 @@ summary:focus-visible {
   .engine-badge {
     padding-inline: 7px;
     font-size: 6.5px;
+  }
+
+  .player-topbar-actions {
+    gap: 5px;
+  }
+
+  .player-studio-link {
+    padding-inline: 8px;
+    font-size: 6.5px;
+  }
+
+  .player-studio-long {
+    display: none;
   }
 
   .player-page {

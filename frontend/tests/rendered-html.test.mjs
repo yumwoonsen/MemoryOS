@@ -107,6 +107,8 @@ test("server-renders the unrevealed Battle Royale memory", async () => {
   assert.match(html, /Your original squad left a story behind/i);
   assert.match(html, /The original squad/i);
   assert.match(html, /Load this memory/i);
+  assert.match(mainHtml, /href="\/studio"/i);
+  assert.match(mainHtml, /Open the MemoryOS Developer Studio/i);
   assert.match(html, /free-fire-map-v2\.webp/i);
   assert.match(html, /free-fire-map-mobile-v2\.webp/i);
   assert.match(html, /https:\/\/memoryos\.example\/og\.png/);
