@@ -72,6 +72,18 @@ does not rewrite telemetry.
 not drifted. The legacy exact-fixture fallback remains limited to `/api/discover` and is not used
 by `/history`.
 
+## Phase 3 reunion continuation
+
+After an accepted `/history` delivery, the player sees a consent-safe mission start, invites only
+the privacy-filtered squad perspectives, and can run a clearly labelled reunion simulation. A pure
+deterministic evaluator checks the synthetic new-match metrics against the quest's existing
+verification rules. “Story Continues,” the three-step timeline, and optional chapter feedback stay
+locked until every required objective passes.
+
+This Phase 3 slice remains intentionally ephemeral. It sends no real invitation, reads no live
+Garena match result, and does not persist chapter feedback while authentication, retention,
+consent, and privacy policy are unresolved.
+
 To run the optional backend, start it from the repository root:
 
 ```powershell
@@ -88,5 +100,5 @@ npm test
 npm audit --audit-level=high
 ```
 
-The challenge dialog is a simulation only. It does not send a real invitation or persist player
-actions.
+The challenge, invitation, rematch, and continuation are simulations only. They do not send a real
+invitation or persist player actions.

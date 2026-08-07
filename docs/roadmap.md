@@ -61,6 +61,10 @@ feedback expresses relevance and is never used to rewrite match facts.
 
 ### 3.3 — Complete the consumer decision path
 
+**Prototype status: complete on the consumer continuation branch.** The inbox now keeps an explicit
+route back to the player memory, validates the recorded decision response, shows reason-specific
+decline completion, and hands an accepted mission into a consent-safe invitation simulation.
+
 - Adjust the player frontend around the final delivery contract: one AI-prepared memory, its
   grounded explanation, and a clear reunion mission.
 - On **Accept mission**, show the squad-safe mission-start state and hand off to the invitation /
@@ -72,6 +76,12 @@ feedback expresses relevance and is never used to rewrite match facts.
   storage only after data-retention and consent decisions are approved.
 
 ### 3.4 — Reunion and continuation experience
+
+**Prototype status: in progress.** The current slice includes a clearly labelled synthetic moment
+preview, invitations derived only from privacy-filtered perspectives, deterministic evaluation of
+the existing mission rules against a synthetic rematch, a grounded “Story Continues” chapter,
+timeline presentation, and session-only relevance feedback. Real notifications, clips, Garena
+match-result ingestion, authentication, and durable feedback remain deferred production work.
 
 - In-app Memory Inbox or notification delivery with a curated moment clip
 - Squad invitation and acceptance simulation

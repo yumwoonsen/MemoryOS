@@ -198,6 +198,20 @@ unreviewed, and returns `pending_player_decision`. A player can accept or declin
 is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the browser rewrite
 telemetry. The older split-review route remains available for internal quality workflows.
 
+## Phase 3 reunion prototype
+
+The consumer continuation remains inside `/history` so a process-local delivery does not need to be
+placed in a URL or treated as durable authorization. An accepted decision unlocks a squad invitation
+simulation built only from the delivery's privacy-filtered player perspectives. Opted-out roster
+members never enter the invitation model.
+
+The prototype then evaluates a labelled synthetic rematch against the quest's existing
+machine-readable `equals`, `at_least`, and `contains_all` rules. Every required objective must pass
+before the UI can construct the deterministic “Story Continues” chapter and timeline. This proves
+the continuation state machine and verification semantics without claiming access to live Garena
+telemetry. Optional post-chapter relevance feedback is session-only and deliberately excludes the
+`details_wrong` source-quality reason used during the original delivery decision.
+
 ## Deferred production boundaries
 
 This phase does not add authentication, durable backend storage, queues, notifications, production

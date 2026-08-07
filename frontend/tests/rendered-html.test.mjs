@@ -125,7 +125,8 @@ test("server-renders the AI Memory Inbox while it safely prepares a delivery", a
   const mainHtml = html.slice(html.indexOf("<main"), html.indexOf("</main>") + "</main>".length);
   assert.match(html, /Memory inbox/i);
   assert.match(html, /Bringing a squad moment back/i);
-  assert.match(html, /Preparing a grounded memory and a new chapter/i);
+  assert.match(html, /Preparing one grounded memory and a new chapter/i);
+  assert.match(mainHtml, /href="\/"[^>]*>← Back to player memory/i);
   assert.match(mainHtml, /href="\/studio"/i);
   assert.match(mainHtml, /Open the MemoryOS Developer Studio/i);
   assert.doesNotMatch(mainHtml, /Did this gameplay event happen|Review squad memories|Facts:/i);
@@ -356,6 +357,12 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.match(browserBundle, /Next Chapter/i);
   assert.match(browserBundle, /Play this challenge/i);
   assert.match(browserBundle, /View from the start/i);
+  assert.match(browserBundle, /Back to player memory/i);
+  assert.match(browserBundle, /Continue to squad invite/i);
+  assert.match(browserBundle, /Simulate squad accepting/i);
+  assert.match(browserBundle, /Simulate next match/i);
+  assert.match(browserBundle, /Story Continues/i);
+  assert.match(browserBundle, /required objectives verified/i);
   assert.doesNotMatch(
     browserBundle,
     /Memory Pack ready|Build this story|Generating from verified data|Match evidence remains the source of truth|Challenge rules|Verified live|Verified preview/i,
@@ -366,7 +373,7 @@ test("browser bundle never calls the local backend directly", async () => {
   );
 });
 
-test("delivery routes stay server-side proxies and consumer UI has only accept or decline choices", async () => {
+test("consumer decision and reunion paths stay explicit and privacy-safe", async () => {
   const prepareRoute = await readFile(new URL("../app/api/delivery/prepare/route.ts", import.meta.url), "utf8");
   const decisionRoute = await readFile(new URL("../app/api/delivery/decision/route.ts", import.meta.url), "utf8");
   const historyPage = await readFile(new URL("../app/history/page.tsx", import.meta.url), "utf8");
@@ -377,6 +384,16 @@ test("delivery routes stay server-side proxies and consumer UI has only accept o
   assert.match(historyClient, /Accept mission/);
   assert.match(historyClient, /Not relevant to me/);
   assert.match(historyClient, /Details are wrong/);
+  assert.match(historyClient, /Keep this mission/);
+  assert.match(historyClient, /Back to player memory/);
+  assert.match(historyClient, /source-quality signal/);
+  assert.match(historyClient, /Continue to squad invite/);
+  assert.match(
+    historyClient,
+    /buildInvitees\([\s\S]{0,200}delivery\.player_perspectives/,
+  );
+  assert.match(historyClient, /Synthetic clip · grounded by a verified event/);
+  assert.match(historyClient, /Chapter feedback is separate from “Details are wrong/);
   assert.doesNotMatch(historyClient, /Did this gameplay event happen|Facts:|Review this moment/);
   assert.doesNotMatch(historyClient, /127\.0\.0\.1:8000/);
 });

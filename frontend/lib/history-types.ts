@@ -12,6 +12,11 @@ export type HistoricalDiscoveryResponse = components["schemas"]["HistoricalDisco
 export type GenerateMemoryRequest = components["schemas"]["GenerateMemoryRequest"];
 export type MemoryEngineResultV11 = components["schemas"]["MemoryEngineResultV11"];
 export type ProviderErrorBody = components["schemas"]["ProviderErrorBody"];
+export type MemoryDeliveryResult = components["schemas"]["MemoryDeliveryResult"];
+export type PlayerPerspective = components["schemas"]["PlayerPerspective"];
+export type QuestObjective = components["schemas"]["QuestObjective"];
+export type RecordDeliveryDecisionResponse = components["schemas"]["RecordDeliveryDecisionResponse"];
+export type DeliveryDeclineReason = components["schemas"]["DeliveryDeclineReason"];
 
 export type ReadyMemoryResult = MemoryEngineResultV11 & {
   status: "ready";

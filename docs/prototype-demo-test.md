@@ -1,4 +1,4 @@
-# Phase 2B prototype demo and test guide
+# Phase 2B–3.4 prototype demo and test guide
 
 ## What the prototype proves
 
@@ -6,8 +6,9 @@ MemoryOS selects a trusted, evidence-backed squad moment, uses AI to prepare a p
 mission, then lets the player accept or decline it. Match facts are verified upstream from trusted
 telemetry; a player decline records relevance feedback, not an edit to match history.
 
-Notifications, clips, invitations, and decline-feedback collection are Phase 3 work. They are not
-required to prove the Phase 2B trust loop.
+The Phase 3 continuation extends that trust loop with an explicitly synthetic moment preview,
+opted-in invitation simulation, deterministic rematch verification, a “Story Continues” chapter,
+and session-only feedback. It does not claim to send a real notification or consume live telemetry.
 
 ## Run the local demo
 
@@ -34,8 +35,14 @@ local backend. Its browser calls are relative delivery API routes, never localho
 1. Open the AI Memory Inbox and explain that trusted telemetry and deterministic checks selected the
    moment before the player saw it.
 2. Show the AI-prepared memory, personal perspective, and new mission proposal.
-3. Accept the mission and show the mission-ready confirmation.
-4. Restart, decline, and demonstrate both **Not relevant to me** and **Details are wrong** feedback.
+3. Accept the mission, continue to the squad-safe invitation, and show that only opted-in players
+   are present.
+4. Simulate squad acceptance and the new match, then show all required objectives being verified
+   before **Story Continues** appears.
+5. Show the memory timeline and record optional chapter relevance feedback.
+6. Restart, decline, and demonstrate both **Not relevant to me** and **Details are wrong** feedback,
+   including their different completion copy.
+7. Use **Back to player memory** to leave the inbox without relying on the MemoryOS logo.
 
 ## Acceptance checks
 
@@ -46,6 +53,10 @@ local backend. Its browser calls are relative delivery API routes, never localho
   mission.
 - Opted-out people are not shown as perspectives or quest assignees; a supplied redaction notice is
   displayed safely.
+- Invitation recipients come only from privacy-filtered delivery perspectives.
+- A continuation chapter cannot appear until every required rule passes against the synthetic
+  rematch result.
+- Post-chapter “Not for me” feedback never becomes a factual source dispute.
 - The hosted legacy fallback is limited to the original exact fixture and is not evidence that the
   Phase 2B history flow is running.
 
