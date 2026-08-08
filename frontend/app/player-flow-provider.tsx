@@ -23,6 +23,7 @@ export type ContinuationState = {
 export type PlayerFlowState = {
   delivery: PendingDelivery | null;
   currentPlayerId: string | null;
+  invitationPlayerIds: string[];
   missionAccepted: boolean;
   declineReason: DeliveryDeclineReason | null;
   invitationReadyIds: string[] | null;
@@ -31,8 +32,8 @@ export type PlayerFlowState = {
 
 type PlayerFlowContextValue = {
   flow: PlayerFlowState;
-  setPreparedDelivery: (delivery: PendingDelivery, currentPlayerId: string) => void;
-  acceptMission: (delivery: PendingDelivery, currentPlayerId: string) => void;
+  setPreparedDelivery: (delivery: PendingDelivery, currentPlayerId: string, invitationPlayerIds: string[]) => void;
+  acceptMission: (delivery: PendingDelivery, currentPlayerId: string, invitationPlayerIds: string[]) => void;
   declineMission: (reason: DeliveryDeclineReason) => void;
   setInvitationReadyIds: (playerIds: string[]) => void;
   completeMission: (verification: MissionVerification, chapter: ContinuationChapter) => void;
@@ -42,6 +43,7 @@ type PlayerFlowContextValue = {
 const emptyFlow: PlayerFlowState = {
   delivery: null,
   currentPlayerId: null,
+  invitationPlayerIds: [],
   missionAccepted: false,
   declineReason: null,
   invitationReadyIds: null,
@@ -53,10 +55,15 @@ const PlayerFlowContext = createContext<PlayerFlowContextValue | null>(null);
 export function PlayerFlowProvider({ children }: { children: React.ReactNode }) {
   const [flow, setFlow] = useState<PlayerFlowState>(emptyFlow);
 
-  const setPreparedDelivery = useCallback((delivery: PendingDelivery, currentPlayerId: string) => {
+  const setPreparedDelivery = useCallback((
+    delivery: PendingDelivery,
+    currentPlayerId: string,
+    invitationPlayerIds: string[],
+  ) => {
     setFlow({
       delivery,
       currentPlayerId,
+      invitationPlayerIds: [...new Set(invitationPlayerIds)],
       missionAccepted: false,
       declineReason: null,
       invitationReadyIds: null,
@@ -64,10 +71,15 @@ export function PlayerFlowProvider({ children }: { children: React.ReactNode }) 
     });
   }, []);
 
-  const acceptMission = useCallback((delivery: PendingDelivery, currentPlayerId: string) => {
+  const acceptMission = useCallback((
+    delivery: PendingDelivery,
+    currentPlayerId: string,
+    invitationPlayerIds: string[],
+  ) => {
     setFlow((current) => ({
       delivery,
       currentPlayerId,
+      invitationPlayerIds: [...new Set(invitationPlayerIds)],
       missionAccepted: true,
       declineReason: null,
       invitationReadyIds: current.delivery?.delivery_id === delivery.delivery_id
@@ -85,6 +97,7 @@ export function PlayerFlowProvider({ children }: { children: React.ReactNode }) 
           ...current,
           missionAccepted: false,
           declineReason: reason,
+          invitationPlayerIds: [],
           invitationReadyIds: null,
           continuation: null,
         }

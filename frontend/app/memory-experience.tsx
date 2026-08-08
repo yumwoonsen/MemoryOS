@@ -14,6 +14,7 @@ import type {
 } from "@/lib/ai-memory-contract";
 import {
   eligibleDisplayPlayers,
+  eligibleInvitationPlayers,
   findSelectedMatch,
   parsePlayerPendingDeliveryV2,
 } from "@/lib/ai-memory-contract";
@@ -149,7 +150,11 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
         throw new Error("The prepared memory did not match the opted-in squad safely.");
       }
 
-      setPreparedDelivery(parsed, telemetry.target_player_id);
+      setPreparedDelivery(
+        parsed,
+        telemetry.target_player_id,
+        eligibleInvitationPlayers(telemetry).map((player) => player.player_id),
+      );
       setView({ kind: "ready", delivery: parsed });
       setAnnouncement(`${parsed.memory.title} is ready for your decision.`);
     } catch (error) {
@@ -188,7 +193,11 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
       }
 
       if (request.decision === "accepted") {
-        acceptMission(delivery, telemetry.target_player_id);
+        acceptMission(
+          delivery,
+          telemetry.target_player_id,
+          eligibleInvitationPlayers(telemetry).map((player) => player.player_id),
+        );
         setView({ kind: "accepted", delivery });
         setAnnouncement("Mission accepted. Your reunion mission is ready.");
         router.push("/mission");

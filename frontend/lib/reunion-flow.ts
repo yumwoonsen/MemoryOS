@@ -4,6 +4,7 @@ import type {
   PlayerPerspectiveV2,
 } from "@/lib/ai-memory-contract";
 import {
+  areInviteesReady as coreAreInviteesReady,
   buildInvitees as coreBuildInvitees,
   createContinuationChapter as coreCreateContinuationChapter,
   createSyntheticRematch as coreCreateSyntheticRematch,
@@ -46,11 +47,16 @@ export type ContinuationChapter = {
   original_memory_title: string;
 };
 
+export function areInviteesReady(invitees: Invitee[], readyIds: string[]) {
+  return coreAreInviteesReady(invitees, readyIds) as boolean;
+}
+
 export function buildInvitees(
   perspectives: PlayerPerspectiveV2[],
   currentPlayerId?: string,
+  invitationPlayerIds: string[] = [],
 ): Invitee[] {
-  return coreBuildInvitees(perspectives, currentPlayerId) as Invitee[];
+  return coreBuildInvitees(perspectives, currentPlayerId, invitationPlayerIds) as Invitee[];
 }
 
 export function createSyntheticRematch(invitees: Invitee[]): SyntheticMatchResult {

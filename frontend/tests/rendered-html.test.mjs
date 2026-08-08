@@ -470,8 +470,8 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.match(browserBundle, /Open reunion mission/i);
   assert.match(browserBundle, /No active mission/i);
   assert.match(browserBundle, /Send squad invite/i);
-  assert.match(browserBundle, /Simulate .* joining/i);
-  assert.match(browserBundle, /Simulate rematch/i);
+  assert.match(browserBundle, /Simulate squad accepting/i);
+  assert.match(browserBundle, /Start game/i);
   assert.match(browserBundle, /Story Continues/i);
   assert.match(browserBundle, /required objectives verified/i);
   assert.match(browserBundle, /Hide this chapter/i);

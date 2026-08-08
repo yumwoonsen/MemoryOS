@@ -1,12 +1,14 @@
 /** Pure Phase 3 reunion helpers. The demo is synthetic; the rule evaluation is deterministic. */
 
-export function buildInvitees(perspectives, currentPlayerId) {
+export function buildInvitees(perspectives, currentPlayerId, invitationPlayerIds) {
   const seen = new Set();
+  const eligibleIds = new Set(invitationPlayerIds);
   return perspectives.flatMap((perspective) => {
     if (
       !perspective
       || typeof perspective.player_id !== "string"
       || typeof perspective.display_name !== "string"
+      || !eligibleIds.has(perspective.player_id)
       || seen.has(perspective.player_id)
     ) {
       return [];
@@ -20,15 +22,20 @@ export function buildInvitees(perspectives, currentPlayerId) {
   });
 }
 
+export function areInviteesReady(invitees, readyIds) {
+  return invitees.length > 0
+    && invitees.every((invitee) => readyIds.includes(invitee.player_id));
+}
+
 export function createSyntheticRematch(invitees) {
   return {
     schema_version: "1.0",
     match_id: "synthetic-clock-tower-rematch-001",
-    label: "Clock Tower rematch",
+    label: "Prototype reunion match",
     metrics: {
-      squad_member_ids: invitees.map((invitee) => invitee.player_id),
-      visited_locations: ["Clock Tower", "Final Zone"],
-      "revives.lee.targets": ["mei"],
+      "squad.participant_ids": invitees.map((invitee) => invitee.player_id),
+      "squad.matches_completed": 1,
+      "squad.revive_count": 1,
     },
   };
 }

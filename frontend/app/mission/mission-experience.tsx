@@ -8,6 +8,7 @@ import { usePlayerFlow } from "../player-flow-provider";
 import { challengeTitle, deliveryModeLabel } from "@/lib/delivery-flow";
 import type { PendingDelivery } from "@/lib/delivery-flow";
 import {
+  areInviteesReady,
   buildInvitees,
   createContinuationChapter,
   createSyntheticRematch,
@@ -42,8 +43,14 @@ export function MissionExperience() {
   const simulationSequence = useRef(0);
   const delivery = flow.missionAccepted ? flow.delivery : null;
   const invitees = useMemo(
-    () => delivery ? buildInvitees(delivery.player_perspectives, flow.currentPlayerId ?? undefined) : [],
-    [delivery, flow.currentPlayerId],
+    () => delivery
+      ? buildInvitees(
+          delivery.player_perspectives,
+          flow.currentPlayerId ?? undefined,
+          flow.invitationPlayerIds ?? [],
+        )
+      : [],
+    [delivery, flow.currentPlayerId, flow.invitationPlayerIds],
   );
 
   useEffect(() => () => {
@@ -87,11 +94,15 @@ export function MissionExperience() {
       setView({ kind: "error", message: "There are not enough opted-in squad members to continue." });
       return;
     }
-    const currentPlayer = invitees.find((invitee) => invitee.is_current_player) ?? invitees[0];
+    const currentPlayer = invitees.find((invitee) => invitee.is_current_player);
+    if (!currentPlayer) {
+      setView({ kind: "error", message: "The current player is not eligible for this reunion lobby." });
+      return;
+    }
     const readyIds = [currentPlayer.player_id];
     setInvitationReadyIds(readyIds);
     setView({ kind: "invitation", readyIds });
-    setAnnouncement("The privacy-safe squad invitation is ready.");
+    setAnnouncement("The privacy-safe squad lobby is open.");
   }
 
   function acceptInvitations() {
@@ -99,14 +110,19 @@ export function MissionExperience() {
     const readyIds = invitees.map((invitee) => invitee.player_id);
     setInvitationReadyIds(readyIds);
     setView({ kind: "invitation", readyIds });
-    setAnnouncement("Every invited squad member is ready for the rematch.");
+    setAnnouncement("Every invited squad member accepted and joined the lobby.");
   }
 
   async function simulateMatch() {
     if (view.kind !== "invitation" || !delivery) return;
+    if (!areInviteesReady(invitees, view.readyIds)) {
+      setView({ kind: "error", message: "Every invited squad member must accept before the game can start." });
+      setAnnouncement("The game is waiting for every invited squad member to accept.");
+      return;
+    }
     const simulationId = ++simulationSequence.current;
     setView({ kind: "verifying" });
-    setAnnouncement("Checking the labelled synthetic rematch against the mission rules.");
+    setAnnouncement("The prototype game has started with the accepted squad.");
     await new Promise<void>((resolve) => window.setTimeout(resolve, 700));
     if (simulationId !== simulationSequence.current) return;
     const matchResult = createSyntheticRematch(invitees);
@@ -223,7 +239,7 @@ function InvitationCard({
   onAccept: () => void;
   onSimulate: () => void;
 }) {
-  const allReady = invitees.length > 0 && invitees.every((invitee) => readyIds.includes(invitee.player_id));
+  const allReady = areInviteesReady(invitees, readyIds);
   const waitingNames = invitees
     .filter((invitee) => !readyIds.includes(invitee.player_id))
     .map((invitee) => invitee.display_name);
@@ -238,10 +254,10 @@ function InvitationCard({
         <span>squad ready</span>
       </div>
       {allReady ? (
-        <button className="reveal-memory-button" type="button" onClick={onSimulate}>Simulate rematch</button>
+        <button className="reveal-memory-button" type="button" onClick={onSimulate}>Start game</button>
       ) : (
         <button className="reveal-memory-button" type="button" onClick={onAccept}>
-          {waitingNames.length === 1 ? `Simulate ${waitingNames[0]} joining` : "Mark invited squad ready"}
+          {waitingNames.length === 1 ? `Simulate ${waitingNames[0]} accepting` : "Simulate squad accepting"}
         </button>
       )}
       <p className="prototype-boundary">This remains a labelled demo; no live match telemetry is being claimed.</p>
@@ -310,9 +326,9 @@ function ProcessingCard() {
   return (
     <section className="demo-processing-card" role="status">
       <div className="demo-processing-mark" aria-hidden="true">M</div>
-      <p className="demo-kicker">Deterministic mission check</p>
-      <h1>Reading the new match result.</h1>
-      <p className="reveal-loading-copy">The labelled synthetic result is being checked against every required mission rule.</p>
+      <p className="demo-kicker">Prototype match</p>
+      <h1>Game in progress.</h1>
+      <p className="reveal-loading-copy">The squad is completing the AI-generated objectives. The labelled result will be checked against every required mission rule.</p>
     </section>
   );
 }

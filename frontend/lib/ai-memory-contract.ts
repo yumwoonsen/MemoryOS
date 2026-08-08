@@ -607,6 +607,14 @@ export function eligibleDisplayPlayers(telemetry: RawTelemetryBatchV2) {
   return telemetry.squad.players.filter((player) => player.consent.memory_appearance);
 }
 
+export function eligibleInvitationPlayers(telemetry: RawTelemetryBatchV2) {
+  const activePlayerIds = new Set(telemetry.current_context.active_player_ids);
+  return telemetry.squad.players.filter((player) =>
+    player.consent.memory_appearance
+    && player.consent.mission_invitation
+    && activePlayerIds.has(player.player_id));
+}
+
 export function consentSafeTelemetryView(telemetry: RawTelemetryBatchV2): RawTelemetryBatchV2 {
   const anonymousById = new Map(
     telemetry.squad.players.flatMap((player, index) =>

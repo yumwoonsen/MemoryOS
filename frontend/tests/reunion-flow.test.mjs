@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  areInviteesReady,
   buildInvitees,
   createContinuationChapter,
   createSyntheticRematch,
@@ -14,19 +15,19 @@ const objectives = [
     objective_id: "squad",
     description: "Complete a match with Lee and Mei.",
     required: true,
-    verification: { metric: "squad_member_ids", operator: "contains_all", target: ["lee", "mei"] },
+    verification: { metric: "squad.participant_ids", operator: "contains_all", target: ["lee", "mei"] },
   },
   {
-    objective_id: "location",
-    description: "Return to Clock Tower.",
+    objective_id: "match",
+    description: "Complete one match together.",
     required: true,
-    verification: { metric: "visited_locations", operator: "contains_all", target: ["Clock Tower"] },
+    verification: { metric: "squad.matches_completed", operator: "at_least", target: 1 },
   },
   {
     objective_id: "revive",
-    description: "Lee revives Mei.",
+    description: "Complete one squad revive.",
     required: true,
-    verification: { metric: "revives.lee.targets", operator: "contains_all", target: ["mei"] },
+    verification: { metric: "squad.revive_count", operator: "at_least", target: 1 },
   },
 ];
 
@@ -35,12 +36,15 @@ test("builds invitation recipients only from privacy-safe perspectives", () => {
     { player_id: "lee", display_name: "Lee" },
     { player_id: "mei", display_name: "Mei" },
     { player_id: "mei", display_name: "Duplicate Mei" },
-  ], "lee");
+    { player_id: "amir", display_name: "Inactive Amir" },
+  ], "lee", ["lee", "mei"]);
 
   assert.deepEqual(invitees, [
     { player_id: "lee", display_name: "Lee", is_current_player: true },
     { player_id: "mei", display_name: "Mei", is_current_player: false },
   ]);
+  assert.equal(areInviteesReady(invitees, ["lee"]), false);
+  assert.equal(areInviteesReady(invitees, ["lee", "mei"]), true);
 });
 
 test("evaluates every supported mission rule deterministically", () => {
@@ -57,7 +61,7 @@ test("unlocks Story Continues only after every required objective passes", () =>
   const invitees = buildInvitees([
     { player_id: "lee", display_name: "Lee" },
     { player_id: "mei", display_name: "Mei" },
-  ], "lee");
+  ], "lee", ["lee", "mei"]);
   const matchResult = createSyntheticRematch(invitees);
   const verified = verifyMission(objectives, matchResult);
 
@@ -70,7 +74,7 @@ test("unlocks Story Continues only after every required objective passes", () =>
 
   const incomplete = verifyMission(objectives, {
     ...matchResult,
-    metrics: { ...matchResult.metrics, visited_locations: ["Final Zone"] },
+    metrics: { ...matchResult.metrics, "squad.revive_count": 0 },
   });
   assert.equal(incomplete.complete, false);
   assert.equal(createContinuationChapter(
