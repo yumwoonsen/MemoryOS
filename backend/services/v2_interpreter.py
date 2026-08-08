@@ -165,7 +165,13 @@ class MemoryInterpreterV2:
         assert prepared.story_brief is not None
         return {
             "contract": "CompactInterpretationDecisionV2",
-            "story_brief": prepared.story_brief.model_dump(mode="json"),
+            # Empty optional placeholders add tokens but carry no evidence. Keep every
+            # concrete value—including false privacy/capability signals—while omitting
+            # only nulls from the provider projection.
+            "story_brief": prepared.story_brief.model_dump(
+                mode="json",
+                exclude_none=True,
+            ),
         }
 
     def demo_compact_proposal(

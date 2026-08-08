@@ -198,7 +198,9 @@ credits accidentally. To opt in to live generation:
 Copy-Item .env.example .env
 ```
 
-Add a server-side `GROQ_API_KEY` to `.env`, then launch the recommended free-tier provider:
+Add a server-side `GROQ_API_KEY` to `.env`. The prototype defaults
+`GROQ_V2_MAX_OUTPUT_TOKENS` to `2500` so one compact v2 request fits the current 8K account
+envelope; raise that setting after upgrading provider capacity. Then launch Groq:
 
 ```powershell
 $env:MEMORYOS_PROVIDER = "groq"

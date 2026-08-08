@@ -152,7 +152,10 @@ The compact decision schema must be tested against an evidence-based output ceil
 eligible rosters, authored sections, and compact references must still fail closed rather than
 return a partial delivery. Backend-derived IDs, complete claims, media, mission controls, delivery,
 and trace do not consume provider output tokens, but they remain part of final validation. The
-implemented compact ceiling is 4,000 output tokens for both Groq and OpenAI.
+prototype defaults to 2,500 output tokens on Groq and 4,000 on OpenAI. Groq's ceiling can be raised
+with `GROQ_V2_MAX_OUTPUT_TOKENS` after provider capacity increases; the backend must be restarted.
+The provider Story Brief omits null placeholders only—concrete false consent/capability values and
+all actual evidence remain present.
 
 ## V2.6 compact-decision verification gate
 

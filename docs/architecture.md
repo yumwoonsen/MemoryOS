@@ -318,8 +318,10 @@ sanitized evidence
 The OpenAI adapter uses the Responses API with Pydantic Structured Outputs and `store=False`. The
 Groq adapter uses Chat Completions with an explicit strict JSON Schema and validates the returned
 JSON through the same Pydantic response model. Both use low reasoning effort, a 30-second timeout,
-at most two SDK transport retries, and explicit output ceilings. Compact v2 interpretation is
-capped at 4,000 output tokens on both Groq and OpenAI. On a
+at most two SDK transport retries, and explicit output ceilings. Compact v2 interpretation uses a
+configurable 2,500-token Groq default for the prototype's 8K envelope; OpenAI retains a 4,000-token
+default. The provider projection omits only null placeholders and retains every concrete evidence,
+consent, context, and mission value. On a
 direct JSON route, a provider failure is reported as a structured HTTP `503`; the
 service never silently changes a live request to deterministic prose. Once an NDJSON response has
 begun, the equivalent failure is a typed `error` event under HTTP `200`.

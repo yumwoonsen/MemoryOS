@@ -685,6 +685,7 @@ To opt into the recommended Groq live generation path, copy `.env.example` to `.
 MEMORYOS_PROVIDER=groq
 GROQ_API_KEY=your_server_side_key
 GROQ_MODEL=openai/gpt-oss-20b
+GROQ_V2_MAX_OUTPUT_TOKENS=2500
 ```
 
 The existing OpenAI path remains available:
@@ -721,10 +722,11 @@ Keep this value in server environment variables only—never bundle it into brow
 Local development remains unchanged while the variable is unset.
 
 Each current v1.1 model request uses low reasoning effort, a 30-second timeout, at most two SDK
-retries, and a 2,000-token output ceiling. For v2 compact interpretation, both Groq and OpenAI use
-a 4,000-token ceiling; either provider fails closed rather than returning a
-partial delivery. OpenAI responses use `store=False`; Groq requests omit the unsupported `store`
-field. See the official
+retries, and a 2,000-token output ceiling. V2 compact interpretation uses a 2,500-token Groq
+ceiling so the synthetic Story Brief, strict schema, and completion budget fit the prototype
+account's 8K envelope. The OpenAI adapter retains its 4,000-token ceiling. Either provider fails
+closed rather than returning a partial delivery. OpenAI responses use `store=False`; Groq requests
+omit the unsupported `store` field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
 configured model's current capabilities and pricing.
 

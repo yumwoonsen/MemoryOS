@@ -25,10 +25,13 @@ from backend.services.structured_generator import ModelT
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_OUTPUT_TOKENS = 2_000
-# GPT-OSS reasoning tokens share this completion budget.  The v2.1 decision now
-# includes four player perspectives plus a complete multi-objective mission, so
-# the former 2k ceiling could terminate strict JSON before the closing fields.
-V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 4_000
+# GPT-OSS reasoning tokens share this completion budget. The v2.1 decision now
+# includes four player perspectives plus a complete multi-objective mission. A
+# 2.5k ceiling leaves room for that compact JSON while keeping the full request
+# below the prototype account's 8k token envelope.
+DEFAULT_V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 2_500
+MIN_V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 1_000
+MAX_V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 16_000
 REQUEST_TIMEOUT_SECONDS = 30.0
 SDK_MAX_RETRIES = 2
 logger = logging.getLogger(__name__)
@@ -54,6 +57,7 @@ class GroqStructuredGenerator:
                 retryable=False,
             )
         self.model_name = model_name or os.getenv("GROQ_MODEL") or DEFAULT_MODEL
+        self._v2_interpretation_max_output_tokens = self._configured_v2_output_tokens()
         self._client = OpenAI(
             api_key=api_key.strip(),
             base_url=GROQ_BASE_URL,
@@ -110,7 +114,7 @@ class GroqStructuredGenerator:
                 reasoning_effort="low",
                 temperature=0,
                 max_completion_tokens=(
-                    V2_INTERPRETATION_MAX_OUTPUT_TOKENS
+                    self._v2_interpretation_max_output_tokens
                     if stage.startswith("memory_interpretation")
                     else MAX_OUTPUT_TOKENS
                 ),
@@ -250,6 +254,31 @@ class GroqStructuredGenerator:
             latency_ms,
         )
         return parsed
+
+    @staticmethod
+    def _configured_v2_output_tokens() -> int:
+        raw_value = os.getenv("GROQ_V2_MAX_OUTPUT_TOKENS")
+        if raw_value is None or not raw_value.strip():
+            return DEFAULT_V2_INTERPRETATION_MAX_OUTPUT_TOKENS
+        try:
+            value = int(raw_value)
+        except ValueError:
+            raise GroqProviderError(
+                stage="configuration",
+                code="invalid_output_token_limit",
+                retryable=False,
+            ) from None
+        if not (
+            MIN_V2_INTERPRETATION_MAX_OUTPUT_TOKENS
+            <= value
+            <= MAX_V2_INTERPRETATION_MAX_OUTPUT_TOKENS
+        ):
+            raise GroqProviderError(
+                stage="configuration",
+                code="invalid_output_token_limit",
+                retryable=False,
+            )
+        return value
 
     def _record_failure(
         self,

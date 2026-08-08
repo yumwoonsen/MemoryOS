@@ -2207,6 +2207,29 @@ def test_provider_payload_preserves_structured_squad_history_signals() -> None:
     }
 
 
+def test_provider_payload_omits_only_null_placeholders() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    provider_payload = MemoryInterpreterV2._provider_payload(prepared)
+    story_brief = provider_payload["story_brief"]
+
+    def contains_none(value: object) -> bool:
+        if isinstance(value, dict):
+            return any(contains_none(item) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_none(item) for item in value)
+        return value is None
+
+    assert contains_none(story_brief) is False
+    assert story_brief["target_player_id"] == prepared.story_brief.target_player_id
+    assert story_brief["eligible_event_windows"]
+    assert story_brief["mission_candidates"]
+    assert story_brief["mission_affordances"]
+    assert any(
+        player["media_eligible"] is False
+        for player in story_brief["players_requiring_perspectives"]
+    )
+
+
 def test_inactive_but_consented_players_remain_invitation_eligible() -> None:
     payload = raw_payload()
     payload["current_context"]["active_player_ids"] = ["ff-player-lee"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,8 +27,12 @@ from backend.models.v2_schemas import (
     CompactInterpretationDecisionV2,
     CompactMemoryProposalV2,
     MemoryProposalV2,
+    RawTelemetryBatchV2,
 )
 from backend.pipeline import MemoryPipeline
+from backend.services.prompt_loader import load_prompt
+from backend.services.v2_interpreter import MemoryInterpreterV2
+from backend.services.v2_preparation import TelemetryPreparerV2
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "backend" / "data"
 
@@ -373,7 +378,87 @@ def test_v2_interpretation_uses_compact_bounded_chat_output_budget(
         stage="memory_interpretation",
     )
 
+    assert responses.calls[0]["max_completion_tokens"] == 2_500
+
+
+def test_v2_interpretation_output_budget_can_be_increased_by_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-only-key")
+    monkeypatch.setenv("GROQ_V2_MAX_OUTPUT_TOKENS", "4000")
+    responses = FakeResponses(result=chat_response(ExampleOutput(message="ok")))
+    install_fake_client(monkeypatch, responses)
+    generator = adapter.GroqStructuredGenerator()
+
+    generator.generate(
+        prompt_name="memory_prompt.txt",
+        payload={"event_ids": ["event-1"]},
+        response_model=ExampleOutput,
+        stage="memory_interpretation",
+    )
+
     assert responses.calls[0]["max_completion_tokens"] == 4_000
+
+
+@pytest.mark.parametrize("value", ["999", "16001", "not-a-number"])
+def test_invalid_v2_interpretation_output_budget_fails_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-only-key")
+    monkeypatch.setenv("GROQ_V2_MAX_OUTPUT_TOKENS", value)
+
+    with pytest.raises(adapter.GroqProviderError) as raised:
+        adapter.GroqStructuredGenerator()
+
+    assert raised.value.code == "invalid_output_token_limit"
+
+
+def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> None:
+    batch = RawTelemetryBatchV2.model_validate_json(
+        (DATA_DIR / "raw_telemetry_v2.json").read_text(encoding="utf-8")
+    )
+    prepared = TelemetryPreparerV2().prepare(batch)
+    payload = MemoryInterpreterV2._provider_payload(prepared)
+    response_schema = to_strict_json_schema(CompactInterpretationDecisionV2)
+    request_body = json.dumps(
+        {
+            "model": "openai/gpt-oss-20b",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": load_prompt("memory_interpreter_v2_6.txt"),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                },
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": CompactInterpretationDecisionV2.__name__,
+                    "strict": True,
+                    "schema": response_schema,
+                },
+            },
+            "reasoning_effort": "low",
+            "temperature": 0,
+            "max_completion_tokens": (adapter.DEFAULT_V2_INTERPRETATION_MAX_OUTPUT_TOKENS),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    # This is a deliberately conservative regression estimate, not a provider
+    # tokenizer replacement. The live smoke remains the authoritative check.
+    estimated_input_tokens = math.ceil(len(request_body) / 3.5)
+
+    assert estimated_input_tokens <= 5_000
+    assert estimated_input_tokens + adapter.DEFAULT_V2_INTERPRETATION_MAX_OUTPUT_TOKENS <= 8_000
 
 
 @pytest.mark.parametrize(

@@ -163,8 +163,9 @@ python -m uvicorn backend.main:app --reload
 ```
 
 The canonical player route intentionally refuses deterministic narrative. To test the player flow,
-start the backend with `MEMORYOS_PROVIDER=groq` and a server-side `GROQ_API_KEY`, or use the OpenAI
-provider configuration described in the root README.
+start the backend with `MEMORYOS_PROVIDER=groq`, a server-side `GROQ_API_KEY`, and the prototype
+`GROQ_V2_MAX_OUTPUT_TOKENS=2500` budget. Raise that budget only after provider capacity increases,
+or use the OpenAI provider configuration described in the root README.
 
 ## Quality checks
 
