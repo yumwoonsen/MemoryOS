@@ -12,8 +12,10 @@ from backend.models.v2_schemas import (
     DeliveryMissionObjectiveV2,
     DeliveryNextChapterV2,
     DeliveryPerspectiveV2,
+    InterpretationAbstentionReasonV2,
     InterpretDeliveryResultV2,
     InterpretDeliveryStatusV2,
+    MissionSelectionV2,
     ProposalValidationReportV2,
     RawTelemetryBatchV2,
     StudioClaimTraceV2,
@@ -74,7 +76,6 @@ class MemoryInterpretationPipelineV2:
             )
 
         correction_attempted = False
-        grounded_render_used = False
         try:
             proposal = self.interpreter.propose(prepared)
         except ProviderInputLimitError:
@@ -102,15 +103,12 @@ class MemoryInterpretationPipelineV2:
                     correction_attempted=True,
                 )
             except CompactProposalExpansionError as correction_error:
-                if correction_error.code in FATAL_VALIDATION_CODES:
-                    return self._expansion_rejection(
-                        batch,
-                        prepared,
-                        correction_error,
-                        correction_attempted=True,
-                    )
-                proposal = self.interpreter.grounded_evidence_render(prepared)
-                grounded_render_used = True
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    correction_error,
+                    correction_attempted=True,
+                )
         except OpenAIProviderError as error:
             if self.execution_mode != "live_ai" or error.code != "provider_invalid_response":
                 raise
@@ -132,15 +130,18 @@ class MemoryInterpretationPipelineV2:
                     correction_attempted=True,
                 )
             except CompactProposalExpansionError as correction_error:
-                if correction_error.code in FATAL_VALIDATION_CODES:
-                    return self._expansion_rejection(
-                        batch,
-                        prepared,
-                        correction_error,
-                        correction_attempted=True,
-                    )
-                proposal = self.interpreter.grounded_evidence_render(prepared)
-                grounded_render_used = True
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    correction_error,
+                    correction_attempted=True,
+                )
+        if isinstance(proposal, InterpretationAbstentionReasonV2):
+            return self._not_generated(
+                batch,
+                prepared,
+                correction_attempted=correction_attempted,
+            )
         validation = self.validator.validate(
             prepared,
             proposal,
@@ -168,28 +169,18 @@ class MemoryInterpretationPipelineV2:
                     correction_attempted=True,
                 )
             except CompactProposalExpansionError as correction_error:
-                if correction_error.code in FATAL_VALIDATION_CODES:
-                    return self._expansion_rejection(
-                        batch,
-                        prepared,
-                        correction_error,
-                        correction_attempted=True,
-                    )
-                proposal = self.interpreter.grounded_evidence_render(prepared)
-                grounded_render_used = True
-            validation = self.validator.validate(
-                prepared,
-                proposal,
-                correction_attempted=True,
-            )
-        if (
-            not validation.passed
-            and correction_attempted
-            and self.execution_mode == "live_ai"
-            and not any(issue.code in FATAL_VALIDATION_CODES for issue in validation.issues)
-        ):
-            proposal = self.interpreter.grounded_evidence_render(prepared)
-            grounded_render_used = True
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    correction_error,
+                    correction_attempted=True,
+                )
+            if isinstance(proposal, InterpretationAbstentionReasonV2):
+                return self._not_generated(
+                    batch,
+                    prepared,
+                    correction_attempted=True,
+                )
             validation = self.validator.validate(
                 prepared,
                 proposal,
@@ -199,6 +190,7 @@ class MemoryInterpretationPipelineV2:
             return self._rejected(batch, prepared, validation)
 
         assert prepared.normalized is not None
+        assert prepared.story_brief is not None
         candidate_map = {
             candidate.candidate_id: candidate for candidate in prepared.mission_candidates
         }
@@ -223,7 +215,12 @@ class MemoryInterpretationPipelineV2:
             prepared,
             validation,
             correction_attempted=correction_attempted,
-            grounded_render=grounded_render_used,
+            mission_selection=MissionSelectionV2(
+                ranked_affordance_ids=proposal.mission.ranked_affordance_ids,
+                selected_affordance_id=proposal.mission.affordance_id,
+                selected_family=proposal.mission.family,
+                reason_codes=proposal.mission.selection_reason_codes,
+            ),
             claim_mappings=[
                 StudioClaimTraceV2(
                     claim_id=claim.claim_id,
@@ -264,6 +261,8 @@ class MemoryInterpretationPipelineV2:
                 for perspective in proposal.perspectives
             ],
             next_chapter=DeliveryNextChapterV2(
+                family=proposal.mission.family,
+                invitation_player_ids=prepared.story_brief.invitation_player_ids,
                 title=proposal.mission.title,
                 mission=proposal.mission.mission,
                 recipe=proposal.mission.recipe,
@@ -272,7 +271,7 @@ class MemoryInterpretationPipelineV2:
             grounded_claims=proposal.claims,
             validation=validation,
             studio_trace=trace,
-            metadata=self._metadata(grounded_render=grounded_render_used),
+            metadata=self._metadata(content_created=True),
         )
 
     def _provider_input_limit_rejection(
@@ -299,6 +298,33 @@ class MemoryInterpretationPipelineV2:
             prepared,
             validation,
             preparation_failed=preparation_failed,
+        )
+
+    def _not_generated(
+        self,
+        batch: RawTelemetryBatchV2,
+        prepared: PreparedInterpretationV2,
+        *,
+        correction_attempted: bool,
+    ) -> InterpretDeliveryResultV2:
+        validation = ProposalValidationReportV2(
+            passed=True,
+            correction_attempted=correction_attempted,
+            issues=[],
+        )
+        return InterpretDeliveryResultV2(
+            request_id=batch.request_id,
+            status=InterpretDeliveryStatusV2.NOT_GENERATED,
+            reason_codes=["ai_no_meaningful_episode"],
+            validation=validation,
+            studio_trace=self._trace(
+                batch,
+                prepared,
+                validation,
+                correction_attempted=correction_attempted,
+                abstained=True,
+            ),
+            metadata=self._metadata(),
         )
 
     @staticmethod
@@ -403,7 +429,8 @@ class MemoryInterpretationPipelineV2:
         *,
         preparation_failed: bool = False,
         correction_attempted: bool = False,
-        grounded_render: bool = False,
+        abstained: bool = False,
+        mission_selection: MissionSelectionV2 | None = None,
         claim_mappings: list[StudioClaimTraceV2] | None = None,
     ) -> StudioInterpretationTraceV2:
         if preparation_failed:
@@ -432,6 +459,29 @@ class MemoryInterpretationPipelineV2:
                     summary="No player delivery was created.",
                 ),
             ]
+        elif abstained:
+            stages = [
+                StudioTraceStageV2(
+                    stage="deterministic_preparation",
+                    status="complete",
+                    summary="Telemetry was normalized and privacy-filtered before interpretation.",
+                ),
+                StudioTraceStageV2(
+                    stage="ai_interpretation",
+                    status="complete",
+                    summary="The interpreter abstained because no meaningful episode was selected.",
+                ),
+                StudioTraceStageV2(
+                    stage="deterministic_validation",
+                    status="complete",
+                    summary="The typed abstention was accepted without generated artifacts.",
+                ),
+                StudioTraceStageV2(
+                    stage="player_decision",
+                    status="withheld",
+                    summary="No player delivery was created.",
+                ),
+            ]
         else:
             stages = [
                 StudioTraceStageV2(
@@ -443,10 +493,7 @@ class MemoryInterpretationPipelineV2:
                     stage="ai_interpretation",
                     status="complete" if validation.passed else "withheld",
                     summary=(
-                        "The live proposal was replaced by a deterministic evidence render after "
-                        "its single correction attempt failed validation."
-                        if validation.passed and grounded_render
-                        else "One complete typed memory proposal was produced."
+                        "One complete typed memory proposal was produced."
                         if validation.passed
                         else "A proposal was produced but its prose is withheld from this trace."
                     ),
@@ -484,6 +531,18 @@ class MemoryInterpretationPipelineV2:
             # Keep only safe aggregate counts and issue codes at that boundary.
             eligible_windows=[] if preparation_failed else prepared.windows,
             mission_candidates=[] if preparation_failed else prepared.mission_candidates,
+            mission_affordances=[] if preparation_failed else prepared.mission_affordances,
+            mission_selection=None if preparation_failed else mission_selection,
+            invitation_eligible_count=(
+                0
+                if preparation_failed or prepared.story_brief is None
+                else len(prepared.story_brief.invitation_player_ids)
+            ),
+            active_player_count=(
+                0
+                if preparation_failed or prepared.story_brief is None
+                else len(prepared.story_brief.active_player_ids)
+            ),
             claim_mappings=[] if preparation_failed else (claim_mappings or []),
             correction_attempted=correction_attempted,
         )
@@ -516,15 +575,24 @@ class MemoryInterpretationPipelineV2:
             return TelemetryPreparerV2.trace_id(batch.request_id).replace("trace_", "request_", 1)
         return batch.request_id
 
-    def _metadata(self, *, grounded_render: bool = False) -> dict[str, object]:
+    def _metadata(self, *, content_created: bool = False) -> dict[str, object]:
+        if content_created:
+            content_origin = (
+                "live_ai_validated"
+                if self.execution_mode == "live_ai"
+                else "deterministic_studio_sample"
+            )
+        else:
+            content_origin = "no_player_content"
         metadata: dict[str, object] = {
-            "pipeline_version": "ai-grounded-interpretation-v2",
+            "pipeline_version": "ai-grounded-interpretation-v2.1",
             "provider": self.provider_name,
             "model": self.model_name,
             "mode": self.execution_mode,
             "prompt_version": self.interpreter.prompt_version,
-            "narrative_fallback": grounded_render,
-            "grounded_render": grounded_render,
+            "content_origin": content_origin,
+            "narrative_fallback": False,
+            "grounded_render": False,
             "storage": "process_local_prototype",
         }
         if self.interpreter.observability:

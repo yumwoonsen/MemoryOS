@@ -117,6 +117,15 @@ EXPANSION_MESSAGES = {
     ),
     "unknown_event_window": "The selected event window is unknown.",
     "invented_mission_candidate": "The selected mission candidate was not offered.",
+    "invented_mission_affordance": "The selected mission affordance was not offered.",
+    "mission_affordance_ranking_invalid": (
+        "Mission affordance ranking must contain every offered affordance exactly once."
+    ),
+    "mission_affordance_not_linked": "The selected affordance is not linked to the episode.",
+    "mission_selection_reason_invalid": "Mission selection uses a reason code not offered.",
+    "mission_objective_set_mismatch": (
+        "Mission descriptions must exactly match the selected affordance objectives."
+    ),
     "claim_evidence_outside_episode": "A section cites unknown or unrelated evidence.",
     "perspective_claim_evidence_mismatch": (
         "Every perspective requires event evidence from the selected window."
@@ -190,9 +199,26 @@ class CompactProposalExpanderV2:
         candidate_map = {
             candidate.candidate_id: candidate for candidate in prepared.mission_candidates
         }
-        candidate = candidate_map.get(compact.mission.candidate_id)
-        if candidate is None:
-            raise CompactProposalExpansionError("invented_mission_candidate")
+        affordance_map = {
+            affordance.affordance_id: affordance for affordance in prepared.mission_affordances
+        }
+        affordance = affordance_map.get(compact.mission.selected_affordance_id)
+        if affordance is None:
+            raise CompactProposalExpansionError("invented_mission_affordance")
+        if set(compact.mission.ranked_affordance_ids) != set(affordance_map):
+            raise CompactProposalExpansionError("mission_affordance_ranking_invalid")
+        if affordance.window_id != window.window_id:
+            raise CompactProposalExpansionError("mission_affordance_not_linked")
+        if not set(compact.mission.selection_reason_codes).issubset(
+            affordance.allowed_reason_codes
+        ):
+            raise CompactProposalExpansionError("mission_selection_reason_invalid")
+        objective_drafts = {
+            item.candidate_id: item for item in compact.mission.objective_descriptions
+        }
+        if set(objective_drafts) != set(affordance.objective_candidate_ids):
+            raise CompactProposalExpansionError("mission_objective_set_mismatch")
+        candidates = [candidate_map[item] for item in affordance.objective_candidate_ids]
 
         claims: list[GroundedClaim] = []
         sections = (
@@ -326,29 +352,33 @@ class CompactProposalExpanderV2:
                 )
             )
 
-        if len(claims) + 2 > 50:
+        if len(claims) + len(candidates) + 1 > 50:
             raise CompactProposalExpansionError("compact_claim_expansion_too_large")
-        objective = ProposedMissionObjectiveV2(
-            candidate_id=candidate.candidate_id,
-            description=compact.mission.objective_description,
+        objectives = [
+            ProposedMissionObjectiveV2(
+                candidate_id=candidate.candidate_id,
+                description=objective_drafts[candidate.candidate_id].description,
+            )
+            for candidate in candidates
+        ]
+        claims.append(
+            GroundedClaim(
+                claim_id="claim:mission:rule",
+                output_section="mission",
+                subject_id="squad",
+                predicate=ClaimPredicate.MISSION_RULE,
+                supporting_mission_candidate_ids=affordance.objective_candidate_ids,
+            )
         )
         claims.extend(
-            [
-                GroundedClaim(
-                    claim_id="claim:mission:rule",
-                    output_section="mission",
-                    subject_id=candidate.assigned_player_id or "squad",
-                    predicate=ClaimPredicate.MISSION_RULE,
-                    supporting_mission_candidate_ids=[candidate.candidate_id],
-                ),
-                GroundedClaim(
-                    claim_id="claim:objective:rule",
-                    output_section=f"objective:{candidate.candidate_id}",
-                    subject_id=candidate.assigned_player_id or "squad",
-                    predicate=ClaimPredicate.MISSION_RULE,
-                    supporting_mission_candidate_ids=[candidate.candidate_id],
-                ),
-            ]
+            GroundedClaim(
+                claim_id=f"claim:objective:rule:{index}",
+                output_section=f"objective:{candidate.candidate_id}",
+                subject_id=candidate.assigned_player_id or "squad",
+                predicate=ClaimPredicate.MISSION_RULE,
+                supporting_mission_candidate_ids=[candidate.candidate_id],
+            )
+            for index, candidate in enumerate(candidates, start=1)
         )
         selected_media = next(
             (
@@ -370,10 +400,14 @@ class CompactProposalExpanderV2:
             why_this_matters_now=compact.why_this_matters_now.text,
             perspectives=perspectives,
             mission=ProposedMissionV2(
+                affordance_id=affordance.affordance_id,
+                family=affordance.family,
+                ranked_affordance_ids=compact.mission.ranked_affordance_ids,
+                selection_reason_codes=compact.mission.selection_reason_codes,
                 title=compact.mission.title,
                 mission=compact.mission.mission,
-                recipe=candidate.recipe,
-                objectives=[objective],
+                recipe=candidates[0].recipe,
+                objectives=objectives,
             ),
             claims=claims,
             media_id=selected_media.media_id if selected_media else None,
@@ -815,7 +849,7 @@ class CompactProposalExpanderV2:
             (
                 compact.mission.title,
                 compact.mission.mission,
-                compact.mission.objective_description,
+                *(item.description for item in compact.mission.objective_descriptions),
             )
         )
         if UNSAFE_MISSION_PATTERN.search(mission_text):
@@ -839,6 +873,12 @@ class CompactProposalExpanderV2:
             *(candidate.candidate_id for candidate in prepared.mission_candidates),
             *(candidate.verification.metric for candidate in prepared.mission_candidates),
             *(candidate.verification.operator for candidate in prepared.mission_candidates),
+            *(affordance.affordance_id for affordance in prepared.mission_affordances),
+            *(
+                reason.value
+                for affordance in prepared.mission_affordances
+                for reason in affordance.allowed_reason_codes
+            ),
             *(media.media_id for media in prepared.normalized.media_references),
             *COMPACT_MATCH_EVIDENCE,
             *COMPACT_CONTEXT_EVIDENCE,
@@ -865,7 +905,10 @@ class CompactProposalExpanderV2:
                     update={
                         "title": clean(compact.mission.title),
                         "mission": clean(compact.mission.mission),
-                        "objective_description": clean(compact.mission.objective_description),
+                        "objective_descriptions": [
+                            item.model_copy(update={"description": clean(item.description)})
+                            for item in compact.mission.objective_descriptions
+                        ],
                     }
                 ),
             }

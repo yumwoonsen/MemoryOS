@@ -7,18 +7,15 @@ const configuredApi = process.env.MEMORYOS_API_URL?.trim();
 const MAX_REQUEST_BYTES = 256_000;
 const noStoreHeaders = { "cache-control": "no-store" };
 
-function sampleResponse(
-  telemetry: NonNullable<ReturnType<typeof parseRawTelemetryBatchV2>>,
-  reason: "hosted-sample" | "offline-studio-sample",
-) {
-  const result = createStudioDemoResult(telemetry);
+function sampleResponse(reason: "hosted-sample" | "offline-studio-sample") {
+  const result = createStudioDemoResult();
   if (!result) {
     return Response.json(
       {
         stage: "studio_demo",
         code: "sample_result_unavailable",
         retryable: false,
-        message: "No safe demonstration exists for this telemetry batch.",
+        message: "No safe fixed Studio demonstration is available.",
       },
       { status: 503, headers: { ...noStoreHeaders, "x-memoryos-mode": "sample", "x-memoryos-fallback": reason } },
     );
@@ -70,11 +67,11 @@ export async function POST(request: Request) {
   const isLocal = hostname === "localhost"
     || hostname === "127.0.0.1"
     || hostname === "[::1]";
-  if (!configuredApi && !isLocal) return sampleResponse(telemetry, "hosted-sample");
+  if (!configuredApi && !isLocal) return sampleResponse("hosted-sample");
 
   const response = await proxyMemoryOsPayload(telemetry, "/v2/memories/interpret-delivery");
   if (response.status === 503) {
-    return sampleResponse(telemetry, "offline-studio-sample");
+    return sampleResponse("offline-studio-sample");
   }
   return response;
 }

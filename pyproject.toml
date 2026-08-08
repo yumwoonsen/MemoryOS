@@ -26,6 +26,7 @@ dev = [
 [project.scripts]
 memoryos = "backend.run_memory:main"
 memoryos-evaluate = "backend.evaluate:main"
+memoryos-evaluate-v2 = "backend.evaluate_v2:main"
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

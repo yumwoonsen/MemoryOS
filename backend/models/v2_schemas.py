@@ -157,7 +157,7 @@ class MediaReferenceV2(StrictModel):
 class RawTelemetryBatchV2(StrictModel):
     """Realistic telemetry-only input. Unknown/pre-authored fields fail validation."""
 
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["2.0", "2.1"] = "2.0"
     request_id: str = Field(min_length=1, max_length=128)
     target_player_id: str = Field(min_length=1, max_length=128)
     squad: RawSquadV2
@@ -307,6 +307,86 @@ class MissionCapabilityCandidate(StrictModel):
     verification: VerificationRule
 
 
+class MissionFamilyV2(StrEnum):
+    REUNION = "reunion"
+    ROLE_REVERSAL = "role_reversal"
+    REDEMPTION = "redemption"
+
+
+class MissionSelectionReasonCodeV2(StrEnum):
+    SHARED_SQUAD_REUNION = "shared_squad_reunion"
+    DIRECTLY_INVERTS_ORIGINAL_ROLES = "directly_inverts_original_roles"
+    PLAYER_SPECIFIC = "player_specific"
+    REPEATED_NEAR_MISS = "repeated_near_miss"
+    MEASURABLE_IMPROVEMENT = "measurable_improvement"
+    DETERMINISTICALLY_VERIFIABLE = "deterministically_verifiable"
+
+
+class MissionAffordanceV2(StrictModel):
+    """One complete, backend-feasible continuation offered to the interpreter."""
+
+    affordance_id: str = Field(min_length=1, max_length=160)
+    family: MissionFamilyV2
+    window_id: str = Field(min_length=1, max_length=128)
+    source_event_ids: list[str] = Field(min_length=1, max_length=20)
+    source_match_ids: list[str] = Field(min_length=1, max_length=10)
+    source_context_ids: list[str] = Field(default_factory=list, max_length=10)
+    parameters: dict[str, TelemetryValue] = Field(default_factory=dict, max_length=12)
+    objective_candidate_ids: list[str] = Field(min_length=1, max_length=10)
+    allowed_reason_codes: list[MissionSelectionReasonCodeV2] = Field(
+        min_length=1,
+        max_length=8,
+    )
+
+    @model_validator(mode="after")
+    def unique_references(self) -> MissionAffordanceV2:
+        for field_name in (
+            "source_event_ids",
+            "source_match_ids",
+            "source_context_ids",
+            "objective_candidate_ids",
+            "allowed_reason_codes",
+        ):
+            values = getattr(self, field_name)
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field_name} values must be unique")
+        return self
+
+
+class StoryBriefV2(StrictModel):
+    """Compact, consent-safe provider input assembled from authoritative evidence."""
+
+    request_id: str
+    target_player_id: str
+    players_requiring_perspectives: list[NormalizedPlayerV2]
+    invitation_player_ids: list[str] = Field(min_length=2, max_length=4)
+    active_player_ids: list[str] = Field(default_factory=list, max_length=4)
+    evidence_ledger: ConsentSafeEvidenceLedgerV2
+    eligible_event_windows: list[EligibleEventWindow] = Field(min_length=1, max_length=4)
+    mission_candidates: list[MissionCapabilityCandidate] = Field(min_length=1, max_length=80)
+    mission_affordances: list[MissionAffordanceV2] = Field(min_length=1, max_length=32)
+    squad_history: SquadHistoryV2
+    current_context: CurrentContextV2
+    media_references: list[MediaReferenceV2] = Field(default_factory=list, max_length=20)
+
+
+class MissionSelectionV2(StrictModel):
+    ranked_affordance_ids: list[str] = Field(min_length=1, max_length=32)
+    selected_affordance_id: str = Field(min_length=1, max_length=160)
+    selected_family: MissionFamilyV2
+    reason_codes: list[MissionSelectionReasonCodeV2] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def selected_first_and_unique(self) -> MissionSelectionV2:
+        if len(self.ranked_affordance_ids) != len(set(self.ranked_affordance_ids)):
+            raise ValueError("ranked_affordance_ids must be unique")
+        if self.ranked_affordance_ids[0] != self.selected_affordance_id:
+            raise ValueError("selected_affordance_id must rank first")
+        if len(self.reason_codes) != len(set(self.reason_codes)):
+            raise ValueError("reason_codes must be unique")
+        return self
+
+
 class ClaimPredicate(StrEnum):
     PARTICIPATED_MATCH = "participated_match"
     PLAYED_GAME = "played_game"
@@ -370,6 +450,13 @@ class ProposedMissionObjectiveV2(StrictModel):
 
 
 class ProposedMissionV2(StrictModel):
+    affordance_id: str = Field(min_length=1, max_length=160)
+    family: MissionFamilyV2
+    ranked_affordance_ids: list[str] = Field(min_length=1, max_length=32)
+    selection_reason_codes: list[MissionSelectionReasonCodeV2] = Field(
+        min_length=1,
+        max_length=8,
+    )
     title: str = Field(min_length=1, max_length=120)
     mission: str = Field(min_length=1, max_length=500)
     recipe: QuestRecipe
@@ -431,22 +518,52 @@ class CompactPerspectiveV2(StrictModel):
         return self
 
 
-class CompactMissionChoiceV2(StrictModel):
+class CompactMissionObjectiveDraftV2(StrictModel):
     candidate_id: str = Field(min_length=1, max_length=128)
+    description: str = Field(min_length=1, max_length=400)
+
+
+class CompactMissionChoiceV2(StrictModel):
+    ranked_affordance_ids: list[str] = Field(min_length=1, max_length=32)
+    selected_affordance_id: str = Field(min_length=1, max_length=160)
+    selection_reason_codes: list[MissionSelectionReasonCodeV2] = Field(
+        min_length=1,
+        max_length=8,
+    )
     title: str = Field(min_length=1, max_length=120)
     mission: str = Field(
         min_length=1,
         max_length=500,
         description="Player-facing wording limited exactly to the selected candidate capability.",
     )
-    objective_description: str = Field(
+    objective_descriptions: list[CompactMissionObjectiveDraftV2] = Field(
         min_length=1,
-        max_length=400,
-        description=(
-            "One objective describing only the selected candidate metric, target, and permitted "
-            "participants."
-        ),
+        max_length=10,
+        description="One authored description for every backend-owned objective candidate.",
     )
+
+    @model_validator(mode="after")
+    def ranking_and_objectives_are_unique(self) -> CompactMissionChoiceV2:
+        if len(self.ranked_affordance_ids) != len(set(self.ranked_affordance_ids)):
+            raise ValueError("ranked_affordance_ids must be unique")
+        if self.ranked_affordance_ids[0] != self.selected_affordance_id:
+            raise ValueError("selected_affordance_id must rank first")
+        candidate_ids = [item.candidate_id for item in self.objective_descriptions]
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise ValueError("objective candidate IDs must be unique")
+        if len(self.selection_reason_codes) != len(set(self.selection_reason_codes)):
+            raise ValueError("selection_reason_codes must be unique")
+        return self
+
+    @property
+    def candidate_id(self) -> str:
+        """First compiled objective, retained as a read-only v2.0 Python compatibility aid."""
+
+        return self.objective_descriptions[0].candidate_id
+
+    @property
+    def objective_description(self) -> str:
+        return self.objective_descriptions[0].description
 
 
 class CompactMemoryProposalV2(StrictModel):
@@ -467,6 +584,30 @@ class CompactMemoryProposalV2(StrictModel):
         perspective_ids = [item.player_id for item in self.perspectives]
         if len(perspective_ids) != len(set(perspective_ids)):
             raise ValueError("perspective player_id values must be unique")
+        return self
+
+
+class InterpretationDecisionKindV2(StrEnum):
+    GENERATE = "generate"
+    ABSTAIN = "abstain"
+
+
+class InterpretationAbstentionReasonV2(StrEnum):
+    NO_MEANINGFUL_EPISODE = "no_meaningful_episode"
+
+
+class CompactInterpretationDecisionV2(StrictModel):
+    decision: InterpretationDecisionKindV2
+    abstention_reason_code: InterpretationAbstentionReasonV2 | None
+    proposal: CompactMemoryProposalV2 | None
+
+    @model_validator(mode="after")
+    def payload_matches_decision(self) -> CompactInterpretationDecisionV2:
+        if self.decision == InterpretationDecisionKindV2.GENERATE:
+            if self.proposal is None or self.abstention_reason_code is not None:
+                raise ValueError("generate requires a proposal and no abstention reason")
+        elif self.proposal is not None or self.abstention_reason_code is None:
+            raise ValueError("abstain requires one reason and no proposal")
         return self
 
 
@@ -510,6 +651,8 @@ class DeliveryMissionObjectiveV2(StrictModel):
 
 
 class DeliveryNextChapterV2(StrictModel):
+    family: MissionFamilyV2
+    invitation_player_ids: list[str] = Field(min_length=2, max_length=4)
     title: str
     mission: str
     recipe: QuestRecipe
@@ -543,6 +686,10 @@ class StudioInterpretationTraceV2(StrictModel):
     privacy_redaction_count: int = Field(ge=0)
     eligible_windows: list[EligibleEventWindow] = Field(default_factory=list)
     mission_candidates: list[MissionCapabilityCandidate] = Field(default_factory=list)
+    mission_affordances: list[MissionAffordanceV2] = Field(default_factory=list)
+    mission_selection: MissionSelectionV2 | None = None
+    invitation_eligible_count: int = Field(default=0, ge=0, le=4)
+    active_player_count: int = Field(default=0, ge=0, le=4)
     claim_mappings: list[StudioClaimTraceV2] = Field(default_factory=list)
     correction_attempted: bool = False
     source_quality_flag: bool = False
@@ -550,11 +697,12 @@ class StudioInterpretationTraceV2(StrictModel):
 
 class InterpretDeliveryStatusV2(StrEnum):
     PENDING_PLAYER_DECISION = "pending_player_decision"
+    NOT_GENERATED = "not_generated"
     REJECTED = "rejected"
 
 
 class InterpretDeliveryResultV2(StrictModel):
-    schema_version: Literal["2.0"] = "2.0"
+    schema_version: Literal["2.1"] = "2.1"
     request_id: str
     delivery_id: str | None = None
     status: InterpretDeliveryStatusV2
@@ -581,7 +729,7 @@ class InterpretDeliveryResultV2(StrictModel):
                 raise ValueError("pending deliveries require complete validated artifacts")
             if self.reason_codes:
                 raise ValueError("pending deliveries cannot include rejection reasons")
-        else:
+        elif self.status == InterpretDeliveryStatusV2.REJECTED:
             if any(
                 (
                     self.delivery_id,
@@ -594,6 +742,21 @@ class InterpretDeliveryResultV2(StrictModel):
                 raise ValueError("rejected deliveries must withhold all generated artifacts")
             if self.validation.passed or not self.reason_codes:
                 raise ValueError("rejected deliveries require failed validation and reasons")
+        else:
+            if any(
+                (
+                    self.delivery_id,
+                    self.memory,
+                    self.player_perspectives,
+                    self.next_chapter,
+                    self.grounded_claims,
+                )
+            ):
+                raise ValueError("not-generated results must withhold all generated artifacts")
+            if not self.validation.passed or self.reason_codes != ["ai_no_meaningful_episode"]:
+                raise ValueError(
+                    "not-generated results require a passed abstention and its reason code"
+                )
         return self
 
 

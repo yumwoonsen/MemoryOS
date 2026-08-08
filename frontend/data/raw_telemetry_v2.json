@@ -37,11 +37,12 @@
       },
       {
         "player_id": "ff-player-7f3c",
+        "display_name": "Jo",
         "consent": {
-          "memory_appearance": false,
-          "identity_display": false,
+          "memory_appearance": true,
+          "identity_display": true,
           "media_use": false,
-          "mission_invitation": false
+          "mission_invitation": true
         }
       }
     ]

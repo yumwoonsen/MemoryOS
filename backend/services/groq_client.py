@@ -25,7 +25,10 @@ from backend.services.structured_generator import ModelT
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_OUTPUT_TOKENS = 2_000
-V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 2_000
+# GPT-OSS reasoning tokens share this completion budget.  The v2.1 decision now
+# includes four player perspectives plus a complete multi-objective mission, so
+# the former 2k ceiling could terminate strict JSON before the closing fields.
+V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 4_000
 REQUEST_TIMEOUT_SECONDS = 30.0
 SDK_MAX_RETRIES = 2
 logger = logging.getLogger(__name__)

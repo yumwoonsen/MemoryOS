@@ -1,43 +1,39 @@
+import type { MissionFamilyV2 } from "@/lib/ai-memory-contract";
 import type {
-  MissionObjectiveV2,
-  PlayerPendingDeliveryV2,
-  PlayerPerspectiveV2,
-} from "@/lib/ai-memory-contract";
+  PlayerPendingDeliveryProjectionV2,
+  PlayerRosterMemberV2,
+} from "@/lib/player-delivery";
 import {
-  areInviteesReady as coreAreInviteesReady,
+  areInviteesJoined as coreAreInviteesJoined,
   buildInvitees as coreBuildInvitees,
   createContinuationChapter as coreCreateContinuationChapter,
-  createSyntheticRematch as coreCreateSyntheticRematch,
-  verifyMission as coreVerifyMission,
+  createPrototypeMatchOutcome as coreCreatePrototypeMatchOutcome,
 } from "./reunion-flow-core.mjs";
 
 export type Invitee = {
-  player_id: string;
+  recipient_ref: string;
   display_name: string;
+  activity: "online" | "away";
   is_current_player: boolean;
 };
 
-export type SyntheticMatchResult = {
-  schema_version: "1.0";
-  match_id: string;
-  label: string;
-  metrics: Record<string, string | number | boolean | string[]>;
+export type InvitationResponse = {
+  recipient_ref: string;
+  response: "self_joined" | "pending" | "joined";
 };
 
-export type ObjectiveResult = {
-  objective_id: string;
+export type PrototypeObjectiveOutcome = {
+  objective_ref: string;
   description: string;
-  required: boolean;
-  passed: boolean;
+  completed: true;
 };
 
-export type MissionVerification = {
-  match_id: string;
-  label: string;
-  objective_results: ObjectiveResult[];
-  required_passed: number;
-  required_total: number;
-  complete: boolean;
+export type PrototypeMatchOutcome = {
+  simulation_id: string;
+  family: MissionFamilyV2;
+  completion_copy: string;
+  objective_results: PrototypeObjectiveOutcome[];
+  complete: true;
 };
 
 export type ContinuationChapter = {
@@ -47,33 +43,26 @@ export type ContinuationChapter = {
   original_memory_title: string;
 };
 
-export function areInviteesReady(invitees: Invitee[], readyIds: string[]) {
-  return coreAreInviteesReady(invitees, readyIds) as boolean;
+export function areInviteesJoined(invitees: Invitee[], recipients: InvitationResponse[]) {
+  return coreAreInviteesJoined(invitees, recipients) as boolean;
 }
 
-export function buildInvitees(
-  perspectives: PlayerPerspectiveV2[],
-  currentPlayerId?: string,
-  invitationPlayerIds: string[] = [],
-): Invitee[] {
-  return coreBuildInvitees(perspectives, currentPlayerId, invitationPlayerIds) as Invitee[];
+export function buildInvitees(roster: PlayerRosterMemberV2[]): Invitee[] {
+  return coreBuildInvitees(roster) as Invitee[];
 }
 
-export function createSyntheticRematch(invitees: Invitee[]): SyntheticMatchResult {
-  return coreCreateSyntheticRematch(invitees) as SyntheticMatchResult;
-}
-
-export function verifyMission(
-  objectives: MissionObjectiveV2[],
-  matchResult: SyntheticMatchResult,
-): MissionVerification {
-  return coreVerifyMission(objectives, matchResult) as MissionVerification;
+export function createPrototypeMatchOutcome(
+  family: MissionFamilyV2,
+  invitees: Invitee[],
+  objectives: PlayerPendingDeliveryProjectionV2["next_chapter"]["objectives"],
+): PrototypeMatchOutcome {
+  return coreCreatePrototypeMatchOutcome(family, invitees, objectives) as PrototypeMatchOutcome;
 }
 
 export function createContinuationChapter(
-  memory: PlayerPendingDeliveryV2["memory"],
-  nextChapter: PlayerPendingDeliveryV2["next_chapter"],
-  verification: MissionVerification,
+  memory: PlayerPendingDeliveryProjectionV2["memory"],
+  nextChapter: PlayerPendingDeliveryProjectionV2["next_chapter"],
+  outcome: PrototypeMatchOutcome,
 ): ContinuationChapter | null {
-  return coreCreateContinuationChapter(memory, nextChapter, verification) as ContinuationChapter | null;
+  return coreCreateContinuationChapter(memory, nextChapter, outcome) as ContinuationChapter | null;
 }

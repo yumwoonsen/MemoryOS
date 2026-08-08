@@ -1,0 +1,78 @@
+{
+  "schema_version": "2.1",
+  "request_id": "req-ff-ordinary-sparse",
+  "target_player_id": "ff-player-lee",
+  "squad": {
+    "squad_id": "ff-squad-ordinary",
+    "players": [
+      {
+        "player_id": "ff-player-lee",
+        "display_name": "Lee",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-mei",
+        "display_name": "Mei",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      }
+    ]
+  },
+  "matches": [
+    {
+      "match_id": "ff-ordinary-01",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-07-25T09:00:00Z",
+      "ended_at": "2026-07-25T09:18:00Z",
+      "placement": 12,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "ordinary-loot-lee",
+          "provider_event_type": "ITEM_PICKED_UP",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 180,
+          "location": "Rim Nam Village",
+          "details": {"item_type": "ammo"}
+        },
+        {
+          "event_id": "ordinary-heal-mei",
+          "provider_event_type": "PLAYER_HEALED",
+          "actor_id": "ff-player-mei",
+          "timestamp_seconds": 195,
+          "location": "Rim Nam Village",
+          "details": {"health_state": "stable"}
+        },
+        {
+          "event_id": "ordinary-match-end",
+          "provider_event_type": "MATCH_PLACEMENT_RECORDED",
+          "timestamp_seconds": 1075,
+          "details": {"placement": 12, "squad_members_alive": 0}
+        }
+      ]
+    }
+  ],
+  "squad_history": {
+    "previous_session_at": ["2026-07-25T09:00:00Z"],
+    "days_since_full_squad": 3,
+    "recent_rematch_count": 0
+  },
+  "current_context": {
+    "active_player_ids": ["ff-player-lee"],
+    "available_modes": ["battle_royale_squad"],
+    "reunion_eligible": true
+  },
+  "social_context": null,
+  "media_references": []
+}

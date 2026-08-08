@@ -1,0 +1,32 @@
+{
+  "schema_version": "2.1",
+  "cases": [
+    {
+      "case_id": "rescue-role-reversal",
+      "fixture": "../raw_telemetry_v2.json",
+      "expected_status": "pending_player_decision",
+      "expected_mission_family": "role_reversal",
+      "mission_variation_group": "mission-family-demo"
+    },
+    {
+      "case_id": "rescue-counterfactual-no-revive",
+      "fixture": "rescue_counterfactual_no_revive.json",
+      "expected_status": "pending_player_decision",
+      "expected_mission_family": "reunion",
+      "forbidden_offered_mission_families": ["role_reversal"],
+      "mission_variation_group": "mission-family-demo"
+    },
+    {
+      "case_id": "repeated-near-miss",
+      "fixture": "repeated_near_miss.json",
+      "expected_status": "pending_player_decision",
+      "expected_mission_family": "redemption",
+      "mission_variation_group": "mission-family-demo"
+    },
+    {
+      "case_id": "ordinary-sparse-telemetry",
+      "fixture": "ordinary_sparse_telemetry.json",
+      "expected_status": "not_generated"
+    }
+  ]
+}

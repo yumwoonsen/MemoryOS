@@ -1,93 +1,71 @@
-/** Pure Phase 3 reunion helpers. The demo is synthetic; the rule evaluation is deterministic. */
+/** Pure Phase 3 reunion helpers. The post-accept gameplay is an explicit static prototype simulation. */
 
-export function buildInvitees(perspectives, currentPlayerId, invitationPlayerIds) {
+export function buildInvitees(roster) {
   const seen = new Set();
-  const eligibleIds = new Set(invitationPlayerIds);
-  return perspectives.flatMap((perspective) => {
+  return roster.flatMap((recipient) => {
     if (
-      !perspective
-      || typeof perspective.player_id !== "string"
-      || typeof perspective.display_name !== "string"
-      || !eligibleIds.has(perspective.player_id)
-      || seen.has(perspective.player_id)
+      !recipient
+      || typeof recipient.recipient_ref !== "string"
+      || typeof recipient.display_name !== "string"
+      || !["online", "away"].includes(recipient.activity)
+      || typeof recipient.is_current_player !== "boolean"
+      || seen.has(recipient.recipient_ref)
     ) {
       return [];
     }
-    seen.add(perspective.player_id);
+    seen.add(recipient.recipient_ref);
     return [{
-      player_id: perspective.player_id,
-      display_name: perspective.display_name,
-      is_current_player: perspective.player_id === currentPlayerId,
+      recipient_ref: recipient.recipient_ref,
+      display_name: recipient.display_name,
+      activity: recipient.activity,
+      is_current_player: recipient.is_current_player,
     }];
   });
 }
 
-export function areInviteesReady(invitees, readyIds) {
+export function areInviteesJoined(invitees, recipients) {
+  const responseByRef = new Map(recipients.map((recipient) => [recipient.recipient_ref, recipient.response]));
   return invitees.length > 0
-    && invitees.every((invitee) => readyIds.includes(invitee.player_id));
+    && invitees.every((invitee) => {
+      const response = responseByRef.get(invitee.recipient_ref);
+      return response === "self_joined" || response === "joined";
+    });
 }
 
-export function createSyntheticRematch(invitees) {
+export function createPrototypeMatchOutcome(family, invitees, objectives) {
+  const currentPlayer = invitees.find((invitee) => invitee.is_current_player);
+  const assignedRecipientRef = objectives.find((objective) => objective.assigned_recipient_ref)?.assigned_recipient_ref;
+  const roleReversalPlayer = invitees.find((invitee) => invitee.recipient_ref === assignedRecipientRef)
+    ?? currentPlayer;
+  const completionCopy = family === "role_reversal"
+    ? `${roleReversalPlayer?.display_name ?? "The previously saved player"} completed the squad's first revival.`
+    : family === "redemption"
+      ? "The squad reached the top three."
+      : "The full squad completed one match together.";
   return {
-    schema_version: "1.0",
-    match_id: "synthetic-clock-tower-rematch-001",
-    label: "Prototype reunion match",
-    metrics: {
-      "squad.participant_ids": invitees.map((invitee) => invitee.player_id),
-      "squad.matches_completed": 1,
-      "squad.revive_count": 1,
-    },
+    simulation_id: "prototype-match-simulation-001",
+    family,
+    completion_copy: completionCopy,
+    objective_results: objectives
+      .filter((objective) => objective.required)
+      .map((objective) => ({
+        objective_ref: objective.objective_ref,
+        description: objective.description,
+        completed: true,
+      })),
+    complete: true,
   };
 }
 
-export function evaluateRule(rule, metrics) {
-  if (!rule || typeof rule.metric !== "string") return false;
-  const actual = metrics[rule.metric];
-
-  if (rule.operator === "equals") {
-    return JSON.stringify(actual) === JSON.stringify(rule.target);
-  }
-  if (rule.operator === "at_least") {
-    return typeof actual === "number"
-      && typeof rule.target === "number"
-      && actual >= rule.target;
-  }
-  if (rule.operator === "contains_all") {
-    return Array.isArray(actual)
-      && Array.isArray(rule.target)
-      && rule.target.every((target) => actual.includes(target));
-  }
-  return false;
-}
-
-export function verifyMission(objectives, matchResult) {
-  const objective_results = objectives.map((objective) => ({
-    objective_id: objective.objective_id,
-    description: objective.description,
-    required: objective.required,
-    passed: evaluateRule(objective.verification, matchResult.metrics),
-  }));
-  const required = objective_results.filter((objective) => objective.required);
-  const required_passed = required.filter((objective) => objective.passed).length;
-  return {
-    match_id: matchResult.match_id,
-    label: matchResult.label,
-    objective_results,
-    required_passed,
-    required_total: required.length,
-    complete: required.length > 0 && required_passed === required.length,
-  };
-}
-
-export function createContinuationChapter(memory, nextChapter, verification) {
-  if (!verification.complete) return null;
+export function createContinuationChapter(memory, nextChapter, outcome) {
+  if (!outcome.complete) return null;
   const title = nextChapter.title.split(":").at(-1)?.trim() || nextChapter.title;
-  const highlights = verification.objective_results
-    .filter((objective) => objective.required && objective.passed)
+  const highlights = outcome.objective_results
+    .filter((objective) => objective.completed)
     .map((objective) => objective.description);
   return {
     title,
-    summary: `In the verified synthetic rematch, the squad completed every required step of ${title}. The old memory now has a grounded sequel.`,
+    summary: `${outcome.completion_copy} In this prototype, the original memory now has a successful sequel.`,
     highlights,
     original_memory_title: memory.title,
   };

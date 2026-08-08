@@ -83,15 +83,6 @@
           "details": {"ping_type": "retreat"}
         },
         {
-          "event_id": "ffevt-04-revive-lee",
-          "provider_event_type": "TEAMMATE_REVIVED",
-          "actor_id": "ff-player-mei",
-          "target_id": "ff-player-lee",
-          "timestamp_seconds": 1101,
-          "location": "Clock Tower",
-          "details": {"zone_phase": 4}
-        },
-        {
           "event_id": "ffevt-05-vehicle-enter",
           "provider_event_type": "SQUAD_ENTERED_VEHICLE",
           "actor_id": "ff-player-7f3c",
@@ -136,12 +127,5 @@
     "player_caption": "That rotation was messy.",
     "caption_author_player_id": "ff-player-lee"
   },
-  "media_references": [
-    {
-      "media_id": "ff-keyframe-01J4Y7QZ",
-      "kind": "keyframe",
-      "event_ids": ["ffevt-04-revive-lee"],
-      "consented_player_ids": ["ff-player-lee", "ff-player-mei"]
-    }
-  ]
+  "media_references": []
 }

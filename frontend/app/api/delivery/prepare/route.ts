@@ -4,9 +4,12 @@ import {
   isDeliveryBoundToTelemetryV2,
   parseInterpretDeliveryV2,
   parseRawTelemetryBatchV2,
-  projectPendingDeliveryForPlayer,
 } from "@/lib/ai-memory-contract";
 import { isRecord, proxyMemoryOsPayload } from "@/lib/memoryos-server";
+import {
+  projectNotGeneratedForPlayer,
+  projectPendingDeliveryForPlayer,
+} from "@/lib/player-delivery";
 
 const prototypeTelemetry = parseRawTelemetryBatchV2(rawTelemetry as unknown);
 const privateHeaders = { "cache-control": "no-store", "x-memoryos-mode": "live" };
@@ -50,6 +53,9 @@ export async function POST(request: Request) {
     );
   }
   const parsed = parseInterpretDeliveryV2(payload);
+  if (parsed?.status === "not_generated") {
+    return Response.json(projectNotGeneratedForPlayer(telemetry.request_id), { headers: privateHeaders });
+  }
   if (!parsed || parsed.status !== "pending_player_decision") {
     return Response.json(
       { stage: "delivery", code: "memory_withheld", retryable: false, message: "No fully grounded squad memory is available." },
@@ -63,6 +69,12 @@ export async function POST(request: Request) {
       { status: 502, headers: privateHeaders },
     );
   }
-
-  return Response.json(projectPendingDeliveryForPlayer(parsed), { headers: privateHeaders });
+  const playerProjection = projectPendingDeliveryForPlayer(parsed, telemetry);
+  if (!playerProjection) {
+    return Response.json(
+      { stage: "frontend_projection", code: "player_projection_failed", retryable: false, message: "The validated memory could not be projected safely." },
+      { status: 502, headers: privateHeaders },
+    );
+  }
+  return Response.json(playerProjection, { headers: privateHeaders });
 }

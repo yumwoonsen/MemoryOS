@@ -7,7 +7,7 @@ turning the player screen into an internal dashboard.
 The experience is split into four focused routes:
 
 - `/` — the current memory, grounded explanation, player perspective, and Accept/Decline choice;
-- `/mission` — the accepted squad invitation, synthetic rematch, verification, and continuation;
+- `/mission` — the accepted squad invitation, scripted prototype game, and continuation;
 - `/history` — a read-only, privacy-safe timeline of the current session and eligible past matches;
 - `/studio` — developer-facing pipeline observability.
 
@@ -30,17 +30,18 @@ The canonical `/` route uses the AI-first v2 adapter and proxies:
   delivery; and
 - `POST /v2/deliveries/{delivery_id}/decision` for acceptance or one structured decline reason.
 
-The live provider's compact draft is internal to the backend. AI selects one offered window and
-authors memory and perspective language, selects one mission candidate, and writes one objective
-description with bounded fact/capability references. The backend derives the selected match/event
-IDs, complete grounded claims, eligible media, mission recipe, objective ID/assignment/rule,
+The live provider's compact decision is internal to the backend. AI selects one offered window,
+authors memory and perspective language, ranks feasible mission affordances, and writes one
+selected continuation with bounded fact/capability references. The backend derives the selected
+match/event IDs, complete grounded claims, eligible media, mission family, objective assignments/rules,
 and the ordered proposal perspectives before validation. It validates that the provider-supplied
 perspective IDs equal the exact eligible set; it does not restore a missing perspective. Only after
 the complete proposal passes does the pipeline create the delivery record, safe Studio trace, and
 public result. The same-origin player proxy receives that complete public result,
 validates it, and
-returns only the existing `PlayerPendingDeliveryV2` projection. No compact draft or Studio internals
-cross into the player UI.
+returns only the current player's perspective, verified moment summaries, one Next Chapter, and a
+safe invitation roster. Raw telemetry, teammate perspective prose, consent records, compact output,
+and Studio internals do not cross into the player UI.
 
 This preserves the compact player sequence: one memory, its grounded explanation,
 the current player's perspective, a clear reunion mission, and one decision. `/history` remains a
@@ -50,7 +51,8 @@ read-only timeline rather than a second delivery or feedback surface.
 
 Open `/studio` for the developer-facing observability workspace. It accepts synthetic raw telemetry
 and shows how the pipeline moves from normalized match evidence into a shared memory,
-personal perspectives, a continuation quest, and deterministic validation.
+personal perspectives, dynamically offered mission affordances, one selected continuation, and
+deterministic validation.
 
 The Studio deliberately separates three runtime states:
 
@@ -63,7 +65,7 @@ The Studio deliberately separates three runtime states:
 Pipeline events are labelled as completed snapshots rather than a live token trace. When the
 backend supplies them, the Studio displays safe aggregate and per-stage request counts, token
 counts, latency, and configured retry limits. For v2, the safe trace may additionally show
-synthetic raw telemetry, normalization and eligibility outcomes, offered window IDs, validated
+synthetic raw telemetry, normalization and eligibility outcomes, offered window and affordance IDs, validated
 evidence links, provider/model/prompt version, validator issue codes, final status, and structured
 feedback. It never displays raw prompts, chain-of-thought, API keys, server environment values,
 the raw compact provider draft, opted-out identities, raw provider exceptions, or rejected and
@@ -83,9 +85,9 @@ semantic proof.
 The smaller provider schema is expected to improve structured-output reliability because the model
 no longer repeats identifiers and control values already owned by the backend. This does not weaken
 the player boundary or validation. The updated backend/frontend suites and one telemetry-only live
-interpretation passed on 8 August 2026 with Groq `openai/gpt-oss-120b`, no correction, and a
-validated pending delivery. The saved Studio sample remains an offline demonstration, and one live
-run is not a comparative reliability benchmark for other models.
+interpretation passed historically on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
+v2.4 prompt. The current v2.1 mission-affordance path uses the v2.6 prompt; the saved Studio sample
+remains an offline demonstration, and the historical run is not a comparative reliability result.
 
 ## Run locally
 
@@ -136,15 +138,15 @@ by the canonical player routes.
 ## Phase 3 reunion continuation
 
 After an accepted `/` delivery, layout-scoped in-memory state hands the validated delivery to
-`/mission`. The player sees a consent-safe mission start, invites only the privacy-filtered squad
-perspectives, and can run a clearly labelled reunion simulation. A pure
-deterministic evaluator checks the synthetic new-match metrics against the quest's existing
-verification rules. “Story Continues,” the three-step timeline, and optional chapter feedback stay
-locked until every required objective passes.
+`/mission`. The player sees a consent-safe mission start and a backend-authorized invitation roster.
+Inactive but consented original squadmates remain eligible and move from Invited to Joined during
+the simulation. Once the complete roster joins, the app runs a short, clearly labelled static
+prototype game and shows a successful outcome matching the selected reunion, role-reversal, or
+redemption family. “Story Continues” and optional chapter feedback unlock afterward.
 
 This Phase 3 slice remains intentionally ephemeral. The accepted handoff is not placed in a URL,
 browser storage, or durable store, so a refresh or direct `/mission` visit correctly shows no active
-mission. It sends no real invitation, reads no live Garena match result, and does not persist
+mission. It sends no real invitation, reads or verifies no live Garena match result, and does not persist
 chapter feedback while authentication, retention, consent, and privacy policy are unresolved.
 
 Any moment clip, thumbnail, or keyframe shown by this prototype is a curated synthetic asset with a

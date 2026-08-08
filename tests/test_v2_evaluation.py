@@ -10,8 +10,14 @@ from pydantic import ValidationError
 
 from backend.models.schemas import DeliveryDecision, DeliveryDeclineReason
 from backend.models.v2_schemas import (
+    CompactInterpretationDecisionV2,
     DeliveryDecisionRecordV2,
+    InterpretationAbstentionReasonV2,
+    InterpretationDecisionKindV2,
     InterpretDeliveryResultV2,
+    InterpretDeliveryStatusV2,
+    MissionFamilyV2,
+    MissionSelectionReasonCodeV2,
     RawTelemetryBatchV2,
 )
 from backend.services.v2_evaluation import (
@@ -48,6 +54,30 @@ def _rejected_result() -> InterpretDeliveryResultV2:
     return result
 
 
+class _AbstainingGenerator:
+    provider_name = "test-live"
+    model_name = "typed-abstention"
+
+    @property
+    def observability(self) -> dict[str, object]:
+        return {}
+
+    def generate(self, **_: object) -> CompactInterpretationDecisionV2:
+        return CompactInterpretationDecisionV2(
+            decision=InterpretationDecisionKindV2.ABSTAIN,
+            abstention_reason_code=InterpretationAbstentionReasonV2.NO_MEANINGFUL_EPISODE,
+            proposal=None,
+        )
+
+
+def _not_generated_result() -> InterpretDeliveryResultV2:
+    result = MemoryInterpretationPipelineV2(_AbstainingGenerator()).interpret_delivery(
+        RawTelemetryBatchV2.model_validate(_payload())
+    )
+    assert result.status == "not_generated"
+    return result
+
+
 def _selected_window_id(result: InterpretDeliveryResultV2) -> str:
     assert result.memory is not None
     return next(
@@ -59,11 +89,15 @@ def _selected_window_id(result: InterpretDeliveryResultV2) -> str:
 
 
 def test_legacy_summary_contract_remains_available() -> None:
-    summary = summarize_v2_results([_delivered_result()])
+    summary = summarize_v2_results(
+        [_delivered_result(), _not_generated_result(), _rejected_result()]
+    )
 
     assert type(summary) is V2EvaluationSummary
-    assert summary.cases == 1
+    assert summary.cases == 3
     assert summary.delivered == 1
+    assert summary.abstained == 1
+    assert summary.rejected == 1
     assert summary.claim_grounding_rate == 1
     assert summary.mission_feasibility_rate == 1
 
@@ -92,9 +126,10 @@ def test_labelled_selection_abstention_claim_and_correction_metrics() -> None:
             ],
         ),
         V2OfflineEvaluationCase(
-            case_id="expected-abstention",
+            case_id="expected-rejection",
             result=rejected,
             expected_deliverable=False,
+            expected_status=InterpretDeliveryStatusV2.REJECTED,
         ),
     ]
 
@@ -106,11 +141,198 @@ def test_labelled_selection_abstention_claim_and_correction_metrics() -> None:
     assert summary.claim_grounding_rate == 0.5
     assert summary.unsupported_claim_rate == 0.5
     assert summary.deliverability_accuracy == 1
-    assert summary.expected_abstentions == 1
-    assert summary.abstention_correctness_rate == 1
+    assert summary.expected_abstentions == 0
+    assert summary.abstention_correctness_rate is None
+    assert summary.rejection_labels_evaluated == 1
+    assert summary.rejection_accuracy == 1
     assert summary.correction_attempts == 2
     assert summary.correction_successes == 1
     assert summary.correction_success_rate == 0.5
+
+
+def test_typed_abstention_is_not_counted_as_rejection() -> None:
+    abstained = _not_generated_result()
+    rejected = _rejected_result()
+
+    summary = summarize_v2_evaluation(
+        [
+            V2OfflineEvaluationCase(
+                case_id="ordinary-telemetry",
+                result=abstained,
+                expected_deliverable=False,
+                expected_status=InterpretDeliveryStatusV2.NOT_GENERATED,
+            ),
+            V2OfflineEvaluationCase(
+                case_id="invalid-input",
+                result=rejected,
+                expected_deliverable=False,
+                expected_status=InterpretDeliveryStatusV2.REJECTED,
+            ),
+        ]
+    )
+
+    assert summary.delivered == 0
+    assert summary.abstained == 1
+    assert summary.rejected == 1
+    assert summary.status_accuracy == 1
+    assert summary.typed_abstention_accuracy == 1
+    assert summary.rejection_accuracy == 1
+
+
+def test_mission_family_affordance_and_variation_metrics() -> None:
+    role_reversal = _delivered_result()
+    assert role_reversal.next_chapter is not None
+    assert role_reversal.next_chapter.family == MissionFamilyV2.ROLE_REVERSAL
+
+    payload = _payload()
+    payload["matches"][0]["events"] = [
+        event
+        for event in payload["matches"][0]["events"]
+        if event["provider_event_type"] != "TEAMMATE_REVIVED"
+    ]
+    payload["media_references"] = []
+    second_match = json.loads(json.dumps(payload["matches"][0]))
+    second_match["match_id"] = "ff-match-near-miss-eval"
+    second_match["started_at"] = "2026-07-18T12:14:03Z"
+    second_match["ended_at"] = "2026-07-18T12:34:52Z"
+    second_match["placement"] = 4
+    for event in second_match["events"]:
+        event["event_id"] = f"{event['event_id']}-eval"
+        if event["provider_event_type"] == "MATCH_PLACEMENT_RECORDED":
+            event["details"]["placement"] = 4
+    payload["matches"].append(second_match)
+    redemption = MemoryInterpretationPipelineV2().interpret_delivery(
+        RawTelemetryBatchV2.model_validate(payload)
+    )
+    assert redemption.status == "pending_player_decision"
+    assert redemption.next_chapter is not None
+    assert redemption.next_chapter.family == MissionFamilyV2.REDEMPTION
+
+    summary = summarize_v2_evaluation(
+        [
+            V2OfflineEvaluationCase(
+                case_id="rescue",
+                result=role_reversal,
+                expected_status=InterpretDeliveryStatusV2.PENDING_PLAYER_DECISION,
+                expected_mission_family=MissionFamilyV2.ROLE_REVERSAL,
+                mission_variation_group="mission-family-demo",
+            ),
+            V2OfflineEvaluationCase(
+                case_id="near-miss",
+                result=redemption,
+                expected_status=InterpretDeliveryStatusV2.PENDING_PLAYER_DECISION,
+                expected_mission_family=MissionFamilyV2.REDEMPTION,
+                mission_variation_group="mission-family-demo",
+            ),
+        ]
+    )
+
+    assert summary.mission_family_accuracy == 1
+    assert summary.affordance_selection_cases_evaluated == 2
+    assert summary.affordance_selection_compliance_rate == 1
+    assert summary.affordance_rankings_unique == 2
+    assert summary.affordance_rankings_offered == 2
+    assert summary.affordance_selections_ranked_first == 2
+    assert summary.affordance_families_consistent == 2
+    assert summary.affordance_reason_codes_allowed == 2
+    assert summary.affordance_objective_sets_exact == 2
+    assert summary.cross_fixture_family_variation_rate == 1
+
+
+def test_counterfactual_forbidden_family_must_disappear_from_offers() -> None:
+    payload = _payload()
+    payload["matches"][0]["events"] = [
+        event
+        for event in payload["matches"][0]["events"]
+        if event["provider_event_type"] != "TEAMMATE_REVIVED"
+    ]
+    payload["media_references"] = []
+    result = MemoryInterpretationPipelineV2().interpret_delivery(
+        RawTelemetryBatchV2.model_validate(payload)
+    )
+
+    summary = summarize_v2_evaluation(
+        [
+            V2OfflineEvaluationCase(
+                case_id="revive-removed",
+                result=result,
+                expected_mission_family=MissionFamilyV2.REUNION,
+                forbidden_offered_mission_families=[MissionFamilyV2.ROLE_REVERSAL],
+            )
+        ]
+    )
+
+    assert summary.forbidden_family_labels_evaluated == 1
+    assert summary.forbidden_families_removed == 1
+    assert summary.forbidden_family_removal_rate == 1
+
+
+def test_affordance_audit_detects_each_contract_violation() -> None:
+    delivered = _delivered_result()
+    selection = delivered.studio_trace.mission_selection
+    assert selection is not None
+    assert delivered.next_chapter is not None
+    ranked = selection.ranked_affordance_ids
+    assert len(ranked) >= 2
+
+    def with_selection(**updates: object) -> InterpretDeliveryResultV2:
+        changed = selection.model_copy(update=updates)
+        return delivered.model_copy(
+            update={
+                "studio_trace": delivered.studio_trace.model_copy(
+                    update={"mission_selection": changed}
+                )
+            }
+        )
+
+    duplicate_ranking = with_selection(ranked_affordance_ids=[selection.selected_affordance_id] * 2)
+    unoffered_ranking = with_selection(
+        ranked_affordance_ids=[selection.selected_affordance_id, "affordance:invented"]
+    )
+    selected_not_first = with_selection(ranked_affordance_ids=list(reversed(ranked)))
+    wrong_family = with_selection(selected_family=MissionFamilyV2.REUNION)
+    wrong_reason = with_selection(reason_codes=[MissionSelectionReasonCodeV2.REPEATED_NEAR_MISS])
+    wrong_objective = delivered.model_copy(
+        update={
+            "next_chapter": delivered.next_chapter.model_copy(
+                update={
+                    "objectives": [
+                        delivered.next_chapter.objectives[0].model_copy(
+                            update={"objective_id": "objective:invented"}
+                        ),
+                        *delivered.next_chapter.objectives[1:],
+                    ]
+                }
+            )
+        }
+    )
+
+    summary = summarize_v2_evaluation(
+        [
+            V2OfflineEvaluationCase(case_id=f"invalid-{index}", result=result)
+            for index, result in enumerate(
+                (
+                    duplicate_ranking,
+                    unoffered_ranking,
+                    selected_not_first,
+                    wrong_family,
+                    wrong_reason,
+                    wrong_objective,
+                ),
+                start=1,
+            )
+        ]
+    )
+
+    assert summary.affordance_selection_cases_evaluated == 6
+    assert summary.affordance_selections_compliant == 0
+    assert summary.affordance_selection_compliance_rate == 0
+    assert summary.affordance_rankings_unique == 5
+    assert summary.affordance_rankings_offered == 4
+    assert summary.affordance_selections_ranked_first == 5
+    assert summary.affordance_families_consistent == 5
+    assert summary.affordance_reason_codes_allowed == 5
+    assert summary.affordance_objective_sets_exact == 5
 
 
 def test_consent_distinctness_and_story_connection_are_measured() -> None:

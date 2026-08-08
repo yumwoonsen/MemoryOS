@@ -34,7 +34,7 @@ export type RawTelemetryMatchV2 = {
 };
 
 export type RawTelemetryBatchV2 = {
-  schema_version: "2.0";
+  schema_version: "2.0" | "2.1";
   request_id: string;
   target_player_id: string;
   squad: {
@@ -68,6 +68,27 @@ export type RawTelemetryBatchV2 = {
 };
 
 export type DeliveryDeclineReasonV2 = "not_relevant" | "details_wrong";
+
+export type MissionFamilyV2 = "reunion" | "role_reversal" | "redemption";
+
+export type MissionAffordanceV2 = {
+  affordance_id: string;
+  family: MissionFamilyV2;
+  window_id: string;
+  source_event_ids: string[];
+  source_match_ids: string[];
+  source_context_ids: string[];
+  parameters: Record<string, string | number | boolean | string[]>;
+  objective_candidate_ids: string[];
+  allowed_reason_codes: string[];
+};
+
+export type MissionSelectionV2 = {
+  ranked_affordance_ids: string[];
+  selected_affordance_id: string;
+  selected_family: MissionFamilyV2;
+  reason_codes: string[];
+};
 
 export type GroundedClaimV2 = {
   claim_id: string;
@@ -131,6 +152,10 @@ export type StudioInterpretationTraceV2 = {
     source_event_ids: string[];
     verification: MissionObjectiveV2["verification"];
   }>;
+  mission_affordances: MissionAffordanceV2[];
+  mission_selection: MissionSelectionV2 | null;
+  active_player_count: number;
+  invitation_eligible_count: number;
   claim_mappings: Array<{
     claim_id: string;
     output_section: string;
@@ -142,7 +167,7 @@ export type StudioInterpretationTraceV2 = {
 };
 
 export type PendingDeliveryV2 = {
-  schema_version: "2.0";
+  schema_version: "2.1";
   request_id: string;
   delivery_id: string;
   status: "pending_player_decision";
@@ -167,6 +192,8 @@ export type PendingDeliveryV2 = {
     title: string;
     mission: string;
     recipe: "recreate" | "remix" | "resolve" | string;
+    family: MissionFamilyV2;
+    invitation_player_ids: string[];
     objectives: MissionObjectiveV2[];
   };
   grounded_claims: GroundedClaimV2[];
@@ -181,12 +208,14 @@ export type PendingDeliveryV2 = {
     model: string;
     mode: "live_ai";
     prompt_version: string;
-    grounded_render?: boolean;
+    content_origin: "live_ai_validated" | "deterministic_studio_sample";
+    grounded_render: boolean;
+    narrative_fallback: boolean;
   };
 };
 
 export type RejectedInterpretationV2 = {
-  schema_version: "2.0";
+  schema_version: "2.1";
   request_id: string;
   status: "rejected";
   reason_codes: string[];
@@ -202,26 +231,36 @@ export type RejectedInterpretationV2 = {
     model: string;
     mode: "live_ai" | "deterministic";
     prompt_version: string;
+    content_origin: "no_player_content";
+    grounded_render: boolean;
+    narrative_fallback: boolean;
   };
 };
 
-export type InterpretDeliveryResultV2 = PendingDeliveryV2 | RejectedInterpretationV2;
-
-export type PlayerPendingDeliveryV2 = Pick<
-  PendingDeliveryV2,
-  | "schema_version"
-  | "request_id"
-  | "delivery_id"
-  | "status"
-  | "memory"
-  | "player_perspectives"
-  | "next_chapter"
-> & {
-  metadata: Pick<
-    PendingDeliveryV2["metadata"],
-    "provider" | "model" | "mode" | "prompt_version" | "grounded_render"
-  >;
+export type NotGeneratedInterpretationV2 = {
+  schema_version: "2.1";
+  request_id: string;
+  status: "not_generated";
+  reason_codes: ["ai_no_meaningful_episode"] | string[];
+  player_perspectives: [];
+  validation: {
+    passed: true;
+    correction_attempted: boolean;
+    issues: Array<{ code: string; severity?: string; message?: string }>;
+  };
+  studio_trace: StudioInterpretationTraceV2;
+  metadata: {
+    provider: string;
+    model: string;
+    mode: "live_ai";
+    prompt_version: string;
+    content_origin: "no_player_content";
+    grounded_render: boolean;
+    narrative_fallback: boolean;
+  };
 };
+
+export type InterpretDeliveryResultV2 = PendingDeliveryV2 | RejectedInterpretationV2 | NotGeneratedInterpretationV2;
 
 export type StudioPendingDeliveryV2 = Omit<PendingDeliveryV2, "metadata"> & {
   metadata: Omit<PendingDeliveryV2["metadata"], "mode"> & {
@@ -229,7 +268,7 @@ export type StudioPendingDeliveryV2 = Omit<PendingDeliveryV2, "metadata"> & {
   };
 };
 
-export type StudioInterpretDeliveryResultV2 = StudioPendingDeliveryV2 | RejectedInterpretationV2;
+export type StudioInterpretDeliveryResultV2 = StudioPendingDeliveryV2 | RejectedInterpretationV2 | NotGeneratedInterpretationV2;
 
 export type DecisionRequestV2 =
   | { schema_version: "2.0"; decision: "accepted" }
@@ -297,6 +336,29 @@ function isPerspective(value: unknown): value is PlayerPerspectiveV2 {
     && isStringArray(value.evidence_event_ids)
     && value.evidence_event_ids.length > 0;
 }
+function isMissionFamily(value: unknown): value is MissionFamilyV2 {
+  return ["reunion", "role_reversal", "redemption"].includes(String(value));
+}
+function isMissionAffordance(value: unknown): value is MissionAffordanceV2 {
+  return isRecord(value)
+    && typeof value.affordance_id === "string"
+    && isMissionFamily(value.family)
+    && typeof value.window_id === "string"
+    && isStringArray(value.source_event_ids)
+    && isStringArray(value.source_match_ids)
+    && isStringArray(value.source_context_ids)
+    && isRecord(value.parameters)
+    && Object.values(value.parameters).every(isRuleTarget)
+    && isStringArray(value.objective_candidate_ids)
+    && isStringArray(value.allowed_reason_codes);
+}
+function isMissionSelection(value: unknown): value is MissionSelectionV2 {
+  return isRecord(value)
+    && isStringArray(value.ranked_affordance_ids)
+    && typeof value.selected_affordance_id === "string"
+    && isMissionFamily(value.selected_family)
+    && isStringArray(value.reason_codes);
+}
 
 function isTrace(value: unknown) {
   return isRecord(value)
@@ -306,6 +368,11 @@ function isTrace(value: unknown) {
     && Number.isInteger(value.privacy_redaction_count)
     && Array.isArray(value.eligible_windows)
     && Array.isArray(value.mission_candidates)
+    && Array.isArray(value.mission_affordances)
+    && value.mission_affordances.every(isMissionAffordance)
+    && (value.mission_selection == null || isMissionSelection(value.mission_selection))
+    && Number.isInteger(value.active_player_count)
+    && Number.isInteger(value.invitation_eligible_count)
     && Array.isArray(value.claim_mappings)
     && typeof value.correction_attempted === "boolean"
     && typeof value.source_quality_flag === "boolean"
@@ -334,7 +401,7 @@ function isRawSquadPlayer(value: unknown): value is RawSquadPlayerV2 {
 
 export function parseRawTelemetryBatchV2(value: unknown): RawTelemetryBatchV2 | null {
   if (!isRecord(value)
-    || value.schema_version !== "2.0"
+    || !["2.0", "2.1"].includes(String(value.schema_version))
     || typeof value.request_id !== "string"
     || typeof value.target_player_id !== "string"
     || !isRecord(value.squad)
@@ -400,6 +467,9 @@ function hasPendingPlayerContent(value: Record<string, unknown>) {
     && typeof value.next_chapter.title === "string"
     && typeof value.next_chapter.mission === "string"
     && typeof value.next_chapter.recipe === "string"
+    && isMissionFamily(value.next_chapter.family)
+    && isStringArray(value.next_chapter.invitation_player_ids)
+    && new Set(value.next_chapter.invitation_player_ids).size === value.next_chapter.invitation_player_ids.length
     && Array.isArray(value.next_chapter.objectives)
     && value.next_chapter.objectives.length > 0
     && value.next_chapter.objectives.every(isMissionObjective)
@@ -408,9 +478,9 @@ function hasPendingPlayerContent(value: Record<string, unknown>) {
 
 export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretDeliveryResultV2 | null {
   if (!isRecord(value)
-    || value.schema_version !== "2.0"
+    || value.schema_version !== "2.1"
     || typeof value.request_id !== "string"
-    || !["pending_player_decision", "rejected"].includes(String(value.status))
+    || !["pending_player_decision", "not_generated", "rejected"].includes(String(value.status))
     || !isStringArray(value.reason_codes)
     || !isRecord(value.validation)
     || typeof value.validation.passed !== "boolean"
@@ -420,79 +490,65 @@ export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretD
     || !isRecord(value.metadata)
     || typeof value.metadata.provider !== "string"
     || typeof value.metadata.model !== "string"
-    || typeof value.metadata.prompt_version !== "string") return null;
+    || typeof value.metadata.prompt_version !== "string"
+    || typeof value.metadata.grounded_render !== "boolean"
+    || typeof value.metadata.narrative_fallback !== "boolean") return null;
+
+  if (value.status === "not_generated") {
+    if (value.delivery_id != null
+      || value.memory != null
+      || value.next_chapter != null
+      || (Array.isArray(value.player_perspectives) && value.player_perspectives.length > 0)
+      || value.validation.passed !== true
+      || value.metadata.mode !== "live_ai"
+      || value.metadata.content_origin !== "no_player_content"
+      || value.metadata.grounded_render !== false
+      || value.metadata.narrative_fallback !== false
+      || !value.reason_codes.includes("ai_no_meaningful_episode")) return null;
+    return value as NotGeneratedInterpretationV2;
+  }
 
   if (value.status === "rejected") {
     if (value.delivery_id != null
       || value.memory != null
       || value.next_chapter != null
       || (Array.isArray(value.player_perspectives) && value.player_perspectives.length > 0)
-      || value.validation.passed !== false) return null;
+      || value.validation.passed !== false
+      || value.metadata.content_origin !== "no_player_content"
+      || value.metadata.grounded_render !== false
+      || value.metadata.narrative_fallback !== false) return null;
     return value as RejectedInterpretationV2;
   }
 
   if (!hasPendingPlayerContent(value)
     || value.validation.passed !== true
     || !["live_ai", "deterministic"].includes(String(value.metadata.mode))
+    || value.metadata.content_origin == null
+    || value.metadata.grounded_render !== false
+    || value.metadata.narrative_fallback !== false
     || !Array.isArray(value.grounded_claims)
     || value.grounded_claims.length === 0
     || !value.grounded_claims.every(isGroundedClaim)) return null;
+  if (!isRecord(value.next_chapter)
+    || !isMissionFamily(value.next_chapter.family)
+    || !isStringArray(value.next_chapter.invitation_player_ids)
+    || !isRecord(value.studio_trace)
+    || !isMissionSelection(value.studio_trace.mission_selection)) return null;
 
   return value as StudioPendingDeliveryV2;
 }
 
 export function parseInterpretDeliveryV2(value: unknown): InterpretDeliveryResultV2 | null {
   const parsed = parseStudioInterpretDeliveryV2(value);
-  if (parsed?.status === "pending_player_decision" && parsed.metadata.mode !== "live_ai") return null;
+  if (parsed?.status === "pending_player_decision"
+    && (parsed.metadata.mode !== "live_ai"
+      || parsed.metadata.grounded_render === true
+      || parsed.metadata.narrative_fallback === true
+      || parsed.metadata.content_origin !== "live_ai_validated")) return null;
   return parsed as InterpretDeliveryResultV2 | null;
 }
 
-export function projectPendingDeliveryForPlayer(delivery: PendingDeliveryV2): PlayerPendingDeliveryV2 {
-  return {
-    schema_version: delivery.schema_version,
-    request_id: delivery.request_id,
-    delivery_id: delivery.delivery_id,
-    status: delivery.status,
-    memory: delivery.memory,
-    player_perspectives: delivery.player_perspectives,
-    next_chapter: delivery.next_chapter,
-    metadata: {
-      provider: delivery.metadata.provider,
-      model: delivery.metadata.model,
-      mode: delivery.metadata.mode,
-      prompt_version: delivery.metadata.prompt_version,
-      grounded_render: delivery.metadata.grounded_render,
-    },
-  };
-}
-
-export function parsePlayerPendingDeliveryV2(value: unknown): PlayerPendingDeliveryV2 | null {
-  if (!isRecord(value)
-    || value.schema_version !== "2.0"
-    || typeof value.request_id !== "string"
-    || value.status !== "pending_player_decision"
-    || !hasPendingPlayerContent(value)
-    || !isRecord(value.metadata)
-    || value.metadata.mode !== "live_ai"
-    || typeof value.metadata.provider !== "string"
-    || typeof value.metadata.model !== "string"
-    || typeof value.metadata.prompt_version !== "string") return null;
-
-  const allowedTopLevelKeys = new Set([
-    "schema_version",
-    "request_id",
-    "delivery_id",
-    "status",
-    "memory",
-    "player_perspectives",
-    "next_chapter",
-    "metadata",
-  ]);
-  if (Object.keys(value).some((key) => !allowedTopLevelKeys.has(key))) return null;
-  return value as PlayerPendingDeliveryV2;
-}
-
-type PlayerVisibleDeliveryV2 = PendingDeliveryV2 | PlayerPendingDeliveryV2;
+type PlayerVisibleDeliveryV2 = PendingDeliveryV2;
 
 function validatePlayerVisibleBinding(
   delivery: PlayerVisibleDeliveryV2,
@@ -542,13 +598,6 @@ function validatePlayerVisibleBinding(
   }
 
   return { selectedMatch, eventIds, eligibleById, objectiveIds };
-}
-
-export function isPlayerDeliveryBoundToTelemetryV2(
-  delivery: PlayerPendingDeliveryV2,
-  telemetry: RawTelemetryBatchV2,
-) {
-  return Boolean(validatePlayerVisibleBinding(delivery, telemetry));
 }
 
 export function isDeliveryBoundToTelemetryV2(
@@ -608,17 +657,15 @@ export function eligibleDisplayPlayers(telemetry: RawTelemetryBatchV2) {
 }
 
 export function eligibleInvitationPlayers(telemetry: RawTelemetryBatchV2) {
-  const activePlayerIds = new Set(telemetry.current_context.active_player_ids);
   return telemetry.squad.players.filter((player) =>
     player.consent.memory_appearance
-    && player.consent.mission_invitation
-    && activePlayerIds.has(player.player_id));
+    && player.consent.mission_invitation);
 }
 
 export function consentSafeTelemetryView(telemetry: RawTelemetryBatchV2): RawTelemetryBatchV2 {
   const anonymousById = new Map(
     telemetry.squad.players.flatMap((player, index) =>
-      !player.consent.memory_appearance || !player.consent.identity_display
+      !player.consent.memory_appearance || !player.consent.identity_display || !player.display_name
         ? [[player.player_id, `anonymous:squadmate:${index + 1}`] as const]
         : [],
     ),
@@ -670,8 +717,4 @@ export function consentSafeTelemetryView(telemetry: RawTelemetryBatchV2): RawTel
       consented_player_ids: media.consented_player_ids.map((playerId) => safeId(playerId)!),
     })),
   };
-}
-
-export function findSelectedMatch(delivery: PlayerVisibleDeliveryV2, telemetry: RawTelemetryBatchV2) {
-  return telemetry.matches.find((match) => match.match_id === delivery.memory.selected_match_id);
 }

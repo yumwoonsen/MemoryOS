@@ -2,84 +2,82 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  areInviteesReady,
+  areInviteesJoined,
   buildInvitees,
   createContinuationChapter,
-  createSyntheticRematch,
-  evaluateRule,
-  verifyMission,
+  createPrototypeMatchOutcome,
 } from "../lib/reunion-flow-core.mjs";
 
-const objectives = [
-  {
-    objective_id: "squad",
-    description: "Complete a match with Lee and Mei.",
-    required: true,
-    verification: { metric: "squad.participant_ids", operator: "contains_all", target: ["lee", "mei"] },
-  },
-  {
-    objective_id: "match",
-    description: "Complete one match together.",
-    required: true,
-    verification: { metric: "squad.matches_completed", operator: "at_least", target: 1 },
-  },
-  {
-    objective_id: "revive",
-    description: "Complete one squad revive.",
-    required: true,
-    verification: { metric: "squad.revive_count", operator: "at_least", target: 1 },
-  },
+const roster = [
+  { recipient_ref: "recipient-1", display_name: "Lee", activity: "online", is_current_player: true },
+  { recipient_ref: "recipient-2", display_name: "Mei", activity: "online", is_current_player: false },
+  { recipient_ref: "recipient-3", display_name: "Amir", activity: "away", is_current_player: false },
+  { recipient_ref: "recipient-4", display_name: "Jo", activity: "away", is_current_player: false },
 ];
 
-test("builds invitation recipients only from privacy-safe perspectives", () => {
-  const invitees = buildInvitees([
-    { player_id: "lee", display_name: "Lee" },
-    { player_id: "mei", display_name: "Mei" },
-    { player_id: "mei", display_name: "Duplicate Mei" },
-    { player_id: "amir", display_name: "Inactive Amir" },
-  ], "lee", ["lee", "mei"]);
+const objectives = [
+  { objective_ref: "objective-1", description: "Bring the original squad back.", required: true },
+  { objective_ref: "objective-2", description: "Complete the selected Next Chapter.", required: true },
+];
 
-  assert.deepEqual(invitees, [
-    { player_id: "lee", display_name: "Lee", is_current_player: true },
-    { player_id: "mei", display_name: "Mei", is_current_player: false },
+test("keeps invitation eligibility separate from online activity", () => {
+  const invitees = buildInvitees([
+    ...roster,
+    { ...roster[1], display_name: "Duplicate Mei" },
   ]);
-  assert.equal(areInviteesReady(invitees, ["lee"]), false);
-  assert.equal(areInviteesReady(invitees, ["lee", "mei"]), true);
+
+  assert.equal(invitees.length, 4);
+  assert.deepEqual(invitees.map((invitee) => invitee.display_name), ["Lee", "Mei", "Amir", "Jo"]);
+  assert.deepEqual(invitees.filter((invitee) => invitee.activity === "away").map((invitee) => invitee.display_name), ["Amir", "Jo"]);
 });
 
-test("evaluates every supported mission rule deterministically", () => {
-  assert.equal(evaluateRule({ metric: "winner", operator: "equals", target: true }, { winner: true }), true);
-  assert.equal(evaluateRule({ metric: "revives", operator: "at_least", target: 2 }, { revives: 3 }), true);
-  assert.equal(evaluateRule(
-    { metric: "squad", operator: "contains_all", target: ["lee", "mei"] },
-    { squad: ["mei", "lee", "amir"] },
-  ), true);
-  assert.equal(evaluateRule({ metric: "revives", operator: "at_least", target: 2 }, { revives: 1 }), false);
+test("requires every invited recipient to join before the prototype game starts", () => {
+  const invitees = buildInvitees(roster);
+  const pending = invitees.map((invitee) => ({
+    recipient_ref: invitee.recipient_ref,
+    response: invitee.is_current_player ? "self_joined" : "pending",
+  }));
+  assert.equal(areInviteesJoined(invitees, pending), false);
+
+  const joined = pending.map((recipient) => ({
+    ...recipient,
+    response: recipient.response === "pending" ? "joined" : recipient.response,
+  }));
+  assert.equal(areInviteesJoined(invitees, joined), true);
 });
 
-test("unlocks Story Continues only after every required objective passes", () => {
-  const invitees = buildInvitees([
-    { player_id: "lee", display_name: "Lee" },
-    { player_id: "mei", display_name: "Mei" },
-  ], "lee", ["lee", "mei"]);
-  const matchResult = createSyntheticRematch(invitees);
-  const verified = verifyMission(objectives, matchResult);
+test("uses a scripted successful outcome with mission-family-specific copy", () => {
+  const invitees = buildInvitees(roster);
+  const expected = {
+    reunion: /full squad completed one match/i,
+    role_reversal: /Lee completed the squad's first revival/i,
+    redemption: /squad reached the top three/i,
+  };
 
-  assert.equal(verified.complete, true);
-  assert.equal(verified.required_passed, 3);
-  assert.match(
-    createContinuationChapter({ title: "Worst Plan, Best Night" }, { title: "Chapter II: Return the Favour" }, verified).summary,
-    /verified synthetic rematch/i,
+  for (const [family, pattern] of Object.entries(expected)) {
+    const familyObjectives = family === "role_reversal"
+      ? [{ ...objectives[0], assigned_recipient_ref: "recipient-1" }, objectives[1]]
+      : objectives;
+    const outcome = createPrototypeMatchOutcome(family, invitees, familyObjectives);
+    assert.equal(outcome.complete, true);
+    assert.equal(outcome.objective_results.length, 2);
+    assert.ok(outcome.objective_results.every((objective) => objective.completed));
+    assert.match(outcome.completion_copy, pattern);
+
+    const chapter = createContinuationChapter(
+      { title: "Worst Plan, Best Night" },
+      { title: "Chapter II: Return the Favour" },
+      outcome,
+    );
+    assert.ok(chapter);
+    assert.match(chapter.summary, /In this prototype/i);
+    assert.doesNotMatch(chapter.summary, /verified|live telemetry/i);
+  }
+
+  const joReversal = createPrototypeMatchOutcome(
+    "role_reversal",
+    invitees,
+    [{ ...objectives[0], assigned_recipient_ref: "recipient-4" }],
   );
-
-  const incomplete = verifyMission(objectives, {
-    ...matchResult,
-    metrics: { ...matchResult.metrics, "squad.revive_count": 0 },
-  });
-  assert.equal(incomplete.complete, false);
-  assert.equal(createContinuationChapter(
-    { title: "Worst Plan, Best Night" },
-    { title: "Chapter II: Return the Favour" },
-    incomplete,
-  ), null);
+  assert.match(joReversal.completion_copy, /Jo completed the squad's first revival/i);
 });

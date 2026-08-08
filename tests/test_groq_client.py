@@ -22,7 +22,11 @@ from backend.models.schemas import (
     PerspectiveSet,
     PipelineStatusV11,
 )
-from backend.models.v2_schemas import CompactMemoryProposalV2, MemoryProposalV2
+from backend.models.v2_schemas import (
+    CompactInterpretationDecisionV2,
+    CompactMemoryProposalV2,
+    MemoryProposalV2,
+)
 from backend.pipeline import MemoryPipeline
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "backend" / "data"
@@ -369,7 +373,7 @@ def test_v2_interpretation_uses_compact_bounded_chat_output_budget(
         stage="memory_interpretation",
     )
 
-    assert responses.calls[0]["max_completion_tokens"] == 2_000
+    assert responses.calls[0]["max_completion_tokens"] == 4_000
 
 
 @pytest.mark.parametrize(
@@ -436,7 +440,18 @@ def test_compact_ai_schema_omits_backend_authoritative_fields() -> None:
     }
     assert "CompactClaimV2" not in schema["$defs"]
     assert "GroundedClaim" not in schema["$defs"]
-    assert len(json.dumps(schema, separators=(",", ":")).encode("utf-8")) < 3_000
+    assert len(json.dumps(schema, separators=(",", ":")).encode("utf-8")) < 4_500
+
+
+def test_v2_1_decision_schema_requires_generate_or_abstain_payload() -> None:
+    schema = to_strict_json_schema(CompactInterpretationDecisionV2)
+
+    assert set(schema["properties"]) == {
+        "decision",
+        "abstention_reason_code",
+        "proposal",
+    }
+    assert set(schema["required"]) == set(schema["properties"])
 
 
 @pytest.mark.skipif(

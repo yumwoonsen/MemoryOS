@@ -9,22 +9,23 @@ from backend.models.schemas import MemoryType, QuestRecipe
 from backend.models.v2_schemas import (
     CanonicalEventType,
     ClaimPredicate,
+    CompactInterpretationDecisionV2,
     CompactMemoryProposalV2,
     CompactMissionChoiceV2,
+    CompactMissionObjectiveDraftV2,
     CompactPerspectiveV2,
     CompactSectionDraftV2,
     GroundedClaim,
+    InterpretationAbstentionReasonV2,
+    InterpretationDecisionKindV2,
     MemoryProposalV2,
-    MissionCapabilityCandidate,
+    MissionFamilyV2,
     ProposedMissionObjectiveV2,
     ProposedMissionV2,
     ProposedPerspectiveV2,
 )
 from backend.services.structured_generator import StructuredGenerator
-from backend.services.v2_preparation import (
-    PreparedInterpretationV2,
-    collective_event_includes_full_squad,
-)
+from backend.services.v2_preparation import PreparedInterpretationV2
 from backend.services.v2_proposal_expander import CompactProposalExpanderV2
 
 MAX_PROVIDER_PAYLOAD_BYTES = 96_000
@@ -60,7 +61,7 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
 
-    prompt_version = "memory-interpreter-v2.5-strict-section-repair"
+    prompt_version = "memory-interpreter-v2.6-mission-affordances"
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
@@ -93,8 +94,8 @@ class MemoryInterpreterV2:
         prepared: PreparedInterpretationV2,
         *,
         validation_feedback: list[dict[str, str]] | None = None,
-    ) -> MemoryProposalV2:
-        if prepared.normalized is None or prepared.ledger is None:
+    ) -> MemoryProposalV2 | InterpretationAbstentionReasonV2:
+        if prepared.normalized is None or prepared.ledger is None or prepared.story_brief is None:
             raise ValueError("prepared telemetry is required")
         if self._generator is None:
             return self._deterministic_demo(prepared)
@@ -106,12 +107,13 @@ class MemoryInterpreterV2:
             payload["correction"] = {
                 "validation_issues": validation_feedback,
                 "instruction": (
-                    "Return a complete corrected fixed-section draft and emit every schema "
-                    "field. Resolve each issue in its allowlisted section when supplied. This is "
-                    "a strict rewrite, not an edit: do not carry over any unsupported context "
-                    "from a prior draft. When text mentions a player, action, location, match "
-                    "value, category, or number, cite an exact supporting evidence ID or remove "
-                    "that wording."
+                    "Return one complete corrected CompactInterpretationDecisionV2 and emit "
+                    "every schema field. Resolve each issue in its allowlisted section when "
+                    "supplied. This is a strict rewrite, not an edit: do not carry over any "
+                    "unsupported context from a prior draft. Rank only offered affordances, put "
+                    "the selection first, use only its reason codes, and describe every compiled "
+                    "objective. When text mentions a player, action, location, match value, "
+                    "category, or number, cite exact support or remove that wording."
                 ),
                 "strict_section_rules": {
                     "story": (
@@ -126,9 +128,9 @@ class MemoryInterpreterV2:
                         "as before/after context."
                     ),
                     "mission": (
-                        "Use only the selected candidate's authoring_scope. Do not mention a past "
-                        "event, location, outcome, or player unless that candidate explicitly "
-                        "allows it."
+                        "Use only the selected affordance and its referenced objective candidates. "
+                        "Do not mention a past event, location, outcome, or player unless that "
+                        "affordance explicitly allows it."
                     ),
                 },
             }
@@ -137,138 +139,33 @@ class MemoryInterpreterV2:
         )
         if encoded_size > MAX_PROVIDER_PAYLOAD_BYTES:
             raise ProviderInputLimitError("sanitized provider payload exceeds its byte limit")
-        compact = self._generator.generate(
-            prompt_name="memory_interpreter_v2.txt",
+        decision = self._generator.generate(
+            prompt_name="memory_interpreter_v2_6.txt",
             payload=payload,
-            response_model=CompactMemoryProposalV2,
+            response_model=CompactInterpretationDecisionV2,
             stage=stage,
         )
-        compact = self._repair_unknown_window_id(prepared, compact)
-        return self._expander.expand(prepared, compact)
-
-    @staticmethod
-    def _repair_unknown_window_id(
-        prepared: PreparedInterpretationV2,
-        compact: CompactMemoryProposalV2,
-    ) -> CompactMemoryProposalV2:
-        """Recover only an invented dynamic window identifier when evidence is unambiguous.
-
-        A provider cannot express the runtime set of valid window IDs as a JSON-schema enum.
-        The selected window remains model-controlled when its ID is valid. If it invents an ID,
-        this repair is allowed only when the sanitized evidence resolves to exactly one offered
-        window (or there is exactly one offered window). It never changes player-facing prose,
-        evidence references, or the selected mission candidate; those still fail closed through
-        the expander and validator.
-        """
-
-        known_windows = {window.window_id for window in prepared.windows}
-        if compact.selected_window_id in known_windows:
-            return compact
-
-        referenced_event_ids = {
-            evidence_id
-            for section in (
-                compact.title,
-                compact.notification_teaser,
-                compact.summary,
-                compact.why_this_matters_now,
+        # Compatibility for test generators and v2.0 provider fixtures during migration.
+        if isinstance(decision, CompactMemoryProposalV2):
+            decision = CompactInterpretationDecisionV2(
+                decision=InterpretationDecisionKindV2.GENERATE,
+                abstention_reason_code=None,
+                proposal=decision,
             )
-            for evidence_id in section.evidence_ids
-        }
-        referenced_event_ids.update(
-            evidence_id
-            for perspective in compact.perspectives
-            for evidence_id in perspective.evidence_ids
-        )
-        candidates = [
-            window
-            for window in prepared.windows
-            if referenced_event_ids.intersection(window.event_ids)
-        ]
-        if len(candidates) != 1 and len(prepared.windows) == 1:
-            candidates = list(prepared.windows)
-        if len(candidates) != 1:
-            return compact
-        return compact.model_copy(update={"selected_window_id": candidates[0].window_id})
+        if decision.decision == InterpretationDecisionKindV2.ABSTAIN:
+            assert decision.abstention_reason_code is not None
+            return decision.abstention_reason_code
+        assert decision.proposal is not None
+        return self._expander.expand(prepared, decision.proposal)
 
     @staticmethod
     def _provider_payload(prepared: PreparedInterpretationV2) -> dict[str, Any]:
         assert prepared.normalized is not None
         assert prepared.ledger is not None
-        normalized_events = [
-            event for match in prepared.normalized.matches for event in match.events
-        ]
+        assert prepared.story_brief is not None
         return {
-            "contract": "CompactMemoryProposalV2",
-            "evidence_ledger": {
-                "target_player_id": prepared.ledger.target_player_id,
-                "players_requiring_perspectives": [
-                    {
-                        "player_id": player.player_id,
-                        "display_name": player.display_name,
-                        "direct_role_event_ids": [
-                            event.event_id
-                            for event in normalized_events
-                            if player.player_id in {event.actor_id, event.target_id}
-                        ],
-                        "full_squad_event_ids": [
-                            event.event_id
-                            for event in normalized_events
-                            if collective_event_includes_full_squad(
-                                event,
-                                prepared.normalized,
-                            )
-                        ],
-                    }
-                    for player in prepared.ledger.players
-                    if player.memory_eligible
-                ],
-                "facts": [
-                    fact.model_dump(
-                        mode="json",
-                        exclude_none=True,
-                        exclude_defaults=True,
-                    )
-                    for fact in prepared.ledger.facts
-                ],
-                "untrusted_human_context": prepared.ledger.human_context,
-            },
-            "squad_history": prepared.normalized.squad_history.model_dump(mode="json"),
-            "current_context": prepared.normalized.current_context.model_dump(mode="json"),
-            "eligible_event_windows": [
-                window.model_dump(mode="json") for window in prepared.windows
-            ],
-            "mission_candidates": [
-                {
-                    **candidate.model_dump(mode="json"),
-                    "authoring_scope": MemoryInterpreterV2._mission_authoring_scope(candidate),
-                }
-                for candidate in prepared.mission_candidates
-            ],
-        }
-
-    @staticmethod
-    def _mission_authoring_scope(
-        candidate: MissionCapabilityCandidate,
-    ) -> dict[str, object]:
-        metric = candidate.verification.metric
-        target = candidate.verification.target
-        if metric == "squad.participant_ids":
-            return {
-                "intent": "play_together",
-                "allowed_player_ids": target,
-                "allowed_count": None,
-            }
-        if metric == "squad.matches_completed":
-            return {
-                "intent": "complete_matches",
-                "allowed_player_ids": [],
-                "allowed_count": target,
-            }
-        return {
-            "intent": "perform_revives",
-            "allowed_player_ids": [],
-            "allowed_count": target,
+            "contract": "CompactInterpretationDecisionV2",
+            "story_brief": prepared.story_brief.model_dump(mode="json"),
         }
 
     def demo_compact_proposal(
@@ -278,7 +175,7 @@ class MemoryInterpreterV2:
         """Return a compact deterministic fixture for provider-boundary tests."""
 
         canonical = self._deterministic_demo(prepared)
-        objective = canonical.mission.objectives[0]
+        objectives = canonical.mission.objectives
         return CompactMemoryProposalV2(
             selected_window_id=canonical.selected_window_id,
             memory_type=canonical.memory_type,
@@ -304,24 +201,20 @@ class MemoryInterpreterV2:
                 for item in canonical.perspectives
             ],
             mission=CompactMissionChoiceV2(
-                candidate_id=objective.candidate_id,
+                ranked_affordance_ids=canonical.mission.ranked_affordance_ids,
+                selected_affordance_id=canonical.mission.affordance_id,
+                selection_reason_codes=canonical.mission.selection_reason_codes,
                 title=canonical.mission.title,
                 mission=canonical.mission.mission,
-                objective_description=objective.description,
+                objective_descriptions=[
+                    CompactMissionObjectiveDraftV2(
+                        candidate_id=objective.candidate_id,
+                        description=objective.description,
+                    )
+                    for objective in objectives
+                ],
             ),
         )
-
-    def grounded_evidence_render(
-        self,
-        prepared: PreparedInterpretationV2,
-    ) -> MemoryProposalV2:
-        """Render only verified evidence after live prose exhausts its repair budget.
-
-        This is deliberately separate from the live proposal path. Callers must label the result
-        as a deterministic evidence render; it is never presented as additional model prose.
-        """
-
-        return self._deterministic_demo(prepared)
 
     @classmethod
     def _compact_section(
@@ -355,8 +248,9 @@ class MemoryInterpreterV2:
         """A test/Studio demonstration, never a fallback for failed live AI."""
 
         assert prepared.normalized is not None
+        affordance_window_ids = {item.window_id for item in prepared.mission_affordances}
         window = max(
-            prepared.windows,
+            [item for item in prepared.windows if item.window_id in affordance_window_ids],
             key=lambda item: (len(item.event_ids), len(item.participant_ids), item.window_id),
         )
         matches = {match.match_id: match for match in prepared.normalized.matches}
@@ -498,24 +392,39 @@ class MemoryInterpreterV2:
                 )
             )
 
-        available_for_window = [
-            candidate
-            for candidate in prepared.mission_candidates
-            if candidate.window_id == window.window_id
+        available_affordances = [
+            affordance
+            for affordance in prepared.mission_affordances
+            if affordance.window_id == window.window_id
         ]
-        primary_recipe = available_for_window[0].recipe
+        family_priority = {
+            MissionFamilyV2.ROLE_REVERSAL: 0,
+            MissionFamilyV2.REDEMPTION: 1,
+            MissionFamilyV2.REUNION: 2,
+        }
+        selected_affordance = min(
+            available_affordances,
+            key=lambda item: (family_priority[item.family], item.affordance_id),
+        )
+        candidate_map = {
+            candidate.candidate_id: candidate for candidate in prepared.mission_candidates
+        }
         chosen = [
-            candidate for candidate in available_for_window if candidate.recipe == primary_recipe
-        ][:2]
+            candidate_map[candidate_id]
+            for candidate_id in selected_affordance.objective_candidate_ids
+        ]
         recipe = chosen[0].recipe if chosen else QuestRecipe.RECREATE
         objectives: list[ProposedMissionObjectiveV2] = []
         for candidate in chosen:
-            if candidate.candidate_id.startswith("return_with_squad:"):
+            if candidate.verification.metric == "squad.participant_ids":
                 description = "Play a new match with the invited squad members."
-            elif candidate.candidate_id.startswith("squad_revive:"):
-                description = "Complete at least one squad revive in the new match."
-            else:
+            elif candidate.verification.metric == "squad.matches_completed":
                 description = "Complete one new match together."
+            elif candidate.verification.metric == "match.first_squad_revive_actor_id":
+                assigned = people[str(candidate.verification.target)].display_name
+                description = f"Have {assigned} complete the squad's first revival."
+            else:
+                description = "Reach the top three in the new match."
             objectives.append(
                 ProposedMissionObjectiveV2(
                     candidate_id=candidate.candidate_id,
@@ -526,7 +435,7 @@ class MemoryInterpreterV2:
                 GroundedClaim(
                     claim_id=f"claim:objective:{candidate.candidate_id}",
                     output_section=f"objective:{candidate.candidate_id}",
-                    subject_id="squad",
+                    subject_id=candidate.assigned_player_id or "squad",
                     predicate=ClaimPredicate.MISSION_RULE,
                     supporting_mission_candidate_ids=[candidate.candidate_id],
                 )
@@ -548,6 +457,36 @@ class MemoryInterpreterV2:
             ),
             None,
         )
+        if selected_affordance.family == MissionFamilyV2.ROLE_REVERSAL:
+            assigned_id = str(
+                next(
+                    candidate.verification.target
+                    for candidate in chosen
+                    if candidate.verification.metric == "match.first_squad_revive_actor_id"
+                )
+            )
+            assigned_name = people[assigned_id].display_name
+            mission_title = "Return the Favour"
+            mission_text = (
+                "Play one new match with the invited squad and have "
+                f"{assigned_name} complete the squad's first revival."
+            )
+        elif selected_affordance.family == MissionFamilyV2.REDEMPTION:
+            mission_title = "Finish the Final Circle"
+            mission_text = (
+                "Play one new match with the invited squad and reach the top three together."
+            )
+        else:
+            mission_title = "Return Together"
+            mission_text = "Play one new match with the invited squad members."
+        ranked_affordance_ids = [
+            selected_affordance.affordance_id,
+            *sorted(
+                affordance.affordance_id
+                for affordance in prepared.mission_affordances
+                if affordance.affordance_id != selected_affordance.affordance_id
+            ),
+        ]
         return MemoryProposalV2(
             selected_match_id=window.match_id,
             selected_window_id=window.window_id,
@@ -560,8 +499,12 @@ class MemoryInterpreterV2:
             why_this_matters_now=why_now,
             perspectives=perspectives,
             mission=ProposedMissionV2(
-                title="Return Together",
-                mission="Queue for a new match with the invited squad members.",
+                affordance_id=selected_affordance.affordance_id,
+                family=selected_affordance.family,
+                ranked_affordance_ids=ranked_affordance_ids,
+                selection_reason_codes=[selected_affordance.allowed_reason_codes[0]],
+                title=mission_title,
+                mission=mission_text,
                 recipe=recipe,
                 objectives=objectives,
             ),

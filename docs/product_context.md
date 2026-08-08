@@ -12,17 +12,19 @@ memory as the reason to return and turns that episode into something new to play
 of reactivation is the squad, not only the individual account.
 
 The v2 product begins with sparse gameplay evidence rather than a pre-authored memory. AI provides
-the memory intelligence: it chooses one connected episode, finds a supported angle, and writes the
-memory, perspectives, and reunion mission. Deterministic code remains the safety referee for
-telemetry roles, consent, privacy, evidence claims, and mission feasibility.
+the memory intelligence: it chooses one connected episode, finds a supported angle, writes the
+memory and perspectives, and selects one feasible mission affordance. Deterministic code remains
+the safety referee for telemetry roles, consent, privacy, evidence claims, mission families,
+assignments, and feasibility.
 
 ## Core experience
 
 > Capture → Understand → Remember → Remix → Reunite → Continue
 
 The current prototype covers the center and continuation of that loop: interpret a telemetry-only
-batch, validate one generated memory, let the player accept or decline it, simulate a squad
-invitation and new match, verify the mission deterministically, and unlock “Story Continues.”
+batch, validate one generated memory, let the player accept or decline it, and demonstrate a
+clearly labelled scripted invitation, lobby, game, and successful continuation. It does not claim
+that this final sequence was verified against live Garena match telemetry.
 Historical browsing remains a separate read-only timeline rather than a second decision interface.
 
 ## Product guardrails
@@ -30,6 +32,8 @@ Historical browsing remains a separate read-only timeline rather than a second d
 - Authenticated upstream telemetry must establish source truth; the player judges relevance rather
   than auditing raw events.
 - AI chooses only among deterministic, consent-safe connected event windows.
+- The backend offers only reunion, role-reversal, and redemption missions supported by the current
+  evidence. AI may select one or abstain; it cannot invent a new mechanic.
 - Gameplay telemetry establishes facts, not feelings.
 - Player-authored context may express meaning but cannot rewrite match facts.
 - A weak candidate is skipped instead of decorated with generic nostalgia.
@@ -38,8 +42,10 @@ Historical browsing remains a separate read-only timeline rather than a second d
 - “Best friend,” intent, and emotional-state claims require evidence the current schema does not
   provide. The prototype rejects known lexical patterns and keeps interpretation reviewable; this
   heuristic is a guardrail, not complete semantic proof.
-- Mission success is not required for a meaningful reunion; future chapters should preserve wins
-  and failures honestly.
+- Current activity does not remove invitation consent. Inactive original squadmates may receive the
+  simulated invitation and become Joined without rewriting the activity snapshot.
+- The current successful game outcome is a static prototype boundary. A production continuation
+  must preserve real wins and failures from authenticated post-match telemetry.
 
 ## Golden path
 

@@ -10,43 +10,50 @@ import {
 
 import type { PendingDelivery } from "@/lib/delivery-flow";
 import type { DeliveryDeclineReason } from "@/lib/delivery-flow";
-import type { ContinuationChapter, MissionVerification } from "@/lib/reunion-flow";
+import type {
+  ContinuationChapter,
+  InvitationResponse,
+  PrototypeMatchOutcome,
+} from "@/lib/reunion-flow";
 
 export type ChapterFeedback = "hidden";
 
 export type ContinuationState = {
-  verification: MissionVerification;
+  outcome: PrototypeMatchOutcome;
   chapter: ContinuationChapter;
   feedback: ChapterFeedback | null;
 };
 
+export type InvitationSession = {
+  state: "sent" | "lobby_ready" | "match_started" | "completed";
+  recipients: InvitationResponse[];
+};
+
 export type PlayerFlowState = {
   delivery: PendingDelivery | null;
-  currentPlayerId: string | null;
-  invitationPlayerIds: string[];
   missionAccepted: boolean;
   declineReason: DeliveryDeclineReason | null;
-  invitationReadyIds: string[] | null;
+  invitationSession: InvitationSession | null;
   continuation: ContinuationState | null;
 };
 
 type PlayerFlowContextValue = {
   flow: PlayerFlowState;
-  setPreparedDelivery: (delivery: PendingDelivery, currentPlayerId: string, invitationPlayerIds: string[]) => void;
-  acceptMission: (delivery: PendingDelivery, currentPlayerId: string, invitationPlayerIds: string[]) => void;
+  setPreparedDelivery: (delivery: PendingDelivery) => void;
+  acceptMission: (delivery: PendingDelivery) => void;
   declineMission: (reason: DeliveryDeclineReason) => void;
-  setInvitationReadyIds: (playerIds: string[]) => void;
-  completeMission: (verification: MissionVerification, chapter: ContinuationChapter) => void;
+  openInvitation: () => void;
+  acceptAllInvitees: () => void;
+  startPrototypeMatch: () => void;
+  completeMission: (outcome: PrototypeMatchOutcome, chapter: ContinuationChapter) => void;
   setChapterFeedback: (feedback: ChapterFeedback) => void;
 };
 
 const emptyFlow: PlayerFlowState = {
   delivery: null,
-  currentPlayerId: null,
-  invitationPlayerIds: [],
   missionAccepted: false,
   declineReason: null,
-  invitationReadyIds: null,
+  invitationSession: null,
   continuation: null,
 };
 
@@ -55,35 +62,23 @@ const PlayerFlowContext = createContext<PlayerFlowContextValue | null>(null);
 export function PlayerFlowProvider({ children }: { children: React.ReactNode }) {
   const [flow, setFlow] = useState<PlayerFlowState>(emptyFlow);
 
-  const setPreparedDelivery = useCallback((
-    delivery: PendingDelivery,
-    currentPlayerId: string,
-    invitationPlayerIds: string[],
-  ) => {
+  const setPreparedDelivery = useCallback((delivery: PendingDelivery) => {
     setFlow({
       delivery,
-      currentPlayerId,
-      invitationPlayerIds: [...new Set(invitationPlayerIds)],
       missionAccepted: false,
       declineReason: null,
-      invitationReadyIds: null,
+      invitationSession: null,
       continuation: null,
     });
   }, []);
 
-  const acceptMission = useCallback((
-    delivery: PendingDelivery,
-    currentPlayerId: string,
-    invitationPlayerIds: string[],
-  ) => {
+  const acceptMission = useCallback((delivery: PendingDelivery) => {
     setFlow((current) => ({
       delivery,
-      currentPlayerId,
-      invitationPlayerIds: [...new Set(invitationPlayerIds)],
       missionAccepted: true,
       declineReason: null,
-      invitationReadyIds: current.delivery?.delivery_id === delivery.delivery_id
-        ? current.invitationReadyIds
+      invitationSession: current.delivery?.delivery_id === delivery.delivery_id
+        ? current.invitationSession
         : null,
       continuation: current.delivery?.delivery_id === delivery.delivery_id
         ? current.continuation
@@ -97,22 +92,62 @@ export function PlayerFlowProvider({ children }: { children: React.ReactNode }) 
           ...current,
           missionAccepted: false,
           declineReason: reason,
-          invitationPlayerIds: [],
-          invitationReadyIds: null,
+          invitationSession: null,
           continuation: null,
         }
       : current);
   }, []);
 
-  const setInvitationReadyIds = useCallback((playerIds: string[]) => {
-    setFlow((current) => current.missionAccepted
-      ? { ...current, invitationReadyIds: [...new Set(playerIds)] }
+  const openInvitation = useCallback(() => {
+    setFlow((current) => {
+      if (!current.missionAccepted || !current.delivery) return current;
+      const recipients: InvitationResponse[] = current.delivery.invitation_roster.map((recipient) => ({
+        recipient_ref: recipient.recipient_ref,
+        response: recipient.is_current_player ? "self_joined" : "pending",
+      }));
+      return {
+        ...current,
+        invitationSession: {
+          state: recipients.every((recipient) => recipient.response !== "pending") ? "lobby_ready" : "sent",
+          recipients,
+        },
+      };
+    });
+  }, []);
+
+  const acceptAllInvitees = useCallback(() => {
+    setFlow((current) => current.invitationSession?.state === "sent"
+      ? {
+          ...current,
+          invitationSession: {
+            state: "lobby_ready",
+            recipients: current.invitationSession.recipients.map((recipient) => ({
+              ...recipient,
+              response: recipient.response === "pending" ? "joined" : recipient.response,
+            })),
+          },
+        }
       : current);
   }, []);
 
-  const completeMission = useCallback((verification: MissionVerification, chapter: ContinuationChapter) => {
+  const startPrototypeMatch = useCallback(() => {
+    setFlow((current) => current.invitationSession?.state === "lobby_ready"
+      ? {
+          ...current,
+          invitationSession: { ...current.invitationSession, state: "match_started" },
+        }
+      : current);
+  }, []);
+
+  const completeMission = useCallback((outcome: PrototypeMatchOutcome, chapter: ContinuationChapter) => {
     setFlow((current) => current.missionAccepted
-      ? { ...current, continuation: { verification, chapter, feedback: null } }
+      ? {
+          ...current,
+          invitationSession: current.invitationSession
+            ? { ...current.invitationSession, state: "completed" }
+            : current.invitationSession,
+          continuation: { outcome, chapter, feedback: null },
+        }
       : current);
   }, []);
 
@@ -127,17 +162,21 @@ export function PlayerFlowProvider({ children }: { children: React.ReactNode }) 
     setPreparedDelivery,
     acceptMission,
     declineMission,
-    setInvitationReadyIds,
+    openInvitation,
+    acceptAllInvitees,
+    startPrototypeMatch,
     completeMission,
     setChapterFeedback,
   }), [
     acceptMission,
+    acceptAllInvitees,
     completeMission,
     declineMission,
     flow,
+    openInvitation,
     setChapterFeedback,
-    setInvitationReadyIds,
     setPreparedDelivery,
+    startPrototypeMatch,
   ]);
 
   return <PlayerFlowContext.Provider value={value}>{children}</PlayerFlowContext.Provider>;

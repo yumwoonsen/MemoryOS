@@ -365,6 +365,18 @@
       "DeliveryNextChapterV2": {
         "additionalProperties": false,
         "properties": {
+          "family": {
+            "$ref": "#/components/schemas/MissionFamilyV2"
+          },
+          "invitation_player_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 2,
+            "title": "Invitation Player Ids",
+            "type": "array"
+          },
           "mission": {
             "title": "Mission",
             "type": "string"
@@ -385,6 +397,8 @@
           }
         },
         "required": [
+          "family",
+          "invitation_player_ids",
           "title",
           "mission",
           "recipe",
@@ -1241,8 +1255,8 @@
             "type": "string"
           },
           "schema_version": {
-            "const": "2.0",
-            "default": "2.0",
+            "const": "2.1",
+            "default": "2.1",
             "title": "Schema Version",
             "type": "string"
           },
@@ -1268,6 +1282,7 @@
       "InterpretDeliveryStatusV2": {
         "enum": [
           "pending_player_decision",
+          "not_generated",
           "rejected"
         ],
         "title": "InterpretDeliveryStatusV2",
@@ -2043,6 +2058,109 @@
         "title": "MemoryType",
         "type": "string"
       },
+      "MissionAffordanceV2": {
+        "additionalProperties": false,
+        "description": "One complete, backend-feasible continuation offered to the interpreter.",
+        "properties": {
+          "affordance_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Affordance Id",
+            "type": "string"
+          },
+          "allowed_reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/MissionSelectionReasonCodeV2"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Allowed Reason Codes",
+            "type": "array"
+          },
+          "family": {
+            "$ref": "#/components/schemas/MissionFamilyV2"
+          },
+          "objective_candidate_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Objective Candidate Ids",
+            "type": "array"
+          },
+          "parameters": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "maxProperties": 12,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "source_context_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Source Context Ids",
+            "type": "array"
+          },
+          "source_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Source Event Ids",
+            "type": "array"
+          },
+          "source_match_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Source Match Ids",
+            "type": "array"
+          },
+          "window_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Window Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "affordance_id",
+          "family",
+          "window_id",
+          "source_event_ids",
+          "source_match_ids",
+          "objective_candidate_ids",
+          "allowed_reason_codes"
+        ],
+        "title": "MissionAffordanceV2",
+        "type": "object"
+      },
       "MissionCapabilityCandidate": {
         "additionalProperties": false,
         "properties": {
@@ -2089,6 +2207,67 @@
           "verification"
         ],
         "title": "MissionCapabilityCandidate",
+        "type": "object"
+      },
+      "MissionFamilyV2": {
+        "enum": [
+          "reunion",
+          "role_reversal",
+          "redemption"
+        ],
+        "title": "MissionFamilyV2",
+        "type": "string"
+      },
+      "MissionSelectionReasonCodeV2": {
+        "enum": [
+          "shared_squad_reunion",
+          "directly_inverts_original_roles",
+          "player_specific",
+          "repeated_near_miss",
+          "measurable_improvement",
+          "deterministically_verifiable"
+        ],
+        "title": "MissionSelectionReasonCodeV2",
+        "type": "string"
+      },
+      "MissionSelectionV2": {
+        "additionalProperties": false,
+        "properties": {
+          "ranked_affordance_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Ranked Affordance Ids",
+            "type": "array"
+          },
+          "reason_codes": {
+            "items": {
+              "$ref": "#/components/schemas/MissionSelectionReasonCodeV2"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "selected_affordance_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Selected Affordance Id",
+            "type": "string"
+          },
+          "selected_family": {
+            "$ref": "#/components/schemas/MissionFamilyV2"
+          }
+        },
+        "required": [
+          "ranked_affordance_ids",
+          "selected_affordance_id",
+          "selected_family",
+          "reason_codes"
+        ],
+        "title": "MissionSelectionV2",
         "type": "object"
       },
       "NextChapter": {
@@ -2583,8 +2762,11 @@
             "type": "string"
           },
           "schema_version": {
-            "const": "2.0",
             "default": "2.0",
+            "enum": [
+              "2.0",
+              "2.1"
+            ],
             "title": "Schema Version",
             "type": "string"
           },
@@ -3148,6 +3330,13 @@
       "StudioInterpretationTraceV2": {
         "additionalProperties": false,
         "properties": {
+          "active_player_count": {
+            "default": 0,
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Active Player Count",
+            "type": "integer"
+          },
           "claim_mappings": {
             "items": {
               "$ref": "#/components/schemas/StudioClaimTraceV2"
@@ -3167,12 +3356,36 @@
             "title": "Eligible Windows",
             "type": "array"
           },
+          "invitation_eligible_count": {
+            "default": 0,
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Invitation Eligible Count",
+            "type": "integer"
+          },
+          "mission_affordances": {
+            "items": {
+              "$ref": "#/components/schemas/MissionAffordanceV2"
+            },
+            "title": "Mission Affordances",
+            "type": "array"
+          },
           "mission_candidates": {
             "items": {
               "$ref": "#/components/schemas/MissionCapabilityCandidate"
             },
             "title": "Mission Candidates",
             "type": "array"
+          },
+          "mission_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissionSelectionV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "normalized_event_count": {
             "minimum": 0.0,

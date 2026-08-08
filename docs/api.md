@@ -9,9 +9,11 @@ v1.1 sections describe the runnable compatibility API.
 The implemented consumer API is additive:
 
 - `POST /v2/memories/interpret-delivery` ingests raw telemetry and returns either one fully
-  validated delivery or a fail-closed result with no generated artifacts.
+  validated V2.1 delivery, a typed V2.1 abstention, or a fail-closed result with no generated artifacts.
 - `POST /v2/deliveries/{delivery_id}/decision` records one prototype accept/decline decision and
   suppresses the exact delivery when declined.
+- `GET /v2/deliveries/{delivery_id}/trace` returns the sanitized Studio trace for a process-local
+  delivery.
 
 Their Pydantic models, normalizer, validators, OpenAPI snapshot, and integration tests are
 implemented. They remain prototype routes without player authentication or durable storage.
@@ -22,6 +24,10 @@ Existing `/v1/memories/discover-history`, `/generate`, `/prepare-delivery`, and
 
 The request contains raw telemetry and limited context, never a pre-authored memory. This shortened
 example illustrates the boundary; use OpenAPI for the complete generated schema:
+
+`RawTelemetryBatchV2.schema_version` accepts both `"2.0"` and `"2.1"`. Successful typed responses,
+including abstention and rejection, always use `InterpretDeliveryResultV2.schema_version: "2.1"`.
+The request below intentionally uses `2.0` to show that compatibility boundary.
 
 ```json
 {
@@ -116,21 +122,39 @@ for every submitted match. A production adapter must split batches when the rost
 an authenticated per-match roster field in a later contract) rather than infer participation from
 an unrelated event.
 
-### Internal compact draft and enrichment boundary
+### Internal compact decision and enrichment boundary
 
-The public request and response above do not expose the provider's internal draft schema. For one
-eligible request, AI returns a compact typed draft that:
+The public request and response do not expose the provider's internal schema. Deterministic
+preparation builds a consent-safe `StoryBriefV2` with no more than four narratively neutral
+`eligible_event_windows`, plus runtime `mission_affordances`. The current affordance catalogue has
+exactly three families: `reunion`, `role_reversal`, and `redemption`; only families supported by
+the submitted evidence and current feasibility are offered.
 
-- selects exactly one offered window;
-- authors the title, teaser, summary, current-relevance explanation, player perspectives, mission
-  title/text, and one objective description; and
-- attaches bounded fact references and mission-capability references to those authored sections.
+Each `MissionAffordanceV2` carries backend-owned `affordance_id`, `family`, `window_id`,
+`source_event_ids`, `source_match_ids`, `source_context_ids`, `parameters`,
+`objective_candidate_ids`, and `allowed_reason_codes`. The corresponding
+`MissionCapabilityCandidate` records own `recipe`, `assigned_player_id`, `source_event_ids`, and
+`verification` (`metric`, `operator`, and `target`).
 
-The draft does not author authoritative match or event ID lists, complete `GroundedClaim` objects,
-media mappings, mission recipe, objective IDs, assignments, required flags, source event IDs,
-verification rules, the consent-safe roster, a delivery ID/status, or Studio trace records. The
-backend resolves the selected window and compact references against the prepared evidence ledger and
-mission catalogue. A literal player name, canonical action, location, or selected-match value may
+For one eligible request, AI returns `CompactInterpretationDecisionV2` as exactly one of:
+
+- `decision: "abstain"`, `abstention_reason_code: "no_meaningful_episode"`, and `proposal: null`; or
+- `decision: "generate"`, a null abstention reason, and one compact proposal that:
+  - selects exactly one offered window;
+  - puts every offered ID exactly once in `ranked_affordance_ids` and places
+    `selected_affordance_id` first;
+  - supplies only the selected affordance's allowlisted `selection_reason_codes`;
+  - authors the title, teaser, summary, current-relevance explanation, player perspectives, mission
+    title/text, and an `objective_descriptions` entry for every objective candidate of the selected
+    affordance; and
+  - attaches bounded evidence and capability references to those authored sections.
+
+The generated compact proposal does not author authoritative match or event ID lists, complete `GroundedClaim` objects,
+media mappings, mission recipe, objective IDs, assignments, required flags, verification metrics,
+operators, targets, source event/match/context references, the consent-safe roster, a delivery
+ID/status, or Studio trace records. The backend resolves the selected window, selected affordance,
+and compact references against the prepared evidence ledger and affordance catalogue. A literal
+player name, canonical action, location, or selected-match value may
 add conservative candidate evidence from the selected window when a reference was omitted. This is
 not a unique semantic mapping and does not infer emotion, meaning, or causality; the expanded claims
 and prose still have to pass the full role-tuple, value, privacy, and grounding validators. Event
@@ -138,27 +162,28 @@ categorical and ordinary numeric detail claims require lexical detection of a ty
 associated field/action cue. Survival wording may use positive squad-alive telemetry without
 restating its numeric count. Lexically selected candidate events replace redundant broad
 citations; when no event evidence is inferred, at most one explicitly cited event is retained as a
-fallback for that section. The backend derives
+default citation for that section. The backend derives
 the authoritative proposal fields and controls, validates the complete
 proposal, and only then creates the delivery ID/status, safe Studio trace, and public result.
 
 This is an internal structured-output simplification only. The public
 `InterpretDeliveryResultV2` remains the fully enriched delivery shown below, so clients do not
-consume the compact draft. Removing duplicated IDs and backend-owned controls from model output is
+consume the compact decision or proposal. Removing duplicated IDs and backend-owned controls from model output is
 expected to reduce malformed and contradictory structured responses; it does not reduce grounding,
 privacy, or mission checks because deterministic code reconstructs and validates the complete
 control plane. Player, action, and target terms are checked as one supported role tuple; merely
 citing separate events that contain each word is insufficient. That expected reliability benefit
-is not inferred from schema size alone. The automated suites and one telemetry-only Groq
-`openai/gpt-oss-120b` request passed on 8 August 2026 with no correction and a fully validated
-pending delivery; broader model and prompt sampling remains an evaluation task.
+is not inferred from schema size alone. Automated suites cover the current contract. A historical
+telemetry-only Groq 120B request passed on 8 August 2026 with the older V2.4 prompt, but it is not
+evidence for the active `memory-interpreter-v2.6-mission-affordances` prompt. Current live
+reliability remains an evaluation task.
 
 A successful response has `status: "pending_player_decision"` and only validated delivery fields.
 This abridged example omits additional required section claims and trace details:
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "request_id": "request-17",
   "delivery_id": "delivery-opaque-id",
   "status": "pending_player_decision",
@@ -176,7 +201,7 @@ This abridged example omits additional required section claims and trace details
     {
       "player_id": "player-lee",
       "display_name": "Lee",
-      "message": "Mei brought you back into the match.",
+      "message": "You were revived at Clock Tower.",
       "evidence_event_ids": ["event-17"]
     },
     {
@@ -188,15 +213,44 @@ This abridged example omits additional required section claims and trace details
   ],
   "next_chapter": {
     "title": "Return the Favour",
-    "mission": "Bring the squad back for one verifiable match.",
+    "mission": "Bring the squad back, complete one match, and let Lee make the first squad revive.",
     "recipe": "remix",
+    "family": "role_reversal",
+    "invitation_player_ids": ["player-lee", "player-mei"],
     "objectives": [
       {
-        "objective_id": "squad_revive:window_match-001_1",
-        "description": "Complete one squad revive.",
+        "objective_id": "objective:role_reversal:participants:window_match-001_1:1",
+        "description": "Bring both invitation-ready squadmates into one lobby.",
         "required": true,
         "source_event_ids": ["event-16", "event-17"],
-        "verification": {"metric": "squad.revive_count", "operator": "at_least", "target": 1}
+        "verification": {
+          "metric": "squad.participant_ids",
+          "operator": "contains_all",
+          "target": ["player-lee", "player-mei"]
+        }
+      },
+      {
+        "objective_id": "objective:role_reversal:match:window_match-001_1:1",
+        "description": "Complete one match together.",
+        "required": true,
+        "source_event_ids": ["event-16", "event-17"],
+        "verification": {
+          "metric": "squad.matches_completed",
+          "operator": "at_least",
+          "target": 1
+        }
+      },
+      {
+        "objective_id": "objective:role_reversal:first_revive:window_match-001_1:1",
+        "description": "Lee makes the squad's first revive.",
+        "assigned_player_id": "player-lee",
+        "required": true,
+        "source_event_ids": ["event-17"],
+        "verification": {
+          "metric": "match.first_squad_revive_actor_id",
+          "operator": "equals",
+          "target": "player-lee"
+        }
       }
     ]
   },
@@ -215,11 +269,29 @@ This abridged example omits additional required section claims and trace details
   "studio_trace": {"trace_id": "trace-redacted", "stages": []},
   "metadata": {
     "provider": "groq",
-    "model": "openai/gpt-oss-20b",
+    "model": "configured-live-model",
     "mode": "live_ai",
-    "prompt_version": "memory-interpreter-v2.4-grounded-controls",
+    "prompt_version": "memory-interpreter-v2.6-mission-affordances",
+    "content_origin": "live_ai_validated",
+    "grounded_render": false,
     "narrative_fallback": false
   }
+}
+```
+
+An abridged accepted AI abstention returns no delivery artifacts:
+
+```json
+{
+  "schema_version": "2.1",
+  "request_id": "request-17",
+  "status": "not_generated",
+  "reason_codes": ["ai_no_meaningful_episode"],
+  "player_perspectives": [],
+  "grounded_claims": [],
+  "validation": {"passed": true, "correction_attempted": false, "issues": []},
+  "studio_trace": {"trace_id": "trace-redacted", "stages": []},
+  "metadata": {"content_origin": "no_player_content"}
 }
 ```
 
@@ -227,16 +299,15 @@ Every factual clause or constrained factual field must have a complete backend-d
 public schema. The provider must return every consent-safe eligible perspective ID exactly once;
 the backend orders those supplied perspectives by the trusted roster and validates the exact set. It
 does not restore or synthesize a missing perspective.
-The reunion mission may contain AI-authored descriptions, but media selection, recipe, objective
-IDs, player assignments, required flags, source event IDs, and machine-verification rules are
-deterministic controls. The compact draft selects exactly one offered mission candidate and authors
-exactly one objective description. Each offered candidate includes a deterministic
-`authoring_scope` that limits mission prose to its intent, allowed player IDs, and allowed count.
-Conservative lexical validation rejects tested conflicting metric actions, operators,
-metric-associated counts, player names, and known unoffered gameplay condition terms. Counts
-attached to participants or other nouns are evaluated in their own context rather than compared
-with the mission target. Both the mission and objective must state the selected deterministic rule.
-This is not a universal semantic proof for arbitrary mission prose.
+The selected **Next Chapter** may contain AI-authored descriptions, but its `family`, recipe,
+objective IDs, player assignments, required flags, verification metrics/operators/targets, and
+source event/match/context references are backend controls. The compact proposal ranks only the
+runtime affordances, selects exactly one, uses only that affordance's allowed reason codes, and
+authors a description for every compiled objective. Conservative lexical validation rejects tested
+conflicting metric actions, operators, metric-associated counts, player names, and known unoffered
+gameplay condition terms. Counts attached to participants or other nouns are evaluated in context
+rather than compared with the wrong target. Mission and objective wording must express the selected
+backend requirements. This is not a universal semantic proof for arbitrary mission prose.
 
 Every normalized event fact declares `event_scope` as `player`, `squad`, or `match`. A player-scoped
 event keeps its actor/target semantics; squad- and match-scoped facts are collective rather than an
@@ -255,14 +326,19 @@ recent rematch count, active players, available modes, and reunion eligibility. 
 rejected before provider use. Delivered memory types are checked against episode/history evidence,
 and unsupported observation language is withheld.
 
+`active_player_ids` never gates invitation eligibility. A consented player with
+`memory_appearance: true` and `mission_invitation: true` remains invitation-ready while inactive;
+the player UI may label that recipient `away`. `online` and `away` are presentation states only.
+
 Media mapped to a collective or match-scoped event requires media consent from the complete
 submitted roster; sparse actor/target fields are not treated as proof that nobody else appears.
 
-Provider failure, refusal, or malformed structured output returns a safe HTTP `503`. Eligibility or
-proposal-validation failure returns `rejected` with no memory, perspectives, mission, claims, or
-media selection. One bounded correction call may receive stable issue codes and allowlisted section
-IDs, never rejected generated prose or validator messages. If it also fails, the result
-remains closed. Rejected proposal prose must not be returned to the player or Developer Studio.
+Provider transport failure, timeout, or refusal returns a safe HTTP `503`. A repairable malformed
+schema, expansion error, or validation failure may receive exactly one correction call containing
+stable issue codes and allowlisted section IDs, never rejected generated prose or free-form
+validator messages. A terminal correction failure fails closed. Eligibility or terminal proposal
+validation failure returns `rejected` with no memory, perspectives, mission, claims, or media
+selection. Rejected proposal prose must not be returned to the player or Developer Studio.
 
 Groq GPT-OSS is the preferred live v2 provider. Deterministic mode remains available for tests and
 explicitly labelled offline Studio demonstrations; deterministic narrative must never be labelled as
@@ -292,6 +368,12 @@ The current prototype decision store is process-local and unauthenticated. Durab
 idempotency, player binding, retention, deletion, and operations access remain deferred until
 consent and privacy decisions are approved.
 
+After acceptance, the current browser demo follows a scripted sequence: invitations are shown,
+the invitation-ready squad joins, the game starts, the game ends, and the selected mission is
+marked complete. That sequence does not call a new-match ingestion endpoint and does not verify
+objective metrics against real telemetry. Real notifications/invitations, post-match ingestion,
+and objective verification are deferred with authentication and durable persistence.
+
 ## V2 media and Studio boundary
 
 Media is reference-only. The backend may attach a `media_id` only when every event represented by
@@ -303,10 +385,14 @@ uses curated synthetic clips, thumbnails, or keyframes and makes no automated vi
 claim.
 
 Developer Studio may show synthetic raw telemetry, normalization results, eligibility and consent
-outcomes, offered window IDs, validated evidence links, provider/model/prompt version, safe usage
-metrics, validator issue codes, final delivery status, and structured feedback. It never shows raw
-prompts, the raw compact provider draft, chain-of-thought, API keys, opted-out identities, provider
-exception text, or rejected and unvalidated proposal prose.
+outcomes, neutral offered windows, sanitized dynamic `mission_affordances`, ranked and selected
+affordance/family IDs under `mission_selection` (`ranked_affordance_ids`,
+`selected_affordance_id`, `selected_family`, and `reason_codes`), backend-owned objective controls,
+`active_player_count` versus `invitation_eligible_count`, correction/validation state, typed
+abstention, provider/model/prompt version, safe usage metrics, and structured feedback. It never
+shows raw prompts, the raw compact provider draft, chain-of-thought, API keys, opted-out identities,
+provider exception text, or rejected and unvalidated proposal prose. A deterministic result is a
+clearly labelled `deterministic_studio_sample` for Studio/tests, never a player-facing live fallback.
 
 ## Current v1.0/v1.1 compatibility API
 
@@ -584,6 +670,9 @@ The deterministic provider is appropriate for repeatable tests and offline Studi
 player route requires an explicitly configured Groq or OpenAI provider and fails closed; it never
 silently uses deterministic narrative when a live provider is unavailable.
 
+The active v2 prompt contract is `memory-interpreter-v2.6-mission-affordances`. Any V2.4/120B smoke
+record is historical only and cannot be cited as validation of this prompt.
+
 The default needs no credentials:
 
 ```dotenv
@@ -632,8 +721,8 @@ Keep this value in server environment variables only—never bundle it into brow
 Local development remains unchanged while the variable is unset.
 
 Each current v1.1 model request uses low reasoning effort, a 30-second timeout, at most two SDK
-retries, and a 2,000-token output ceiling. For v2 compact interpretation, Groq uses a 2,000-token
-ceiling and OpenAI uses a 4,000-token ceiling; either provider fails closed rather than returning a
+retries, and a 2,000-token output ceiling. For v2 compact interpretation, both Groq and OpenAI use
+a 4,000-token ceiling; either provider fails closed rather than returning a
 partial delivery. OpenAI responses use `store=False`; Groq requests omit the unsupported `store`
 field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
@@ -659,9 +748,19 @@ meaning for schema version, consent, and `ready`.
 The canonical `/` player route uses same-origin `/api/delivery/prepare` and
 `/api/delivery/decision` proxies for `POST /v2/memories/interpret-delivery` and
 `POST /v2/deliveries/{delivery_id}/decision`. The prepare route supplies the server-held synthetic
-raw telemetry fixture and accepts only fully validated live-AI delivery output. The decision route
+raw telemetry fixture and accepts only fully validated live-AI delivery output or the minimal typed
+`not_generated` projection. The decision route
 accepts `accepted` or `declined`; a decline must be either `not_relevant` or `details_wrong`.
 Decisions are process-local prototype data only.
+
+The authoritative `InterpretDeliveryResultV2` remains server-side. The browser receives
+`PlayerPendingDeliveryProjectionV2`, which contains display-safe memory text, source display data,
+verified-moment labels, only the current player's perspective, one selected `next_chapter`, and an
+invitation roster. Raw player IDs and objective IDs are replaced with request-scoped
+`recipient_ref` and `objective_ref` values. The projection deliberately omits raw event IDs,
+`grounded_claims`, backend verification rules, metric/operator/target controls, source references,
+and `studio_trace`. A browser abstention is the smaller `PlayerNotGeneratedV2` shape with singular
+`reason_code: "ai_no_meaningful_episode"`.
 
 `/history` is a separate read-only view. It does not prepare a delivery, collect review decisions,
 or record accept/decline feedback. The older `/api/discover`, `/api/history`, and `/api/generate`

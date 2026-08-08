@@ -34,7 +34,7 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
   const announcement = flow.continuation
     ? (visibleContinuation
         ? "The latest completed chapter is in your squad history."
-        : "The completed chapter is hidden without disputing its match result.")
+        : "The completed chapter is hidden without disputing the original memory.")
     : "Squad history shows privacy-safe retained memories only.";
 
   return (
@@ -77,9 +77,9 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
           </ol>
 
           {flow.continuation?.feedback === "hidden" ? (
-            <p className="history-session-note">The completed sequel is hidden from this timeline. Its verified match result was not disputed.</p>
+            <p className="history-session-note">The completed sequel is hidden from this timeline. The original memory was not disputed.</p>
           ) : visibleContinuation ? (
-            <p className="history-session-note">{visibleContinuation.verification.required_passed}/{visibleContinuation.verification.required_total} required objectives verified in the labelled synthetic rematch.</p>
+            <p className="history-session-note">{visibleContinuation.outcome.objective_results.length} prototype objective{visibleContinuation.outcome.objective_results.length === 1 ? "" : "s"} completed in the scripted match simulation.</p>
           ) : (
             <Link className="reveal-memory-button history-home-action" href="/mission">Continue reunion mission</Link>
           )}

@@ -60,7 +60,14 @@ ACTION_WORDS: dict[ClaimPredicate, tuple[str, ...]] = {
         "killing",
     ),
     ClaimPredicate.WAS_ELIMINATED: ("was eliminated",),
-    ClaimPredicate.REVIVED: ("revive", "revives", "revived", "reviving"),
+    ClaimPredicate.REVIVED: (
+        "revive",
+        "revives",
+        "revived",
+        "reviving",
+        "revival",
+        "revivals",
+    ),
     ClaimPredicate.ASSISTED: ("assist", "assists", "assisted", "assisting"),
     ClaimPredicate.HEALED: (
         "heal",
@@ -217,6 +224,8 @@ VICTORY_RESULTS = {"win", "won", "victory", "winner", "booyah", "first"}
 MISSION_METRIC_PREDICATES = {
     "squad.revive_count": ClaimPredicate.REVIVED,
     "squad.matches_completed": ClaimPredicate.COMPLETED_MATCH,
+    "match.first_squad_revive_actor_id": ClaimPredicate.REVIVED,
+    "match.top_three_reached": ClaimPredicate.PLACED,
 }
 
 KNOWN_UNSUPPORTED_VEHICLES = {
@@ -231,6 +240,8 @@ MISSION_METRIC_ALLOWED_ACTIONS = {
     "squad.participant_ids": {ClaimPredicate.COMPLETED_MATCH},
     "squad.matches_completed": {ClaimPredicate.COMPLETED_MATCH},
     "squad.revive_count": {ClaimPredicate.REVIVED},
+    "match.first_squad_revive_actor_id": {ClaimPredicate.REVIVED},
+    "match.top_three_reached": set(),
 }
 
 NUMBER_WORD_VALUES = {
@@ -491,11 +502,7 @@ class ProposalValidatorV2:
         invitation_players = {
             player.player_id
             for player in prepared.normalized.players
-            if (
-                player.memory_eligible
-                and player.invitation_eligible
-                and player.player_id in set(prepared.normalized.current_context.active_player_ids)
-            )
+            if player.memory_eligible and player.invitation_eligible
         }
         perspective_ids = [item.player_id for item in proposal.perspectives]
         if len(perspective_ids) != len(set(perspective_ids)):
@@ -533,6 +540,57 @@ class ProposalValidatorV2:
         candidate_map = {
             candidate.candidate_id: candidate for candidate in prepared.mission_candidates
         }
+        affordance_map = {
+            affordance.affordance_id: affordance for affordance in prepared.mission_affordances
+        }
+        selected_affordance = affordance_map.get(proposal.mission.affordance_id)
+        if selected_affordance is None:
+            issues.append(
+                self._issue(
+                    "invented_mission_affordance",
+                    "The proposal selected a mission affordance that was not offered.",
+                )
+            )
+        else:
+            if selected_affordance.window_id != proposal.selected_window_id:
+                issues.append(
+                    self._issue(
+                        "mission_affordance_not_linked",
+                        "The selected mission affordance is not linked to the episode.",
+                    )
+                )
+            if selected_affordance.family != proposal.mission.family:
+                issues.append(
+                    self._issue(
+                        "mission_family_mismatch",
+                        "The mission family differs from the selected affordance.",
+                    )
+                )
+            if len(proposal.mission.ranked_affordance_ids) != len(
+                set(proposal.mission.ranked_affordance_ids)
+            ) or set(proposal.mission.ranked_affordance_ids) != set(affordance_map):
+                issues.append(
+                    self._issue(
+                        "mission_affordance_ranking_invalid",
+                        "The mission ranking must include every offered affordance exactly once.",
+                    )
+                )
+            if proposal.mission.ranked_affordance_ids[0] != proposal.mission.affordance_id:
+                issues.append(
+                    self._issue(
+                        "mission_affordance_selection_not_first",
+                        "The selected mission affordance must rank first.",
+                    )
+                )
+            if not set(proposal.mission.selection_reason_codes).issubset(
+                selected_affordance.allowed_reason_codes
+            ):
+                issues.append(
+                    self._issue(
+                        "mission_selection_reason_invalid",
+                        "The mission selection uses a reason code not offered by the backend.",
+                    )
+                )
         objective_ids = [item.candidate_id for item in proposal.mission.objectives]
         if len(objective_ids) != len(set(objective_ids)):
             issues.append(self._issue("duplicate_mission_candidate", "Mission candidates repeat."))
@@ -541,6 +599,13 @@ class ProposalValidatorV2:
                 self._issue(
                     "invented_mission_candidate",
                     "The proposal selected a mission candidate that was not offered.",
+                )
+            )
+        if selected_affordance and objective_ids != selected_affordance.objective_candidate_ids:
+            issues.append(
+                self._issue(
+                    "mission_objective_set_mismatch",
+                    "Mission objectives must exactly match the selected affordance.",
                 )
             )
         if any(
@@ -1050,6 +1115,15 @@ class ProposalValidatorV2:
             for player_id in candidate.verification.target
             if isinstance(player_id, str)
         }
+        candidate_player_ids.update(
+            str(candidate.verification.target)
+            for claim in claims
+            for candidate_id in claim.supporting_mission_candidate_ids
+            for candidate in prepared.mission_candidates
+            if candidate.candidate_id == candidate_id
+            and candidate.verification.metric == "match.first_squad_revive_actor_id"
+            and isinstance(candidate.verification.target, str)
+        )
         context_player_ids = {
             player_id
             for claim in claims
@@ -1071,28 +1145,43 @@ class ProposalValidatorV2:
             for predicate, keywords in ACTION_WORDS.items()
             if any(action_language_present(normalized, keyword) for keyword in keywords)
         }
+        allowed_actions = {
+            predicate
+            for candidate in selected_candidates.values()
+            for predicate in MISSION_METRIC_ALLOWED_ACTIONS.get(
+                candidate.verification.metric,
+                set(),
+            )
+        }
+        supports_top_three = any(
+            candidate.verification.metric == "match.top_three_reached"
+            for candidate in selected_candidates.values()
+        )
+        extra_capability_language = bool(
+            re.search(
+                r"\b(?:alive|surviv\w*|safe zone|damage zone|pickup|vehicle)\b",
+                normalized,
+            )
+            or (
+                not supports_top_three
+                and re.search(r"\b(?:victory|win|placement|top\s+(?:3|three))\b", normalized)
+            )
+            or MISSION_UNOFFERED_CONDITION_PATTERN.search(normalized)
+        )
+        if selected_candidates and (
+            detected_actions - allowed_actions or extra_capability_language
+        ):
+            issues.append(
+                self._issue(
+                    "mission_capability_language_mismatch",
+                    (
+                        f"Section {section} adds gameplay requirements that are not in the "
+                        "selected mission capability."
+                    ),
+                )
+            )
         for candidate in selected_candidates.values():
             metric = candidate.verification.metric
-            allowed_actions = MISSION_METRIC_ALLOWED_ACTIONS.get(metric, set())
-            extra_capability_language = bool(
-                re.search(
-                    r"\b(?:alive|surviv\w*|safe zone|damage zone|pickup|vehicle|"
-                    r"victory|win|placement)\b",
-                    normalized,
-                )
-                or MISSION_UNOFFERED_CONDITION_PATTERN.search(normalized)
-            )
-            if detected_actions - allowed_actions or extra_capability_language:
-                issues.append(
-                    self._issue(
-                        "mission_capability_language_mismatch",
-                        (
-                            f"Section {section} adds gameplay requirements that are not in the "
-                            "selected mission capability."
-                        ),
-                    )
-                )
-                break
             target = candidate.verification.target
             if isinstance(target, (int, float)) and not isinstance(target, bool):
                 mentioned_targets = mission_metric_count_mentions(normalized, metric)
@@ -1147,6 +1236,34 @@ class ProposalValidatorV2:
                                 f"Section {section} does not state the selected invited-player "
                                 "mission requirement."
                             ),
+                        )
+                    )
+            elif metric == "match.first_squad_revive_actor_id" and isinstance(target, str):
+                player = next(
+                    (item for item in prepared.normalized.players if item.player_id == target),
+                    None,
+                )
+                if (
+                    player is None
+                    or not contains_identity(text, player.display_name)
+                    or not re.search(r"\bfirst\b", normalized)
+                    or not any(
+                        action_language_present(normalized, word)
+                        for word in ACTION_WORDS[ClaimPredicate.REVIVED]
+                    )
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the assigned first-revival rule.",
+                        )
+                    )
+            elif metric == "match.top_three_reached":
+                if not re.search(r"\b(?:top\s+(?:3|three)|third\s+place)\b", normalized):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the top-three requirement.",
                         )
                     )
             operator = candidate.verification.operator

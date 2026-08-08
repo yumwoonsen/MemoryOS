@@ -160,8 +160,9 @@ test("server-renders the unrevealed Battle Royale memory", async () => {
   assert.match(html, /Bermuda/i);
   assert.match(html, /Your original squad left a story behind/i);
   assert.match(html, /The consent-safe squad/i);
-  assert.doesNotMatch(html, /ff-player-7f3c/i);
-  assert.match(html, /anonymous:squadmate:4/i);
+  assert.match(html, /aria-label="4 opted-in squad members"/i);
+  assert.match(html, />J<\/span>/i);
+  assert.doesNotMatch(html, /ff-player-|anonymous:squadmate|memory_appearance|mission_invitation/i);
   assert.match(html, /Open current memory/i);
   assert.match(mainHtml, /aria-label="Player sections"/i);
   assert.match(mainHtml, /href="\/mission"/i);
@@ -345,7 +346,8 @@ test("server-renders the dedicated developer Studio", async () => {
   assert.match(html, /Player decision/i);
   assert.match(html, /Run v2 interpretation audit/i);
   assert.match(html, /Open player view/i);
-  assert.doesNotMatch(html, /ff-player-7f3c/i);
+  assert.match(html, /active \/ invite-ready/i);
+  assert.match(html, /2(?:<!-- -->)?\s*\/(?:<!-- -->)?\s*4/i);
   assert.match(html, /noindex/i);
 });
 
@@ -422,7 +424,7 @@ test("Studio rejects unsafe or oversized developer inputs before generation", as
   assert.equal(JSON.parse((await oversized.text()).trim()).code, "memory_pack_too_large");
 });
 
-test("Studio preserves the hosted fallback reason when an edited pack has no replay", async () => {
+test("Studio preserves the hosted fallback reason for its fixed synthetic replay", async () => {
   const memoryPack = JSON.parse(
     await readFile(new URL("../data/funny_memory.json", import.meta.url), "utf8"),
   );
@@ -473,12 +475,16 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.match(browserBundle, /Simulate squad accepting/i);
   assert.match(browserBundle, /Start game/i);
   assert.match(browserBundle, /Story Continues/i);
-  assert.match(browserBundle, /required objectives verified/i);
+  assert.match(browserBundle, /prototype objectives completed/i);
+  assert.match(browserBundle, /Prototype match simulation/i);
+  assert.match(browserBundle, /No memory generated/i);
+  assert.match(browserBundle, /AI mission selection/i);
+  assert.match(browserBundle, /Offered affordance/i);
   assert.match(browserBundle, /Hide this chapter/i);
   assert.match(browserBundle, /Squad history/i);
   assert.match(browserBundle, /Past squad matches/i);
   assert.match(browserBundle, /Match details/i);
-  assert.doesNotMatch(browserBundle, /ff-player-7f3c/i);
+  assert.doesNotMatch(browserBundle, /ff-player-/i);
   assert.doesNotMatch(
     browserBundle,
     /Play this challenge|Demo simulation|Memory Pack ready|Build this story|Generating from verified data|Match evidence remains the source of truth|Challenge rules|Verified live|Verified preview/i,
@@ -498,6 +504,8 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   const missionClient = await readFile(new URL("../app/mission/mission-experience.tsx", import.meta.url), "utf8");
   const deliveryFlow = await readFile(new URL("../lib/delivery-flow.ts", import.meta.url), "utf8");
   const v2Contract = await readFile(new URL("../lib/ai-memory-contract.ts", import.meta.url), "utf8");
+  const playerProjection = await readFile(new URL("../lib/player-delivery.ts", import.meta.url), "utf8");
+  const reunionCore = await readFile(new URL("../lib/reunion-flow-core.mjs", import.meta.url), "utf8");
   const proxySource = await readFile(new URL("../lib/memoryos-server.ts", import.meta.url), "utf8");
   const historyPage = await readFile(new URL("../app/history/page.tsx", import.meta.url), "utf8");
   const historyClient = await readFile(new URL("../app/history/history-experience.tsx", import.meta.url), "utf8");
@@ -513,7 +521,7 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(proxySource, /cache:\s*"no-store"/);
   assert.match(proxySource, /"cache-control":\s*"no-store"/);
   assert.match(homePage, /raw_telemetry_v2\.json/);
-  assert.match(homePage, /consentSafeTelemetryView/);
+  assert.match(homePage, /projectTelemetryForPlayerStart/);
   assert.match(historyPage, /backend\/data\/historical_memory_packs\.json/);
   assert.match(historyPage, /CURRENT_MEMORY_MATCH_ID/);
   assert.match(memoryClient, /Accept mission/);
@@ -525,11 +533,15 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(memoryClient, /deliveryModeLabel/);
   assert.match(memoryClient, /\/api\/delivery\/prepare/);
   assert.match(memoryClient, /\/api\/delivery\/decision/);
-  assert.match(memoryClient, /isDeliveryBoundToTelemetry/);
+  assert.match(memoryClient, /isDeliveryBoundToSeed/);
   assert.match(memoryClient, /declineMission/);
-  assert.match(deliveryFlow, /parsePlayerPendingDeliveryV2/);
-  assert.match(v2Contract, /projectPendingDeliveryForPlayer/);
-  assert.match(v2Contract, /parsed\.metadata\.mode !== "live_ai"/);
+  assert.match(deliveryFlow, /parsePlayerDeliveryResultV2/);
+  assert.match(playerProjection, /projectPendingDeliveryForPlayer/);
+  assert.match(playerProjection, /content_origin: "live_ai_validated"/);
+  assert.match(playerProjection, /verified_moments/);
+  assert.match(playerProjection, /perspective:/);
+  assert.match(playerProjection, /invitation_roster/);
+  assert.match(v2Contract, /grounded_render === true/);
   assert.match(v2Contract, /grounded_claims/);
   assert.match(v2Contract, /supporting_mission_candidate_ids/);
   assert.match(v2Contract, /anonymous:squadmate/);
@@ -539,24 +551,27 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(studioClient, /\/api\/studio\/delivery-trace/);
   assert.match(studioClient, /usePlayerFlow/);
   assert.match(studioClient, /Details-wrong source-quality flag recorded for operations/);
-  assert.match(
-    missionClient,
-    /buildInvitees\([\s\S]{0,200}delivery\.player_perspectives/,
-  );
+  assert.match(missionClient, /buildInvitees\(delivery\.invitation_roster\)/);
   assert.match(missionClient, /Send squad invite/);
+  assert.match(missionClient, /Prototype match simulation/);
+  assert.match(missionClient, /scripted successful completion state/);
+  assert.match(reunionCore, /role_reversal/);
+  assert.match(reunionCore, /redemption/);
   assert.match(missionClient, /Story Continues/);
   assert.match(missionClient, /Hide this chapter/);
   assert.match(missionClient, /View squad history/);
   assert.match(missionClient, /simulationSequence/);
   assert.match(historyClient, /Squad history/);
   assert.match(historyClient, /Past squad matches/);
-  assert.match(flowProvider, /invitationReadyIds/);
+  assert.match(flowProvider, /invitationSession/);
+  assert.match(flowProvider, /acceptAllInvitees/);
   assert.match(flowProvider, /declineReason/);
   assert.doesNotMatch(historyClient, /Accept mission|Details are wrong|buildInvitees|prepare-delivery/);
   assert.doesNotMatch(missionClient, /Not relevant to me|decline_reason/);
   assert.doesNotMatch(memoryClient, /Deterministic fallback|evidence-checked/);
   assert.doesNotMatch(memoryClient, /grounded_claims|studio_trace|claim_mappings/);
   assert.doesNotMatch(missionClient, /grounded_claims|studio_trace|claim_mappings/);
+  assert.doesNotMatch(`${memoryClient}\n${missionClient}`, /player_perspectives|RawTelemetryBatchV2|provider_event_type/);
   assert.doesNotMatch(missionClient, /Rules engine|Deterministic prototype continuation/);
   assert.doesNotMatch(missionClient, /Keep in squad history/);
   assert.doesNotMatch(memoryClient, /Open a different memory/);
@@ -572,7 +587,7 @@ test("hosted v2 Studio exposes a grounded, privacy-safe responsibility trace", a
   assert.equal(response.headers.get("x-memoryos-mode"), "sample");
   assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
   const result = await response.json();
-  assert.equal(result.schema_version, "2.0");
+  assert.equal(result.schema_version, "2.1");
   assert.equal(result.status, "pending_player_decision");
   assert.equal(result.metadata.mode, "deterministic");
   assert.deepEqual(
@@ -581,17 +596,110 @@ test("hosted v2 Studio exposes a grounded, privacy-safe responsibility trace", a
   );
   assert.equal(result.studio_trace.stages.at(-1).status, "pending");
   assert.equal(result.studio_trace.source_quality_flag, false);
+  assert.equal(result.studio_trace.normalized_match_count, 2);
+  assert.equal(result.studio_trace.normalized_event_count, 10);
+  assert.equal(result.studio_trace.privacy_redaction_count, 0);
+  assert.equal(result.studio_trace.eligible_windows.length, 1);
+  assert.equal(result.studio_trace.active_player_count, 2);
+  assert.equal(result.studio_trace.invitation_eligible_count, 4);
+  assert.deepEqual(result.studio_trace.mission_affordances.map((item) => item.family), ["reunion", "role_reversal"]);
+  assert.equal(result.studio_trace.mission_selection.selected_family, "role_reversal");
+  assert.equal(result.metadata.content_origin, "deterministic_studio_sample");
+  assert.equal(result.metadata.model, "fixed-synthetic-studio-fixture");
+  assert.match(result.studio_trace.stages[0].summary, /fixed synthetic telemetry.*one neutral event window/i);
   assert.ok(result.grounded_claims.length > 0);
   assert.equal(result.studio_trace.claim_mappings.length, result.grounded_claims.length);
   assert.equal(
     result.next_chapter.objectives[0].objective_id,
-    "return_with_squad:window_ff-match-01J4Y7M8W2_2",
+    "reunion_participants:remix:window_ff-match-01J4Y7M8W2_2",
   );
-  assert.doesNotMatch(JSON.stringify(result), /ff-player-7f3c/i);
+  assert.equal(result.player_perspectives.length, 4);
+
+  const selectedAffordance = result.studio_trace.mission_affordances.find(
+    (item) => item.affordance_id === result.studio_trace.mission_selection.selected_affordance_id,
+  );
+  assert.ok(selectedAffordance);
+  assert.deepEqual(
+    result.next_chapter.objectives.map((objective) => objective.objective_id),
+    selectedAffordance.objective_candidate_ids,
+  );
+  const candidatesById = new Map(
+    result.studio_trace.mission_candidates.map((candidate) => [candidate.candidate_id, candidate]),
+  );
+  for (const candidateId of selectedAffordance.objective_candidate_ids) {
+    assert.equal(candidatesById.get(candidateId)?.recipe, result.next_chapter.recipe);
+  }
+
+  const syntheticFixture = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  const expectedInvitees = syntheticFixture.squad.players
+    .filter((player) => player.consent.memory_appearance && player.consent.mission_invitation)
+    .map((player) => player.player_id);
+  assert.deepEqual(result.next_chapter.invitation_player_ids, expectedInvitees);
+  assert.deepEqual(
+    result.next_chapter.objectives[0].verification.target,
+    expectedInvitees,
+  );
+
+  const v21Telemetry = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  v21Telemetry.schema_version = "2.1";
+  const v21Response = await studioInterpret(JSON.stringify(v21Telemetry));
+  assert.equal(v21Response.status, 200);
 
   const invalid = await studioInterpret("{}");
   assert.equal(invalid.status, 422);
   assert.equal((await invalid.json()).code, "invalid_raw_telemetry_v2");
+});
+
+test("hosted Studio replay never derives identities from an opted-out submitted batch", async () => {
+  const submitted = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  submitted.request_id = "req-private-submission-must-not-replay";
+  submitted.squad.squad_id = "submitted-private-squad";
+
+  const replacementIds = new Map(
+    submitted.squad.players.map((player, index) => [player.player_id, `submitted-private-player-${index + 1}`]),
+  );
+  submitted.target_player_id = replacementIds.get(submitted.target_player_id);
+  submitted.squad.players.forEach((player, index) => {
+    player.player_id = replacementIds.get(player.player_id);
+    player.display_name = `DO_NOT_REPLAY_PLAYER_${index + 1}`;
+    player.consent = {
+      memory_appearance: false,
+      identity_display: false,
+      media_use: false,
+      mission_invitation: false,
+    };
+  });
+  submitted.matches.forEach((match) => {
+    match.events.forEach((event) => {
+      if (event.actor_id) event.actor_id = replacementIds.get(event.actor_id);
+      if (event.target_id) event.target_id = replacementIds.get(event.target_id);
+    });
+  });
+  submitted.current_context.active_player_ids = submitted.current_context.active_player_ids.map(
+    (playerId) => replacementIds.get(playerId),
+  );
+  submitted.media_references.forEach((media) => {
+    media.consented_player_ids = media.consented_player_ids.map((playerId) => replacementIds.get(playerId));
+  });
+
+  const response = await studioInterpret(JSON.stringify(submitted));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-memoryos-mode"), "sample");
+  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
+  const result = await response.json();
+  const resultJson = JSON.stringify(result);
+
+  assert.equal(result.request_id, "req-ff-20260808-001");
+  assert.equal(result.metadata.content_origin, "deterministic_studio_sample");
+  assert.equal(result.metadata.model, "fixed-synthetic-studio-fixture");
+  assert.match(result.studio_trace.stages[0].summary, /fixed synthetic telemetry/i);
+  assert.doesNotMatch(resultJson, /req-private-submission|submitted-private|DO_NOT_REPLAY/i);
 });
 
 test("player delivery boundary strips judge internals and refuses deterministic or rejected prose", async () => {
@@ -613,7 +721,10 @@ test("player delivery boundary strips judge internals and refuses deterministic 
     provider: "groq",
     model: "openai/gpt-oss-120b",
     mode: "live_ai",
-    prompt_version: "memory-interpreter-v2",
+    prompt_version: "memory-interpreter-v2.6-mission-affordances",
+    content_origin: "live_ai_validated",
+    grounded_render: false,
+    narrative_fallback: false,
   };
   const live = await postWithBackendStub(
     "/api/delivery/prepare",
@@ -623,15 +734,63 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.equal(live.response.status, 200);
   assert.equal(live.response.headers.get("cache-control"), "no-store");
   const playerDelivery = await live.response.json();
+  assert.equal(playerDelivery.schema_version, "2.1");
   assert.equal(playerDelivery.status, "pending_player_decision");
-  assert.equal(playerDelivery.metadata.mode, "live_ai");
-  for (const internal of ["grounded_claims", "studio_trace", "validation", "reason_codes"]) {
+  assert.equal(playerDelivery.metadata.content_origin, "live_ai_validated");
+  assert.equal(playerDelivery.perspective.display_name, "Lee");
+  assert.equal(playerDelivery.invitation_roster.length, 4);
+  assert.equal(playerDelivery.invitation_roster.filter((recipient) => recipient.activity === "away").length, 2);
+  assert.ok(playerDelivery.invitation_roster.every((recipient) => /^recipient-\d+$/.test(recipient.recipient_ref)));
+  for (const internal of ["player_perspectives", "grounded_claims", "studio_trace", "validation", "reason_codes", "consent", "matches"]) {
     assert.equal(Object.hasOwn(playerDelivery, internal), false, `${internal} must remain server-side`);
   }
-  assert.doesNotMatch(JSON.stringify(playerDelivery), /ff-player-7f3c/i);
+  assert.doesNotMatch(JSON.stringify(playerDelivery), /ff-player-|event_id|supporting_|verification/i);
+
+  const obsoleteOutput = structuredClone(liveResult);
+  obsoleteOutput.schema_version = "2.0";
+  const obsolete = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    obsoleteOutput,
+  );
+  assert.equal(obsolete.response.status, 422);
+  assert.equal((await obsolete.response.json()).code, "memory_withheld");
+
+  const disguisedFallback = structuredClone(liveResult);
+  disguisedFallback.metadata.grounded_render = true;
+  const fallback = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    disguisedFallback,
+  );
+  assert.equal(fallback.response.status, 422);
+  assert.equal((await fallback.response.json()).code, "memory_withheld");
+
+  const abstentionResult = {
+    schema_version: "2.1",
+    request_id: "req-ff-20260808-001",
+    status: "not_generated",
+    reason_codes: ["ai_no_meaningful_episode"],
+    player_perspectives: [],
+    validation: { passed: true, correction_attempted: false, issues: [] },
+    studio_trace: deterministicResult.studio_trace,
+    metadata: { ...liveResult.metadata, content_origin: "no_player_content" },
+  };
+  const abstention = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    abstentionResult,
+  );
+  assert.equal(abstention.response.status, 200);
+  assert.deepEqual(await abstention.response.json(), {
+    schema_version: "2.1",
+    request_id: "req-ff-20260808-001",
+    status: "not_generated",
+    reason_code: "ai_no_meaningful_episode",
+  });
 
   const rejectedWithSentinel = {
-    schema_version: "2.0",
+    schema_version: "2.1",
     request_id: "req-ff-20260808-001",
     delivery_id: null,
     status: "rejected",
@@ -653,6 +812,68 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.equal(rejected.response.status, 422);
   const rejectedBody = await rejected.response.text();
   assert.doesNotMatch(rejectedBody, /REJECTED_PROSE|unsupported_claim|studio_trace/i);
+});
+
+test("player route safely projects an identity-hidden target and invitee through backend aliases", async () => {
+  const telemetry = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  telemetry.squad.players.find((player) => player.player_id === "ff-player-lee").consent.identity_display = false;
+  telemetry.squad.players.find((player) => player.player_id === "ff-player-amir").consent.identity_display = false;
+
+  const sampleResponse = await studioInterpret(JSON.stringify({ request_id: telemetry.request_id }));
+  const visibleSample = await sampleResponse.json();
+  const aliasedJson = JSON.stringify(visibleSample)
+    .replaceAll("ff-player-lee", "anonymous:squadmate:1")
+    .replaceAll("ff-player-amir", "anonymous:squadmate:3")
+    .replaceAll("Lee", "Player 1")
+    .replaceAll("Amir", "Player 3");
+  const hiddenDelivery = JSON.parse(aliasedJson);
+  hiddenDelivery.metadata = {
+    ...hiddenDelivery.metadata,
+    provider: "groq",
+    model: "openai/gpt-oss-20b",
+    mode: "live_ai",
+    prompt_version: "memory-interpreter-v2.6-mission-affordances",
+    content_origin: "live_ai_validated",
+    grounded_render: false,
+    narrative_fallback: false,
+  };
+
+  const projected = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify(telemetry),
+    hiddenDelivery,
+  );
+  assert.equal(projected.response.status, 200);
+  const playerDelivery = await projected.response.json();
+
+  assert.equal(playerDelivery.perspective.display_name, "Player 1");
+  assert.equal(playerDelivery.perspective.recipient_ref, "recipient-1");
+  assert.deepEqual(
+    playerDelivery.invitation_roster.map((recipient) => recipient.display_name),
+    ["Player 1", "Mei", "Player 3", "Jo"],
+  );
+  assert.equal(playerDelivery.invitation_roster.find((recipient) => recipient.display_name === "Player 3").activity, "away");
+  assert.ok(playerDelivery.invitation_roster.every((recipient) => /^recipient-\d+$/.test(recipient.recipient_ref)));
+  assert.match(playerDelivery.verified_moments.map((moment) => moment.label).join(" / "), /A squadmate was knocked/i);
+
+  const playerJson = JSON.stringify(playerDelivery);
+  assert.doesNotMatch(playerJson, /ff-player-lee|ff-player-amir|anonymous:squadmate/i);
+  assert.doesNotMatch(playerJson, /"Lee"|"Amir"/i);
+  assert.doesNotMatch(playerJson, /identity_display|mission_invitation|player_perspectives|grounded_claims|studio_trace/i);
+
+  const leakyDelivery = structuredClone(hiddenDelivery);
+  leakyDelivery.memory.summary = "Lee / ff-player-lee / anonymous:squadmate:1";
+  const blockedLeak = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify(telemetry),
+    leakyDelivery,
+  );
+  assert.equal(blockedLeak.response.status, 502);
+  const blockedBody = await blockedLeak.response.text();
+  assert.match(blockedBody, /player_projection_failed/i);
+  assert.doesNotMatch(blockedBody, /ff-player-lee|anonymous:squadmate|"Lee"/i);
 });
 
 test("Studio turns a canonical live-provider 503 into an explicitly offline audit sample", async () => {

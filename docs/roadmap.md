@@ -74,21 +74,22 @@ accepted delivery to the dedicated `/mission` route through an ephemeral in-memo
 
 ### 3.4 — Reunion and continuation experience
 
-**Prototype status: complete for the local simulation.** The `/mission` slice includes invitations
-derived only from privacy-filtered perspectives, deterministic evaluation of the existing mission
-rules against a synthetic rematch, a grounded “Story Continues” chapter, a mission continuation
-timeline, and session-only relevance feedback. `/history` reflects the resulting milestones in a
-compact read-only timeline. Real notifications, clips, Garena match-result ingestion,
-authentication, and durable feedback remain deferred production work.
+**Prototype status: complete as a labelled static simulation.** The `/mission` slice includes a
+privacy-safe invitation roster, inactive-but-consented squad reactivation, a scripted lobby/game
+success sequence, a family-specific “Story Continues” chapter, and session-only relevance
+feedback. `/history` reflects the resulting milestones in a compact read-only timeline. Real
+notifications, clips, Garena match-result ingestion and verification, authentication, and durable
+feedback remain deferred production work.
 
 - In-app Memory Inbox or notification delivery with a curated moment clip
 - Squad invitation and acceptance simulation
-- Deterministic mission verification from a new match result
+- Static, clearly labelled family-specific mission completion for the prototype
+- Deterministic mission verification from authenticated new-match results in a future integration
 - “Story Continues” chapter generation
 - Memory timeline and feedback capture
 - Optional dismissal feedback, kept separate from factual source disputes
 
-## Phase 4 — AI-first v2 prototype (implemented)
+## Phase 4 — AI-first v2.1 prototype (implemented)
 
 The Phase 1–3 implementation remains the v1.1 compatibility baseline. New ingestion now uses a
 separate v2 contract rather than extending or inheriting the composed `MemoryPackV11` shape.
@@ -106,11 +107,11 @@ authentication, persistence, and rollout telemetry are ready.
 - Builds deterministic eligible chronological event windows with stable IDs and allowed evidence,
   identity, context, and media sets.
 
-### 4.2 — One compact AI draft, deterministic expansion, and validation — complete
+### 4.2 — One compact AI decision, deterministic expansion, and validation — complete
 
-- Requests one typed internal `CompactMemoryProposalV2` from the preferred live Groq GPT-OSS
-  provider: one offered event window, memory framing, notification teaser, player perspectives,
-  current relevance, one mission candidate, and one objective description.
+- Requests one typed internal interpretation decision from the preferred live Groq GPT-OSS
+  provider: either a grounded abstention or one offered event window, memory framing, notification
+  teaser, player perspectives, current relevance, and one selected mission affordance.
 - Requires evidence references for every factual clause and provider-supplied perspective IDs for
   every opted-in squad member. The backend orders those perspectives and validates the exact roster;
   it does not restore a missing perspective.
@@ -124,7 +125,8 @@ authentication, persistence, and rollout telemetry are ready.
   without restating its numeric count.
 - Uses conservative lexical candidate evidence without treating it as a unique semantic mapping;
   tuple, prose, privacy, value, and grounding validators still decide delivery.
-- Supplies a deterministic candidate `authoring_scope` of allowed intent, player IDs, and count;
+- Supplies deterministic reunion, role-reversal, and redemption affordances, each composed from
+  backend-owned objective capabilities and an `authoring_scope` of allowed intent, players, and targets;
   conservative lexical checks reject tested conflicting mission actions, quantities, operators,
   names, and known extra-condition terms. Assignments, required flags, source event IDs, media
   eligibility, and machine-verification rules remain deterministic.
@@ -134,7 +136,19 @@ authentication, persistence, and rollout telemetry are ready.
 - Keeps deterministic narrative generation only for tests and explicitly labelled offline Studio
   demonstrations; never present it as a live-AI fallback.
 
-### 4.3 — V2 API, player adapter, and safe Studio trace — complete
+### 4.3 — Dynamic mission affordances and reactivation — complete
+
+- Builds a typed, consent-safe Story Brief containing neutral windows and feasible mission
+  affordances rather than one hard-coded objective space.
+- Lets AI rank and select one offered affordance while deterministic validation owns its family,
+  assignments, objectives, and rules.
+- Treats current activity as context rather than invitation authority, allowing inactive original
+  squadmates with valid consent to join the scripted reunion lobby.
+- Returns `not_generated` with no player artifacts when AI makes a valid abstention.
+- Uses `live_ai_validated` provenance for player delivery and reserves
+  `deterministic_studio_sample` for explicitly labelled Studio demonstrations.
+
+### 4.4 — V2 API, player adapter, and safe Studio trace — complete
 
 - Implements `POST /v2/memories/interpret-delivery` and
   `POST /v2/deliveries/{delivery_id}/decision`, with generated OpenAPI client types and contract

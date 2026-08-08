@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   eligibleDisplayPlayers,
+  eligibleInvitationPlayers,
   parseStudioTraceV2,
   parseStudioInterpretDeliveryV2,
 } from "@/lib/ai-memory-contract";
@@ -103,13 +104,26 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
   const activeRequest = useRef<AbortController | null>(null);
 
   const eligiblePlayers = useMemo(() => eligibleDisplayPlayers(telemetry), [telemetry]);
+  const invitationEligiblePlayers = useMemo(() => eligibleInvitationPlayers(telemetry), [telemetry]);
   const events = useMemo(() => telemetry.matches.flatMap((match) =>
     match.events.map((event) => ({ ...event, match_id: match.match_id }))), [telemetry]);
   const pending = result?.status === "pending_player_decision" ? result : null;
   const effectiveTrace = latestDecisionTrace ?? result?.studio_trace ?? null;
+  const missionAffordances = effectiveTrace?.mission_affordances ?? [];
+  const missionSelection = effectiveTrace?.mission_selection ?? null;
+  const activePlayerCount = effectiveTrace?.active_player_count
+    ?? telemetry.current_context.active_player_ids.length;
+  const invitationEligibleCount = effectiveTrace?.invitation_eligible_count
+    ?? invitationEligiblePlayers.length;
   const traceByStage = new Map(effectiveTrace?.stages.map((stage) => [stage.stage, stage]) ?? []);
   const sessionDecision = flow.declineReason ? "declined" : flow.missionAccepted ? "accepted" : null;
   const sourceQualityFlag = effectiveTrace?.source_quality_flag === true || flow.declineReason === "details_wrong";
+  const contentOrigin = result?.metadata.content_origin
+    ?? (pending?.metadata.mode === "live_ai"
+      ? "live_ai_validated"
+      : pending
+        ? "deterministic_studio_sample"
+        : null);
   const connectionLabel = health.status === "checking"
     ? "Provider check"
     : health.status === "ok"
@@ -210,17 +224,17 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
     }
   }
 
-  const runtimeTitle = runSource === "sample"
+  const runtimeTitle = result?.status === "not_generated"
+    ? "AI abstained from forcing a memory"
+    : runSource === "sample"
     ? "Deterministic Studio demonstration"
-    : pending?.metadata.grounded_render
-      ? "AI-selected, evidence-rendered memory"
     : pending?.metadata.mode === "live_ai"
       ? "Live AI memory interpretation"
       : "Ready for a v2 interpretation audit";
-  const runtimeDetail = runSource === "sample"
+  const runtimeDetail = result?.status === "not_generated"
+    ? "The supplied evidence did not support a meaningful episode, so no player-facing memory or mission was created."
+    : runSource === "sample"
     ? "A clearly labelled saved result demonstrates the same privacy, claim, and mission-rule trace. It is never used in the player experience."
-    : pending?.metadata.grounded_render
-      ? "The live draft did not pass validation after one correction, so MemoryOS rendered this delivery directly from verified evidence."
     : "Player delivery is allowed only after one AI proposal passes deterministic evidence and safety validation.";
 
   return (
@@ -278,7 +292,7 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
         <dl className="studio-runtime-metrics">
           <div><dt>Matches</dt><dd>{telemetry.matches.length}</dd></div>
           <div><dt>Raw events</dt><dd>{events.length}</dd></div>
-          <div><dt>Eligible players</dt><dd>{eligiblePlayers.length}</dd></div>
+          <div><dt>Active / invite-ready</dt><dd>{activePlayerCount} / {invitationEligibleCount}</dd></div>
           <div><dt>Validation</dt><dd>{result ? (result.validation.passed ? "Passed" : "Withheld") : "--"}</dd></div>
         </dl>
       </section>
@@ -306,6 +320,7 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
             <span><strong>{telemetry.matches.length}</strong> matches</span>
             <span><strong>{events.length}</strong> events</span>
             <span><strong>{eligiblePlayers.length}</strong> consent-safe</span>
+            <span><strong>{activePlayerCount}/{invitationEligibleCount}</strong> active / invite-ready</span>
           </div>
           <p className="studio-panel-note">
             The browser receives a consent-safe projection. Opted-out stable IDs, raw prompts, and provider secrets are not exposed here.
@@ -383,9 +398,9 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
           </div>
           <div className="studio-output-metrics">
             <div><span>Selected events</span><strong>{pending?.memory.selected_event_ids.length ?? "--"}</strong></div>
-            <div><span>Grounded claims</span><strong>{pending?.grounded_claims.length ?? "--"}</strong></div>
+            <div><span>Affordances</span><strong>{result ? missionAffordances.length : "--"}</strong></div>
+            <div><span>Content origin</span><strong>{contentOrigin ? formatWords(contentOrigin) : "--"}</strong></div>
             <div><span>Correction used</span><strong>{result ? (result.validation.correction_attempted ? "Yes" : "No") : "--"}</strong></div>
-            <div><span>Player state</span><strong>{sessionDecision ? formatWords(sessionDecision) : "Awaiting"}</strong></div>
           </div>
           <div className="studio-tabs" role="tablist" aria-label="Delivery inspector views">
             {(["summary", "grounding", "mission"] as ResultTab[]).map((tab) => (
@@ -402,6 +417,16 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
                 <span>No title, summary, perspective, or mission is available to this interface.</span>
                 <ul className="studio-issue-list">
                   {[...result.reason_codes, ...result.validation.issues.map((issue) => issue.code)].map((code, index) => <li key={`${code}-${index}`}>{formatWords(code)}</li>)}
+                </ul>
+              </article>
+            </div>
+          ) : result.status === "not_generated" ? (
+            <div className="studio-result-stack">
+              <article className="studio-result-card result-validation">
+                <p>Valid AI abstention</p><h3>No memory generated</h3>
+                <span>The evidence did not support a meaningful squad episode. No player-facing title, perspective, or mission was created.</span>
+                <ul className="studio-issue-list">
+                  {result.reason_codes.map((code) => <li key={code}>{formatWords(code)}</li>)}
                 </ul>
               </article>
             </div>
@@ -423,13 +448,32 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
             </div>
           ) : (
             <div className="studio-result-stack">
-              <article className="studio-result-card result-quest"><p>AI-authored reunion</p><h3>{result.next_chapter.title}</h3><span>{result.next_chapter.mission}</span></article>
+              <article className="studio-result-card result-validation">
+                <p>AI mission selection</p>
+                <h3>{missionSelection ? formatWords(missionSelection.selected_family) : formatWords(result.next_chapter.family ?? "reunion")}</h3>
+                <span>{missionSelection
+                  ? `${missionSelection.ranked_affordance_ids.length} ranked / ${formatWords(missionSelection.reason_codes.join(", "))}`
+                  : "Legacy v2 delivery: mission selection metadata was not supplied."}</span>
+              </article>
+              {missionAffordances.map((affordance) => (
+                <article className="studio-result-card" key={affordance.affordance_id}>
+                  <p>{missionSelection?.selected_affordance_id === affordance.affordance_id ? "Selected affordance" : "Offered affordance"}</p>
+                  <h3>{formatWords(affordance.family)}</h3>
+                  <span>{affordance.objective_candidate_ids.length} compiled rules / {affordance.source_event_ids.length + affordance.source_match_ids.length + affordance.source_context_ids.length} source references</span>
+                </article>
+              ))}
+              <article className="studio-result-card result-quest"><p>AI-authored Next Chapter</p><h3>{result.next_chapter.title}</h3><span>{result.next_chapter.mission}</span></article>
               {result.next_chapter.objectives.map((objective) => (
                 <article className="studio-result-card" key={objective.objective_id}>
                   <p>Backend-owned verification rule</p><h3>{objective.description}</h3>
                   <span>{formatWords(objective.verification.metric)} / {formatWords(objective.verification.operator)} / {safeRuleTarget(objective.verification.target, telemetry)}</span>
                 </article>
               ))}
+              <article className="studio-result-card">
+                <p>Post-accept demonstration</p>
+                <h3>Scripted prototype sequence</h3>
+                <span>Invites sent → squad joins → game starts → selected mission completes. No live post-match telemetry is claimed.</span>
+              </article>
             </div>
           )}
         </section>

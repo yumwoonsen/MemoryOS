@@ -6,30 +6,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PlayerShell } from "./player-shell";
 import { usePlayerFlow } from "./player-flow-provider";
-import type {
-  DeliveryDeclineReasonV2,
-  RawSquadPlayerV2,
-  RawTelemetryBatchV2,
-  RawTelemetryEventV2,
-} from "@/lib/ai-memory-contract";
-import {
-  eligibleDisplayPlayers,
-  eligibleInvitationPlayers,
-  findSelectedMatch,
-  parsePlayerPendingDeliveryV2,
-} from "@/lib/ai-memory-contract";
+import type { DeliveryDeclineReasonV2 } from "@/lib/ai-memory-contract";
 import {
   challengeTitle,
   decisionPayload,
   deliveryModeLabel,
-  isDeliveryBoundToTelemetry,
+  isDeliveryBoundToSeed,
   isDecisionConfirmation,
+  parsePlayerDelivery,
 } from "@/lib/delivery-flow";
 import type { DecisionRequest, PendingDelivery } from "@/lib/delivery-flow";
+import type { PlayerExperienceSeedV2 } from "@/lib/player-delivery";
 
 type View =
   | { kind: "unrevealed" }
   | { kind: "loading" }
+  | { kind: "no_memory" }
   | { kind: "error"; message: string }
   | { kind: "ready"; delivery: PendingDelivery }
   | { kind: "decline"; delivery: PendingDelivery }
@@ -50,32 +42,7 @@ function formatClock(seconds?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function evidenceLabel(event: RawTelemetryEventV2, players: RawSquadPlayerV2[]) {
-  const displayName = (playerId?: string) =>
-    players.find((player) => player.player_id === playerId)?.display_name ?? "A squadmate";
-  switch (event.provider_event_type) {
-    case "TEAMMATE_REVIVED":
-      return `${displayName(event.actor_id)} revived ${displayName(event.target_id)}`;
-    case "TACTICAL_PING_PLACED":
-      return `${displayName(event.actor_id)} placed a retreat ping`;
-    case "SQUAD_ENTERED_VEHICLE":
-      return "The squad entered a vehicle";
-    case "SQUAD_EXITED_DAMAGE_ZONE":
-      return "The squad reached safety together";
-    case "PLAYER_KNOCKED":
-      return `${displayName(event.actor_id)} was knocked`;
-    case "SQUAD_MEMBER_LANDED":
-      return `${displayName(event.actor_id)} landed with the squad`;
-    case "MATCH_PLACEMENT_RECORDED":
-      return typeof event.details.placement === "number"
-        ? `The squad finished #${event.details.placement}`
-        : "The match result was recorded";
-    default:
-      return formatWords(event.provider_event_type);
-  }
-}
-
-function MatchArtwork({ members }: { members: RawSquadPlayerV2[] }) {
+function MatchArtwork({ members }: { members: PlayerExperienceSeedV2["display_roster"] }) {
   return (
     <div className="player-memory-art" aria-hidden="true">
       <picture className="player-artwork">
@@ -85,15 +52,15 @@ function MatchArtwork({ members }: { members: RawSquadPlayerV2[] }) {
       </picture>
       <div className="player-route" />
       {members.slice(0, 4).map((member, index) => (
-        <span className={`player-map-dot map-dot-${index + 1} ${avatarClasses[index]}`} key={member.player_id}>
-          {member.display_name?.slice(0, 1) ?? "S"}
+        <span className={`player-map-dot map-dot-${index + 1} ${avatarClasses[index]}`} key={member.recipient_ref}>
+          {member.display_name.slice(0, 1)}
         </span>
       ))}
     </div>
   );
 }
 
-export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2 }) {
+export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
   const router = useRouter();
   const {
     flow,
@@ -117,10 +84,9 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
     activeRequest.current?.abort();
   }, []);
 
-  const featuredMatch = telemetry.matches[0];
-  const featuredMembers = eligibleDisplayPlayers(telemetry);
+  const featuredMatch = seed.match_preview;
+  const featuredMembers = seed.display_roster;
   const activeDelivery = "delivery" in view ? view.delivery : null;
-  const sourceMatch = activeDelivery ? findSelectedMatch(activeDelivery, telemetry) : undefined;
   const modeLabel = activeDelivery ? deliveryModeLabel(activeDelivery) : undefined;
 
   const prepare = useCallback(async () => {
@@ -136,25 +102,26 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
       const response = await fetch("/api/delivery/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ request_id: telemetry.request_id }),
+        body: JSON.stringify({ request_id: seed.request_id }),
         signal: controller.signal,
       });
       const payload: unknown = await response.json();
       await minimumDelay;
       if (controller.signal.aborted || requestId !== requestSequence.current) return;
-      const parsed = parsePlayerPendingDeliveryV2(payload);
+      const parsed = parsePlayerDelivery(payload);
       if (!response.ok || !parsed) {
         throw new Error("Your squad memory is not available right now.");
       }
-      if (!isDeliveryBoundToTelemetry(parsed, telemetry)) {
+      if (parsed.status === "not_generated") {
+        setView({ kind: "no_memory" });
+        setAnnouncement("No meaningful squad memory was generated from this telemetry.");
+        return;
+      }
+      if (!isDeliveryBoundToSeed(parsed, seed)) {
         throw new Error("The prepared memory did not match the opted-in squad safely.");
       }
 
-      setPreparedDelivery(
-        parsed,
-        telemetry.target_player_id,
-        eligibleInvitationPlayers(telemetry).map((player) => player.player_id),
-      );
+      setPreparedDelivery(parsed);
       setView({ kind: "ready", delivery: parsed });
       setAnnouncement(`${parsed.memory.title} is ready for your decision.`);
     } catch (error) {
@@ -169,16 +136,11 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
     } finally {
       if (activeRequest.current === controller) activeRequest.current = null;
     }
-  }, [setPreparedDelivery, telemetry]);
+  }, [seed, setPreparedDelivery]);
 
   async function decide(request: DecisionRequest) {
     if (view.kind !== "ready" && view.kind !== "decline" && view.kind !== "decision_error") return;
     const delivery = view.delivery;
-    if (!findSelectedMatch(delivery, telemetry)) {
-      setView({ kind: "error", message: "The current player could not be confirmed safely." });
-      return;
-    }
-
     setView({ kind: "sending", delivery, request });
     setAnnouncement("Saving your decision.");
     try {
@@ -193,11 +155,7 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
       }
 
       if (request.decision === "accepted") {
-        acceptMission(
-          delivery,
-          telemetry.target_player_id,
-          eligibleInvitationPlayers(telemetry).map((player) => player.player_id),
-        );
+        acceptMission(delivery);
         setView({ kind: "accepted", delivery });
         setAnnouncement("Mission accepted. Your reunion mission is ready.");
         router.push("/mission");
@@ -222,6 +180,8 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
     ? "Memory waiting"
       : view.kind === "loading"
       ? "Opening memory"
+      : view.kind === "no_memory"
+        ? "No memory surfaced"
       : view.kind === "error"
         ? "Memory unavailable"
         : view.kind === "decision_error"
@@ -243,7 +203,7 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
       modeLabel={modeLabel}
       modeHeading="Battle Royale"
     >
-      {view.kind === "unrevealed" && featuredMatch ? (
+      {view.kind === "unrevealed" ? (
         <section className="demo-input-card" aria-labelledby="current-memory-title">
           <MatchArtwork members={featuredMembers} />
           <div className="demo-input-copy">
@@ -256,12 +216,12 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
             <div className="reveal-squad">
               <div className="player-avatar-stack" aria-label={`${featuredMembers.length} opted-in squad members`}>
                 {featuredMembers.slice(0, 4).map((member, index) => (
-                  <span className={`player-mini-avatar ${avatarClasses[index]}`} key={member.player_id} aria-hidden="true">
-                    {member.display_name?.slice(0, 1) ?? "S"}
+                  <span className={`player-mini-avatar ${avatarClasses[index]}`} key={member.recipient_ref} aria-hidden="true">
+                    {member.display_name.slice(0, 1)}
                   </span>
                 ))}
               </div>
-              <span><strong>The consent-safe squad</strong><small>{telemetry.squad_history.previous_session_at.length} recent sessions available</small></span>
+              <span><strong>The consent-safe squad</strong><small>{seed.recent_session_count} recent sessions available</small></span>
             </div>
             <button className="reveal-memory-button" type="button" onClick={() => void prepare()}>
               Open current memory
@@ -278,14 +238,17 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
         />
       )}
 
+      {view.kind === "no_memory" && (
+        <NoMemoryCard onRetry={() => void prepare()} />
+      )}
+
       {view.kind === "error" && (
         <StateCard title="Your memory is unavailable" message={view.message} onRetry={() => void prepare()} />
       )}
 
-      {view.kind === "ready" && sourceMatch && (
+      {view.kind === "ready" && (
         <MemoryDetail
           delivery={view.delivery}
-          telemetry={telemetry}
           onAccept={() => void decide({ decision: "accepted" })}
           onDecline={() => setView({ kind: "decline", delivery: view.delivery })}
         />
@@ -309,9 +272,7 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
       )}
 
       {view.kind === "accepted" && (
-        sourceMatch ? (
-          <MemoryDetail delivery={view.delivery} telemetry={telemetry} accepted />
-        ) : null
+        <MemoryDetail delivery={view.delivery} accepted />
       )}
 
       {view.kind === "declined" && (
@@ -331,31 +292,17 @@ export function MemoryExperience({ telemetry }: { telemetry: RawTelemetryBatchV2
 
 function MemoryDetail({
   delivery,
-  telemetry,
   onAccept,
   onDecline,
   accepted = false,
 }: {
   delivery: PendingDelivery;
-  telemetry: RawTelemetryBatchV2;
   onAccept?: () => void;
   onDecline?: () => void;
   accepted?: boolean;
 }) {
-  const members = eligibleDisplayPlayers(telemetry);
-  const currentPlayerId = telemetry.target_player_id;
-  const perspective = delivery.player_perspectives.find((item) => item.player_id === currentPlayerId);
-  const currentPlayer = members.find((member) => member.player_id === currentPlayerId);
-  const sourceMatch = findSelectedMatch(delivery, telemetry);
-  const eventMap = new Map((sourceMatch?.events ?? []).map((event) => [event.event_id, event]));
-  const evidence = delivery.memory.selected_event_ids
-    .map((eventId) => eventMap.get(eventId))
-    .filter((event): event is RawTelemetryEventV2 => Boolean(event))
-    .sort((left, right) => {
-    const leftTime = left.timestamp_seconds ?? Number.MAX_SAFE_INTEGER;
-    const rightTime = right.timestamp_seconds ?? Number.MAX_SAFE_INTEGER;
-    return leftTime - rightTime;
-  });
+  const members = delivery.invitation_roster;
+  const currentPlayer = members.find((member) => member.is_current_player);
   const requiredObjectives = delivery.next_chapter.objectives.filter((objective) => objective.required);
 
   return (
@@ -364,21 +311,21 @@ function MemoryDetail({
         <MatchArtwork members={members} />
         <div className="player-memory-copy">
           <div className="player-context-strip">
-            <strong>Free Fire</strong>
-            <span>{formatWords(sourceMatch?.mode)}</span>
-            <span>{sourceMatch?.map_name ?? "Battle Royale"}</span>
+            <strong>{formatWords(delivery.source.game)}</strong>
+            <span>{formatWords(delivery.source.mode)}</span>
+            <span>{delivery.source.map_name ?? "Battle Royale"}</span>
           </div>
           <h1 id="player-memory-title">{delivery.memory.title}</h1>
           <p>{delivery.memory.summary}</p>
           <div className="player-squad-row">
             <div className="player-avatar-stack" aria-label={`${members.length} opted-in players`}>
               {members.map((member, index) => (
-                <span className={`player-mini-avatar ${avatarClasses[index % avatarClasses.length]}`} key={member.player_id} aria-hidden="true">
-                  {member.display_name?.slice(0, 1) ?? "S"}
+                <span className={`player-mini-avatar ${avatarClasses[index % avatarClasses.length]}`} key={member.recipient_ref} aria-hidden="true">
+                  {member.display_name.slice(0, 1)}
                 </span>
               ))}
             </div>
-            <span><strong>{members.length} players joined</strong><small>Opted-in squad only</small></span>
+            <span><strong>{members.length} players can be invited</strong><small>Consent-safe squad roster</small></span>
           </div>
         </div>
       </section>
@@ -390,16 +337,16 @@ function MemoryDetail({
       </section>
 
       <details className="player-evidence">
-        <summary><span>What actually happened</span><small>{evidence.length} verified moments</small></summary>
+        <summary><span>What actually happened</span><small>{delivery.verified_moments.length} verified moments</small></summary>
         <div className="player-evidence-list">
           <p className="player-evidence-intro">The match moments behind this memory, in the order they happened.</p>
-          {evidence.map((event, index) => {
+          {delivery.verified_moments.map((moment) => {
             return (
-              <article key={event.event_id}>
-                <span aria-hidden="true">{index + 1}</span>
+              <article key={moment.sequence}>
+                <span aria-hidden="true">{moment.sequence}</span>
                 <div>
-                  <strong>{evidenceLabel(event, members)}</strong>
-                  <small>{event.location ?? "Match"} / {formatClock(event.timestamp_seconds)}</small>
+                  <strong>{moment.label}</strong>
+                  <small>{moment.location ?? "Match"} / {formatClock(moment.timestamp_seconds)}</small>
                 </div>
               </article>
             );
@@ -407,26 +354,26 @@ function MemoryDetail({
         </div>
       </details>
 
-      {perspective && currentPlayer ? (
+      {currentPlayer ? (
         <details className="player-section your-perspective-card" open>
           <summary><span>Your side of the story</span><small>{currentPlayer.display_name} / Player perspective</small></summary>
           <div className="your-perspective-body">
             <span className="your-avatar avatar-lime" aria-hidden="true">{currentPlayer.display_name?.slice(0, 1) ?? "Y"}</span>
             <div>
               <p className="your-identity"><strong>{currentPlayer.display_name}</strong><span>Player perspective</span></p>
-              <p className="your-message">{perspective.message}</p>
+              <p className="your-message">{delivery.perspective.message}</p>
             </div>
           </div>
         </details>
       ) : null}
 
       <section className="player-section player-next" aria-labelledby="reunion-idea-title">
-        <div className="next-chapter-label">Reunion idea</div>
+        <div className="next-chapter-label">Reunion idea / {formatWords(delivery.next_chapter.family)}</div>
         <h2 id="reunion-idea-title">{challengeTitle(delivery.next_chapter.title)}</h2>
         <p className="player-next-mission">{delivery.next_chapter.mission}</p>
         <ol className="player-objectives" aria-label="Reunion mission steps">
           {requiredObjectives.map((objective, index) => (
-            <li key={objective.objective_id}>
+            <li key={objective.objective_ref}>
               <span>{index + 1}</span>
               <p>{objective.description}</p>
             </li>
@@ -525,6 +472,17 @@ function DecisionErrorCard({
         <button className="reveal-memory-button" type="button" onClick={onRetry}>Try saving again</button>
         <button className="secondary-action" type="button" onClick={onBack}>Back to memory</button>
       </div>
+    </section>
+  );
+}
+
+function NoMemoryCard({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section className="player-state-card" role="status">
+      <span>No memory generated</span>
+      <h1>Nothing meaningful surfaced this time.</h1>
+      <p>MemoryOS reviewed the available squad activity and chose not to force a story from ordinary evidence.</p>
+      <button type="button" onClick={onRetry}>Check again</button>
     </section>
   );
 }

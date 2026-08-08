@@ -6,6 +6,8 @@ never mutates telemetry, prompts, provider configuration, or model selection.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pydantic import Field, model_validator
 
 from backend.models.schemas import DeliveryDecision, DeliveryDeclineReason, StrictModel
@@ -13,6 +15,7 @@ from backend.models.v2_schemas import (
     DeliveryDecisionRecordV2,
     InterpretDeliveryResultV2,
     InterpretDeliveryStatusV2,
+    MissionFamilyV2,
 )
 from backend.services.identity import contains_identity
 
@@ -23,6 +26,7 @@ class V2EvaluationSummary(StrictModel):
     cases: int = Field(ge=0)
     delivered: int = Field(ge=0)
     abstained: int = Field(ge=0)
+    rejected: int = Field(default=0, ge=0)
     claim_grounding_rate: float = Field(ge=0, le=1)
     unsupported_claim_rate: float = Field(ge=0, le=1)
     consent_leakage_rate: float = Field(ge=0, le=1)
@@ -45,6 +49,13 @@ class V2OfflineEvaluationCase(StrictModel):
     result: InterpretDeliveryResultV2
     expected_window_id: str | None = Field(default=None, min_length=1, max_length=128)
     expected_deliverable: bool | None = None
+    expected_status: InterpretDeliveryStatusV2 | None = None
+    expected_mission_family: MissionFamilyV2 | None = None
+    forbidden_offered_mission_families: list[MissionFamilyV2] = Field(
+        default_factory=list,
+        max_length=3,
+    )
+    mission_variation_group: str | None = Field(default=None, min_length=1, max_length=128)
     claim_labels: list[V2ClaimEvaluationLabel] = Field(default_factory=list, max_length=100)
     forbidden_identity_terms: list[str] = Field(default_factory=list, max_length=20)
     decision: DeliveryDecisionRecordV2 | None = None
@@ -69,6 +80,24 @@ class V2OfflineEvaluationCase(StrictModel):
             self.result.delivery_id is None or self.decision.delivery_id != self.result.delivery_id
         ):
             raise ValueError("decision must belong to this evaluation result's delivery")
+
+        if self.expected_status is not None and self.expected_deliverable is not None:
+            status_is_deliverable = (
+                self.expected_status == InterpretDeliveryStatusV2.PENDING_PLAYER_DECISION
+            )
+            if status_is_deliverable != self.expected_deliverable:
+                raise ValueError("expected_status conflicts with expected_deliverable")
+        if self.expected_mission_family is not None and self.expected_status not in {
+            None,
+            InterpretDeliveryStatusV2.PENDING_PLAYER_DECISION,
+        }:
+            raise ValueError("expected_mission_family requires an expected delivered status")
+        if len(self.forbidden_offered_mission_families) != len(
+            set(self.forbidden_offered_mission_families)
+        ):
+            raise ValueError("forbidden offered mission families must be unique")
+        if self.mission_variation_group is not None and self.expected_mission_family is None:
+            raise ValueError("mission_variation_group requires expected_mission_family")
         return self
 
 
@@ -109,6 +138,33 @@ class V2OfflineEvaluationSummary(V2EvaluationSummary):
     correction_attempts: int = Field(ge=0)
     correction_successes: int = Field(ge=0)
     correction_success_rate: float | None = Field(default=None, ge=0, le=1)
+    status_labels_evaluated: int = Field(ge=0)
+    correct_status_outcomes: int = Field(ge=0)
+    status_accuracy: float | None = Field(default=None, ge=0, le=1)
+    typed_abstention_labels_evaluated: int = Field(ge=0)
+    correct_typed_abstentions: int = Field(ge=0)
+    typed_abstention_accuracy: float | None = Field(default=None, ge=0, le=1)
+    rejection_labels_evaluated: int = Field(ge=0)
+    correct_rejections: int = Field(ge=0)
+    rejection_accuracy: float | None = Field(default=None, ge=0, le=1)
+    mission_family_labels_evaluated: int = Field(ge=0)
+    correct_mission_families: int = Field(ge=0)
+    mission_family_accuracy: float | None = Field(default=None, ge=0, le=1)
+    affordance_selection_cases_evaluated: int = Field(ge=0)
+    affordance_rankings_unique: int = Field(ge=0)
+    affordance_rankings_offered: int = Field(ge=0)
+    affordance_selections_ranked_first: int = Field(ge=0)
+    affordance_families_consistent: int = Field(ge=0)
+    affordance_reason_codes_allowed: int = Field(ge=0)
+    affordance_objective_sets_exact: int = Field(ge=0)
+    affordance_selections_compliant: int = Field(ge=0)
+    affordance_selection_compliance_rate: float = Field(ge=0, le=1)
+    forbidden_family_labels_evaluated: int = Field(ge=0)
+    forbidden_families_removed: int = Field(ge=0)
+    forbidden_family_removal_rate: float | None = Field(default=None, ge=0, le=1)
+    mission_variation_groups_evaluated: int = Field(ge=0)
+    mission_variation_groups_correct: int = Field(ge=0)
+    cross_fixture_family_variation_rate: float | None = Field(default=None, ge=0, le=1)
     provider_observations: int = Field(ge=0)
     provider_request_count: int = Field(ge=0)
     provider_latency_ms_total: float = Field(ge=0)
@@ -121,8 +177,14 @@ def summarize_v2_results(results: list[InterpretDeliveryResultV2]) -> V2Evaluati
     """Preserve the original structural summary for existing callers."""
 
     cases = len(results)
-    delivered_results = [result for result in results if result.validation.passed]
+    delivered_results = [
+        result
+        for result in results
+        if result.status == InterpretDeliveryStatusV2.PENDING_PLAYER_DECISION
+    ]
     delivered = len(delivered_results)
+    abstained = sum(result.status == InterpretDeliveryStatusV2.NOT_GENERATED for result in results)
+    rejected = sum(result.status == InterpretDeliveryStatusV2.REJECTED for result in results)
     claims = [claim for result in delivered_results for claim in result.grounded_claims]
     grounded = sum(_claim_has_structural_support(claim) for claim in claims)
     claim_count = len(claims)
@@ -133,7 +195,8 @@ def summarize_v2_results(results: list[InterpretDeliveryResultV2]) -> V2Evaluati
     return V2EvaluationSummary(
         cases=cases,
         delivered=delivered,
-        abstained=cases - delivered,
+        abstained=abstained,
+        rejected=rejected,
         claim_grounding_rate=grounded / claim_count if claim_count else 1.0,
         unsupported_claim_rate=(claim_count - grounded) / claim_count if claim_count else 0.0,
         consent_leakage_rate=privacy_failures / cases if cases else 0.0,
@@ -182,9 +245,37 @@ def summarize_v2_evaluation(
         _is_delivered(case.result) == case.expected_deliverable for case in deliverability_cases
     )
     expected_abstentions = [
-        case for case in deliverability_cases if case.expected_deliverable is False
+        case for case in cases if case.expected_status == InterpretDeliveryStatusV2.NOT_GENERATED
     ]
-    correct_abstentions = sum(not _is_delivered(case.result) for case in expected_abstentions)
+    correct_abstentions = sum(
+        case.result.status == InterpretDeliveryStatusV2.NOT_GENERATED
+        for case in expected_abstentions
+    )
+
+    status_cases = [case for case in cases if case.expected_status is not None]
+    correct_status_outcomes = sum(
+        case.result.status == case.expected_status for case in status_cases
+    )
+    rejection_cases = [
+        case for case in status_cases if case.expected_status == InterpretDeliveryStatusV2.REJECTED
+    ]
+    correct_rejections = sum(
+        case.result.status == InterpretDeliveryStatusV2.REJECTED for case in rejection_cases
+    )
+
+    family_cases = [case for case in cases if case.expected_mission_family is not None]
+    correct_mission_families = sum(
+        _selected_mission_family(case.result) == case.expected_mission_family
+        for case in family_cases
+    )
+    affordance_audits = [_audit_affordance_selection(case.result) for case in delivered_cases]
+    forbidden_family_cases = [case for case in cases if case.forbidden_offered_mission_families]
+    forbidden_families_removed = sum(
+        not (set(case.forbidden_offered_mission_families) & _offered_mission_families(case.result))
+        for case in forbidden_family_cases
+    )
+    variation_groups = _variation_groups(cases)
+    correct_variation_groups = sum(_variation_group_is_correct(group) for group in variation_groups)
 
     mission_story_connected = sum(
         _mission_connects_to_selected_story(case.result) for case in delivered_cases
@@ -238,6 +329,61 @@ def summarize_v2_evaluation(
             "correction_success_rate": (
                 correction_successes / len(correction_cases) if correction_cases else None
             ),
+            "status_labels_evaluated": len(status_cases),
+            "correct_status_outcomes": correct_status_outcomes,
+            "status_accuracy": (
+                correct_status_outcomes / len(status_cases) if status_cases else None
+            ),
+            "typed_abstention_labels_evaluated": len(expected_abstentions),
+            "correct_typed_abstentions": correct_abstentions,
+            "typed_abstention_accuracy": (
+                correct_abstentions / len(expected_abstentions) if expected_abstentions else None
+            ),
+            "rejection_labels_evaluated": len(rejection_cases),
+            "correct_rejections": correct_rejections,
+            "rejection_accuracy": (
+                correct_rejections / len(rejection_cases) if rejection_cases else None
+            ),
+            "mission_family_labels_evaluated": len(family_cases),
+            "correct_mission_families": correct_mission_families,
+            "mission_family_accuracy": (
+                correct_mission_families / len(family_cases) if family_cases else None
+            ),
+            "affordance_selection_cases_evaluated": len(affordance_audits),
+            "affordance_rankings_unique": sum(item.ranking_unique for item in affordance_audits),
+            "affordance_rankings_offered": sum(
+                item.ranking_matches_offered for item in affordance_audits
+            ),
+            "affordance_selections_ranked_first": sum(
+                item.selected_ranked_first for item in affordance_audits
+            ),
+            "affordance_families_consistent": sum(
+                item.family_consistent for item in affordance_audits
+            ),
+            "affordance_reason_codes_allowed": sum(
+                item.reason_codes_allowed for item in affordance_audits
+            ),
+            "affordance_objective_sets_exact": sum(
+                item.objective_ids_exact for item in affordance_audits
+            ),
+            "affordance_selections_compliant": sum(item.compliant for item in affordance_audits),
+            "affordance_selection_compliance_rate": (
+                sum(item.compliant for item in affordance_audits) / len(affordance_audits)
+                if affordance_audits
+                else 1.0
+            ),
+            "forbidden_family_labels_evaluated": len(forbidden_family_cases),
+            "forbidden_families_removed": forbidden_families_removed,
+            "forbidden_family_removal_rate": (
+                forbidden_families_removed / len(forbidden_family_cases)
+                if forbidden_family_cases
+                else None
+            ),
+            "mission_variation_groups_evaluated": len(variation_groups),
+            "mission_variation_groups_correct": correct_variation_groups,
+            "cross_fixture_family_variation_rate": (
+                correct_variation_groups / len(variation_groups) if variation_groups else None
+            ),
             "provider_observations": provider_observations,
             "provider_request_count": provider_request_count,
             "provider_latency_ms_total": round(provider_latency_ms_total, 2),
@@ -268,6 +414,99 @@ def _mission_is_feasible(result: InterpretDeliveryResultV2) -> bool:
 
 def _is_delivered(result: InterpretDeliveryResultV2) -> bool:
     return result.status == InterpretDeliveryStatusV2.PENDING_PLAYER_DECISION
+
+
+def _selected_mission_family(result: InterpretDeliveryResultV2) -> MissionFamilyV2 | None:
+    if result.next_chapter is not None:
+        return result.next_chapter.family
+    selection = result.studio_trace.mission_selection
+    return selection.selected_family if selection is not None else None
+
+
+def _offered_mission_families(result: InterpretDeliveryResultV2) -> set[MissionFamilyV2]:
+    return {item.family for item in result.studio_trace.mission_affordances}
+
+
+@dataclass(frozen=True)
+class _AffordanceSelectionAudit:
+    ranking_unique: bool
+    ranking_matches_offered: bool
+    selected_ranked_first: bool
+    family_consistent: bool
+    reason_codes_allowed: bool
+    objective_ids_exact: bool
+
+    @property
+    def compliant(self) -> bool:
+        return all(
+            (
+                self.ranking_unique,
+                self.ranking_matches_offered,
+                self.selected_ranked_first,
+                self.family_consistent,
+                self.reason_codes_allowed,
+                self.objective_ids_exact,
+            )
+        )
+
+
+def _audit_affordance_selection(result: InterpretDeliveryResultV2) -> _AffordanceSelectionAudit:
+    offered = {
+        affordance.affordance_id: affordance
+        for affordance in result.studio_trace.mission_affordances
+    }
+    selection = result.studio_trace.mission_selection
+    if selection is None or result.next_chapter is None:
+        return _AffordanceSelectionAudit(False, False, False, False, False, False)
+
+    ranked = selection.ranked_affordance_ids
+    selected = offered.get(selection.selected_affordance_id)
+    ranking_unique = bool(ranked) and len(ranked) == len(set(ranked))
+    ranking_matches_offered = bool(offered) and set(ranked) == set(offered)
+    selected_ranked_first = bool(ranked) and ranked[0] == selection.selected_affordance_id
+    family_consistent = bool(
+        selected is not None
+        and selection.selected_family == selected.family == result.next_chapter.family
+    )
+    reason_codes_allowed = bool(
+        selected is not None
+        and selection.reason_codes
+        and set(selection.reason_codes).issubset(set(selected.allowed_reason_codes))
+    )
+    delivered_objective_ids = [item.objective_id for item in result.next_chapter.objectives]
+    objective_ids_exact = bool(
+        selected is not None
+        and len(delivered_objective_ids) == len(set(delivered_objective_ids))
+        and set(delivered_objective_ids) == set(selected.objective_candidate_ids)
+    )
+    return _AffordanceSelectionAudit(
+        ranking_unique=ranking_unique,
+        ranking_matches_offered=ranking_matches_offered,
+        selected_ranked_first=selected_ranked_first,
+        family_consistent=family_consistent,
+        reason_codes_allowed=reason_codes_allowed,
+        objective_ids_exact=objective_ids_exact,
+    )
+
+
+def _variation_groups(
+    cases: list[V2OfflineEvaluationCase],
+) -> list[list[V2OfflineEvaluationCase]]:
+    grouped: dict[str, list[V2OfflineEvaluationCase]] = {}
+    for case in cases:
+        if case.mission_variation_group is not None:
+            grouped.setdefault(case.mission_variation_group, []).append(case)
+    return [
+        group
+        for group in grouped.values()
+        if len(group) >= 2 and len({case.expected_mission_family for case in group}) >= 2
+    ]
+
+
+def _variation_group_is_correct(group: list[V2OfflineEvaluationCase]) -> bool:
+    expected = [case.expected_mission_family for case in group]
+    observed = [_selected_mission_family(case.result) for case in group]
+    return observed == expected and len(set(observed)) == len(set(expected))
 
 
 def _selected_window_id(result: InterpretDeliveryResultV2) -> str | None:

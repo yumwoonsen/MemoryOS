@@ -259,3 +259,28 @@ Groq `openai/gpt-oss-120b` and prompt `memory-interpreter-v2.4-grounded-controls
 `pending_player_decision` delivery without correction or deterministic narrative fallback. This
 single smoke result proves operability, not a statistical reliability advantage over the former
 schema or equivalent behavior from the default 20B model.
+
+## ADR-019 — One delivered mission selected from dynamic affordances
+
+**Status:** accepted for v2.1
+
+The player receives one Next Chapter. Internally, deterministic preparation may offer three
+mission families: reunion, role reversal, and redemption. An affordance groups the backend-owned
+objective capabilities that together form one complete mission. AI ranks the offered affordances,
+selects one, and authors its language; it cannot introduce a fourth family, new assignments, or new
+verification rules.
+
+Invitation eligibility depends on memory-appearance and mission-invitation consent, not current
+activity. Active status is a current-context signal and optional Online/Away presentation detail.
+An inactive but consented original squad member can receive the prototype invitation and become
+Joined without altering the source activity snapshot.
+
+The v2.1 model may return an allowlisted `not_generated` abstention when eligible telemetry does
+not contain a moment worth delivering. A repairable invalid generation receives one correction
+attempt; a second failure is withheld. A deterministic evidence render is not substituted into
+the live player path.
+
+The prototype player journey after acceptance is intentionally static and clearly labelled:
+invitation, lobby assembly, game start, and a successful family-specific outcome are simulated.
+The dynamic product claim ends at validated mission selection. Authenticated post-match telemetry
+and authoritative mission-result verification remain deferred.

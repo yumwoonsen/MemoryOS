@@ -14,13 +14,17 @@ from backend.models.v2_schemas import (
     EligibleEventWindow,
     EvidenceFactV2,
     MediaReferenceV2,
+    MissionAffordanceV2,
     MissionCapabilityCandidate,
+    MissionFamilyV2,
+    MissionSelectionReasonCodeV2,
     NormalizedEventV2,
     NormalizedMatchV2,
     NormalizedPlayerV2,
     NormalizedTelemetryV2,
     RawTelemetryBatchV2,
     SocialContextV2,
+    StoryBriefV2,
     V2ValidationIssue,
 )
 from backend.services.content_safety import (
@@ -219,6 +223,8 @@ class PreparedInterpretationV2:
     ledger: ConsentSafeEvidenceLedgerV2 | None
     windows: list[EligibleEventWindow]
     mission_candidates: list[MissionCapabilityCandidate]
+    mission_affordances: list[MissionAffordanceV2]
+    story_brief: StoryBriefV2 | None
     issues: list[V2ValidationIssue]
     privacy_redaction_count: int
     forbidden_identity_terms: frozenset[str]
@@ -470,7 +476,7 @@ class TelemetryPreparerV2:
             social_context=safe_social,
             media_references=safe_media,
         )
-        windows = self._build_windows(normalized)
+        windows = self._story_windows(normalized, self._build_windows(normalized))
         if not windows:
             issues.append(
                 self._issue(
@@ -499,8 +505,8 @@ class TelemetryPreparerV2:
         normalized = normalized.model_copy(
             update={"matches": projected_matches, "media_references": projected_media}
         )
-        mission_candidates = self._mission_candidates(normalized, windows)
-        if not mission_candidates:
+        mission_candidates, mission_affordances = self._mission_candidates(normalized, windows)
+        if not mission_affordances:
             issues.append(
                 self._issue(
                     "no_feasible_mission",
@@ -508,17 +514,33 @@ class TelemetryPreparerV2:
                 )
             )
         ledger = self._ledger(normalized)
+        invitation_player_ids = [
+            player.player_id
+            for player in normalized.players
+            if player.memory_eligible and player.invitation_eligible
+        ]
+        story_brief = (
+            StoryBriefV2(
+                request_id=normalized.request_id,
+                target_player_id=normalized.target_player_id,
+                players_requiring_perspectives=[
+                    player for player in normalized.players if player.memory_eligible
+                ],
+                invitation_player_ids=invitation_player_ids,
+                active_player_ids=normalized.current_context.active_player_ids,
+                evidence_ledger=ledger,
+                eligible_event_windows=windows,
+                mission_candidates=mission_candidates,
+                mission_affordances=mission_affordances,
+                squad_history=normalized.squad_history,
+                current_context=normalized.current_context,
+                media_references=normalized.media_references,
+            )
+            if mission_affordances
+            else None
+        )
         provider_core = {
-            "evidence_ledger": ledger.model_dump(mode="json"),
-            "squad_history": normalized.squad_history.model_dump(mode="json"),
-            "current_context": normalized.current_context.model_dump(mode="json"),
-            "eligible_event_windows": [window.model_dump(mode="json") for window in windows],
-            "mission_candidates": [
-                candidate.model_dump(mode="json") for candidate in mission_candidates
-            ],
-            "media_references": [
-                media.model_dump(mode="json") for media in normalized.media_references
-            ],
+            "story_brief": story_brief.model_dump(mode="json") if story_brief else None,
         }
         outbound_strings = list(self._recursive_strings(provider_core))
         if any(
@@ -545,6 +567,8 @@ class TelemetryPreparerV2:
             ledger=ledger,
             windows=windows,
             mission_candidates=mission_candidates,
+            mission_affordances=mission_affordances,
+            story_brief=story_brief,
             issues=issues,
             privacy_redaction_count=privacy_redaction_count,
             forbidden_identity_terms=frozenset(forbidden_terms),
@@ -740,6 +764,24 @@ class TelemetryPreparerV2:
         return windows
 
     @staticmethod
+    def _story_windows(
+        normalized: NormalizedTelemetryV2,
+        windows: list[EligibleEventWindow],
+    ) -> list[EligibleEventWindow]:
+        """Cap provider windows by structural facts, never narrative significance."""
+
+        started_at = {match.match_id: match.started_at.timestamp() for match in normalized.matches}
+        return sorted(
+            windows,
+            key=lambda item: (
+                -len(item.participant_ids),
+                -len(item.event_ids),
+                -started_at[item.match_id],
+                item.window_id,
+            ),
+        )[:4]
+
+    @staticmethod
     def _events_connected(left: NormalizedEventV2, right: NormalizedEventV2) -> bool:
         if abs(left.timestamp_seconds - right.timestamp_seconds) > 90:
             return False
@@ -753,25 +795,26 @@ class TelemetryPreparerV2:
     def _mission_candidates(
         normalized: NormalizedTelemetryV2,
         windows: list[EligibleEventWindow],
-    ) -> list[MissionCapabilityCandidate]:
+    ) -> tuple[list[MissionCapabilityCandidate], list[MissionAffordanceV2]]:
         if not windows or not normalized.current_context.reunion_eligible:
-            return []
-        active_ids = set(normalized.current_context.active_player_ids)
+            return [], []
         invited_ids = [
             player.player_id
             for player in normalized.players
-            if (
-                player.memory_eligible
-                and player.invitation_eligible
-                and player.player_id in active_ids
-            )
+            if player.memory_eligible and player.invitation_eligible
         ]
-        if len(invited_ids) < 2:
-            return []
+        if len(invited_ids) < 2 or normalized.target_player_id not in invited_ids:
+            return [], []
         candidates: list[MissionCapabilityCandidate] = []
+        affordances: list[MissionAffordanceV2] = []
         all_events = {
             event.event_id: event for match in normalized.matches for event in match.events
         }
+        near_miss_match_ids = [
+            match.match_id
+            for match in normalized.matches
+            if match.placement is not None and 4 <= match.placement <= 6
+        ]
         for window in windows:
             match = next(
                 (item for item in normalized.matches if item.match_id == window.match_id),
@@ -781,12 +824,69 @@ class TelemetryPreparerV2:
                 continue
             suffix = window.window_id.replace(":", "_")
             source_ids = window.event_ids
-            candidates.extend(
-                [
+            reunion_id = f"affordance:reunion:{suffix}"
+            reunion_candidates = [
+                MissionCapabilityCandidate(
+                    candidate_id=f"objective:reunion:participants:{suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.RECREATE,
+                    source_event_ids=source_ids,
+                    verification=VerificationRule(
+                        metric="squad.participant_ids",
+                        operator="contains_all",
+                        target=invited_ids,
+                    ),
+                ),
+                MissionCapabilityCandidate(
+                    candidate_id=f"objective:reunion:match:{suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.RECREATE,
+                    source_event_ids=source_ids,
+                    verification=VerificationRule(
+                        metric="squad.matches_completed",
+                        operator="at_least",
+                        target=1,
+                    ),
+                ),
+            ]
+            candidates.extend(reunion_candidates)
+            affordances.append(
+                MissionAffordanceV2(
+                    affordance_id=reunion_id,
+                    family=MissionFamilyV2.REUNION,
+                    window_id=window.window_id,
+                    source_event_ids=source_ids,
+                    source_match_ids=[window.match_id],
+                    source_context_ids=["context:reunion_eligible"],
+                    parameters={"invitation_player_ids": invited_ids},
+                    objective_candidate_ids=[
+                        candidate.candidate_id for candidate in reunion_candidates
+                    ],
+                    allowed_reason_codes=[
+                        MissionSelectionReasonCodeV2.SHARED_SQUAD_REUNION,
+                        MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE,
+                    ],
+                )
+            )
+
+            eligible_revives = [
+                all_events[event_id]
+                for event_id in source_ids
+                if all_events[event_id].event_type == CanonicalEventType.REVIVE
+                and all_events[event_id].actor_id in invited_ids
+                and all_events[event_id].target_id in invited_ids
+                and all_events[event_id].actor_id != all_events[event_id].target_id
+            ]
+            # One deterministic role-reversal affordance per window keeps the Story Brief bounded.
+            for revive_index, revive in enumerate(eligible_revives[:1], start=1):
+                assert revive.actor_id is not None
+                assert revive.target_id is not None
+                role_suffix = f"{suffix}:{revive_index}"
+                role_candidates = [
                     MissionCapabilityCandidate(
-                        candidate_id=f"return_with_squad:{suffix}",
+                        candidate_id=f"objective:role_reversal:participants:{role_suffix}",
                         window_id=window.window_id,
-                        recipe=QuestRecipe.RECREATE,
+                        recipe=QuestRecipe.REMIX,
                         source_event_ids=source_ids,
                         verification=VerificationRule(
                             metric="squad.participant_ids",
@@ -795,7 +895,68 @@ class TelemetryPreparerV2:
                         ),
                     ),
                     MissionCapabilityCandidate(
-                        candidate_id=f"complete_one_match:{suffix}",
+                        candidate_id=f"objective:role_reversal:match:{role_suffix}",
+                        window_id=window.window_id,
+                        recipe=QuestRecipe.REMIX,
+                        source_event_ids=source_ids,
+                        verification=VerificationRule(
+                            metric="squad.matches_completed",
+                            operator="at_least",
+                            target=1,
+                        ),
+                    ),
+                    MissionCapabilityCandidate(
+                        candidate_id=f"objective:role_reversal:first_revive:{role_suffix}",
+                        window_id=window.window_id,
+                        recipe=QuestRecipe.REMIX,
+                        assigned_player_id=revive.target_id,
+                        source_event_ids=[revive.event_id],
+                        verification=VerificationRule(
+                            metric="match.first_squad_revive_actor_id",
+                            operator="equals",
+                            target=revive.target_id,
+                        ),
+                    ),
+                ]
+                candidates.extend(role_candidates)
+                affordances.append(
+                    MissionAffordanceV2(
+                        affordance_id=f"affordance:role_reversal:{role_suffix}",
+                        family=MissionFamilyV2.ROLE_REVERSAL,
+                        window_id=window.window_id,
+                        source_event_ids=[revive.event_id],
+                        source_match_ids=[window.match_id],
+                        parameters={
+                            "original_rescuer_id": revive.actor_id,
+                            "original_saved_player_id": revive.target_id,
+                            "invitation_player_ids": invited_ids,
+                        },
+                        objective_candidate_ids=[
+                            candidate.candidate_id for candidate in role_candidates
+                        ],
+                        allowed_reason_codes=[
+                            MissionSelectionReasonCodeV2.DIRECTLY_INVERTS_ORIGINAL_ROLES,
+                            MissionSelectionReasonCodeV2.PLAYER_SPECIFIC,
+                            MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE,
+                        ],
+                    )
+                )
+
+            if len(near_miss_match_ids) >= 2 and window.match_id in near_miss_match_ids:
+                redemption_candidates = [
+                    MissionCapabilityCandidate(
+                        candidate_id=f"objective:redemption:participants:{suffix}",
+                        window_id=window.window_id,
+                        recipe=QuestRecipe.RESOLVE,
+                        source_event_ids=source_ids,
+                        verification=VerificationRule(
+                            metric="squad.participant_ids",
+                            operator="contains_all",
+                            target=invited_ids,
+                        ),
+                    ),
+                    MissionCapabilityCandidate(
+                        candidate_id=f"objective:redemption:match:{suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.RESOLVE,
                         source_event_ids=source_ids,
@@ -805,25 +966,46 @@ class TelemetryPreparerV2:
                             target=1,
                         ),
                     ),
-                ]
-            )
-            event_types = {all_events[event_id].event_type for event_id in source_ids}
-            if CanonicalEventType.REVIVE not in event_types:
-                continue
-            candidates.append(
-                MissionCapabilityCandidate(
-                    candidate_id=f"squad_revive:{suffix}",
-                    window_id=window.window_id,
-                    recipe=QuestRecipe.REMIX,
-                    source_event_ids=source_ids,
-                    verification=VerificationRule(
-                        metric="squad.revive_count",
-                        operator="at_least",
-                        target=1,
+                    MissionCapabilityCandidate(
+                        candidate_id=f"objective:redemption:top_three:{suffix}",
+                        window_id=window.window_id,
+                        recipe=QuestRecipe.RESOLVE,
+                        source_event_ids=source_ids,
+                        verification=VerificationRule(
+                            metric="match.top_three_reached",
+                            operator="equals",
+                            target=True,
+                        ),
                     ),
+                ]
+                candidates.extend(redemption_candidates)
+                affordances.append(
+                    MissionAffordanceV2(
+                        affordance_id=f"affordance:redemption:{suffix}",
+                        family=MissionFamilyV2.REDEMPTION,
+                        window_id=window.window_id,
+                        source_event_ids=source_ids,
+                        source_match_ids=near_miss_match_ids,
+                        parameters={
+                            "source_placements": [
+                                str(item.placement)
+                                for item in normalized.matches
+                                if item.match_id in near_miss_match_ids
+                            ],
+                            "target_placement_max": 3,
+                            "invitation_player_ids": invited_ids,
+                        },
+                        objective_candidate_ids=[
+                            candidate.candidate_id for candidate in redemption_candidates
+                        ],
+                        allowed_reason_codes=[
+                            MissionSelectionReasonCodeV2.REPEATED_NEAR_MISS,
+                            MissionSelectionReasonCodeV2.MEASURABLE_IMPROVEMENT,
+                            MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE,
+                        ],
+                    )
                 )
-            )
-        return candidates
+        return candidates, affordances
 
     @staticmethod
     def _ledger(normalized: NormalizedTelemetryV2) -> ConsentSafeEvidenceLedgerV2:

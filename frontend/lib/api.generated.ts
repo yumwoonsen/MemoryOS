@@ -341,6 +341,9 @@ export interface components {
         };
         /** DeliveryNextChapterV2 */
         DeliveryNextChapterV2: {
+            family: components["schemas"]["MissionFamilyV2"];
+            /** Invitation Player Ids */
+            invitation_player_ids: string[];
             /** Mission */
             mission: string;
             /** Objectives */
@@ -631,10 +634,10 @@ export interface components {
             request_id: string;
             /**
              * Schema Version
-             * @default 2.0
+             * @default 2.1
              * @constant
              */
-            schema_version: "2.0";
+            schema_version: "2.1";
             status: components["schemas"]["InterpretDeliveryStatusV2"];
             studio_trace: components["schemas"]["StudioInterpretationTraceV2"];
             validation: components["schemas"]["ProposalValidationReportV2"];
@@ -643,7 +646,7 @@ export interface components {
          * InterpretDeliveryStatusV2
          * @enum {string}
          */
-        InterpretDeliveryStatusV2: "pending_player_decision" | "rejected";
+        InterpretDeliveryStatusV2: "pending_player_decision" | "not_generated" | "rejected";
         /**
          * IssueSeverity
          * @enum {string}
@@ -888,6 +891,31 @@ export interface components {
          * @enum {string}
          */
         MemoryType: "chaos" | "comeback" | "clutch" | "ritual" | "first" | "other";
+        /**
+         * MissionAffordanceV2
+         * @description One complete, backend-feasible continuation offered to the interpreter.
+         */
+        MissionAffordanceV2: {
+            /** Affordance Id */
+            affordance_id: string;
+            /** Allowed Reason Codes */
+            allowed_reason_codes: components["schemas"]["MissionSelectionReasonCodeV2"][];
+            family: components["schemas"]["MissionFamilyV2"];
+            /** Objective Candidate Ids */
+            objective_candidate_ids: string[];
+            /** Parameters */
+            parameters?: {
+                [key: string]: string | number | boolean | string[];
+            };
+            /** Source Context Ids */
+            source_context_ids?: string[];
+            /** Source Event Ids */
+            source_event_ids: string[];
+            /** Source Match Ids */
+            source_match_ids: string[];
+            /** Window Id */
+            window_id: string;
+        };
         /** MissionCapabilityCandidate */
         MissionCapabilityCandidate: {
             /** Assigned Player Id */
@@ -900,6 +928,26 @@ export interface components {
             verification: components["schemas"]["VerificationRule"];
             /** Window Id */
             window_id: string;
+        };
+        /**
+         * MissionFamilyV2
+         * @enum {string}
+         */
+        MissionFamilyV2: "reunion" | "role_reversal" | "redemption";
+        /**
+         * MissionSelectionReasonCodeV2
+         * @enum {string}
+         */
+        MissionSelectionReasonCodeV2: "shared_squad_reunion" | "directly_inverts_original_roles" | "player_specific" | "repeated_near_miss" | "measurable_improvement" | "deterministically_verifiable";
+        /** MissionSelectionV2 */
+        MissionSelectionV2: {
+            /** Ranked Affordance Ids */
+            ranked_affordance_ids: string[];
+            /** Reason Codes */
+            reason_codes: components["schemas"]["MissionSelectionReasonCodeV2"][];
+            /** Selected Affordance Id */
+            selected_affordance_id: string;
+            selected_family: components["schemas"]["MissionFamilyV2"];
         };
         /** NextChapter */
         NextChapter: {
@@ -1060,9 +1108,9 @@ export interface components {
             /**
              * Schema Version
              * @default 2.0
-             * @constant
+             * @enum {string}
              */
-            schema_version: "2.0";
+            schema_version: "2.0" | "2.1";
             social_context?: components["schemas"]["SocialContextV2"] | null;
             squad: components["schemas"]["RawSquadV2"];
             squad_history?: components["schemas"]["SquadHistoryV2"];
@@ -1236,6 +1284,11 @@ export interface components {
         };
         /** StudioInterpretationTraceV2 */
         StudioInterpretationTraceV2: {
+            /**
+             * Active Player Count
+             * @default 0
+             */
+            active_player_count: number;
             /** Claim Mappings */
             claim_mappings?: components["schemas"]["StudioClaimTraceV2"][];
             /**
@@ -1245,8 +1298,16 @@ export interface components {
             correction_attempted: boolean;
             /** Eligible Windows */
             eligible_windows?: components["schemas"]["EligibleEventWindow"][];
+            /**
+             * Invitation Eligible Count
+             * @default 0
+             */
+            invitation_eligible_count: number;
+            /** Mission Affordances */
+            mission_affordances?: components["schemas"]["MissionAffordanceV2"][];
             /** Mission Candidates */
             mission_candidates?: components["schemas"]["MissionCapabilityCandidate"][];
+            mission_selection?: components["schemas"]["MissionSelectionV2"] | null;
             /** Normalized Event Count */
             normalized_event_count: number;
             /** Normalized Match Count */

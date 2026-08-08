@@ -8,49 +8,40 @@ import { usePlayerFlow } from "../player-flow-provider";
 import { challengeTitle, deliveryModeLabel } from "@/lib/delivery-flow";
 import type { PendingDelivery } from "@/lib/delivery-flow";
 import {
-  areInviteesReady,
+  areInviteesJoined,
   buildInvitees,
   createContinuationChapter,
-  createSyntheticRematch,
-  verifyMission,
+  createPrototypeMatchOutcome,
 } from "@/lib/reunion-flow";
 import type {
   ContinuationChapter,
+  InvitationResponse,
   Invitee,
-  MissionVerification,
+  PrototypeMatchOutcome,
 } from "@/lib/reunion-flow";
 
-type MissionView =
-  | { kind: "ready" }
-  | { kind: "invitation"; readyIds: string[] }
-  | { kind: "verifying" }
-  | { kind: "continuation"; verification: MissionVerification; chapter: ContinuationChapter }
-  | { kind: "error"; message: string };
-
 const avatarClasses = ["avatar-lime", "avatar-gold", "avatar-blue", "avatar-pink"];
+
+function formatWords(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 export function MissionExperience() {
   const {
     flow,
+    acceptAllInvitees,
     completeMission,
+    openInvitation,
     setChapterFeedback,
-    setInvitationReadyIds,
+    startPrototypeMatch,
   } = usePlayerFlow();
-  const [view, setView] = useState<MissionView>(() => flow.invitationReadyIds
-    ? { kind: "invitation", readyIds: flow.invitationReadyIds }
-    : { kind: "ready" });
+  const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("Reunion mission screen ready.");
   const simulationSequence = useRef(0);
   const delivery = flow.missionAccepted ? flow.delivery : null;
   const invitees = useMemo(
-    () => delivery
-      ? buildInvitees(
-          delivery.player_perspectives,
-          flow.currentPlayerId ?? undefined,
-          flow.invitationPlayerIds ?? [],
-        )
-      : [],
-    [delivery, flow.currentPlayerId, flow.invitationPlayerIds],
+    () => delivery ? buildInvitees(delivery.invitation_roster) : [],
+    [delivery],
   );
 
   useEffect(() => () => {
@@ -75,72 +66,70 @@ export function MissionExperience() {
     );
   }
 
-  const continuation = view.kind === "continuation"
-    ? { verification: view.verification, chapter: view.chapter }
-    : flow.continuation;
-  const busy = view.kind === "verifying";
+  const session = flow.invitationSession;
+  const continuation = flow.continuation;
+  const busy = session?.state === "match_started" && !continuation;
   const status = continuation
     ? "Story continued"
-    : view.kind === "invitation"
-      ? "Squad invitation"
-      : busy
-        ? "Checking match"
-        : view.kind === "error"
-          ? "Mission paused"
-        : "Active mission";
+    : error
+      ? "Mission paused"
+      : session?.state === "sent" || session?.state === "lobby_ready"
+        ? "Squad invitation"
+        : busy
+          ? "Prototype game"
+          : "Active mission";
 
   function beginInvitation() {
     if (invitees.length < 2) {
-      setView({ kind: "error", message: "There are not enough opted-in squad members to continue." });
+      setError("There are not enough invitation-eligible squad members to continue.");
       return;
     }
-    const currentPlayer = invitees.find((invitee) => invitee.is_current_player);
-    if (!currentPlayer) {
-      setView({ kind: "error", message: "The current player is not eligible for this reunion lobby." });
+    if (!invitees.some((invitee) => invitee.is_current_player)) {
+      setError("The current player is not eligible for this reunion lobby.");
       return;
     }
-    const readyIds = [currentPlayer.player_id];
-    setInvitationReadyIds(readyIds);
-    setView({ kind: "invitation", readyIds });
-    setAnnouncement("The privacy-safe squad lobby is open.");
+    setError(null);
+    openInvitation();
+    setAnnouncement("Invitations were sent. You joined first while your squad responses are pending.");
   }
 
-  function acceptInvitations() {
-    if (view.kind !== "invitation") return;
-    const readyIds = invitees.map((invitee) => invitee.player_id);
-    setInvitationReadyIds(readyIds);
-    setView({ kind: "invitation", readyIds });
-    setAnnouncement("Every invited squad member accepted and joined the lobby.");
+  function simulateAcceptances() {
+    if (session?.state !== "sent") return;
+    acceptAllInvitees();
+    setAnnouncement("Every invitation-eligible squad member accepted and joined the lobby.");
   }
 
-  async function simulateMatch() {
-    if (view.kind !== "invitation" || !delivery) return;
-    if (!areInviteesReady(invitees, view.readyIds)) {
-      setView({ kind: "error", message: "Every invited squad member must accept before the game can start." });
-      setAnnouncement("The game is waiting for every invited squad member to accept.");
+  async function simulatePrototypeMatch() {
+    if (session?.state !== "lobby_ready" || !delivery) return;
+    const selectedDelivery = delivery;
+    if (!areInviteesJoined(invitees, session.recipients)) {
+      setError("Every invited squad member must join before the game can start.");
       return;
     }
     const simulationId = ++simulationSequence.current;
-    setView({ kind: "verifying" });
-    setAnnouncement("The prototype game has started with the accepted squad.");
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 700));
+    setError(null);
+    startPrototypeMatch();
+    setAnnouncement("Prototype match simulation started.");
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
     if (simulationId !== simulationSequence.current) return;
-    const matchResult = createSyntheticRematch(invitees);
-    const verification = verifyMission(delivery.next_chapter.objectives, matchResult);
-    const chapter = createContinuationChapter(delivery.memory, delivery.next_chapter, verification);
+
+    const outcome = createPrototypeMatchOutcome(
+      selectedDelivery.next_chapter.family,
+      invitees,
+      selectedDelivery.next_chapter.objectives,
+    );
+    const chapter = createContinuationChapter(selectedDelivery.memory, selectedDelivery.next_chapter, outcome);
     if (!chapter) {
-      setView({ kind: "error", message: "The rematch did not complete every required mission objective." });
-      setAnnouncement("The reunion mission is still in progress.");
+      setError("The prototype completion state could not be created.");
       return;
     }
-    completeMission(verification, chapter);
-    setView({ kind: "continuation", verification, chapter });
-    setAnnouncement("All required objectives were verified. The story continues.");
+    completeMission(outcome, chapter);
+    setAnnouncement(`${outcome.completion_copy} The story continues.`);
   }
 
   function hideChapter() {
     setChapterFeedback("hidden");
-    setAnnouncement("This chapter is hidden from the session timeline without disputing match facts.");
+    setAnnouncement("This chapter is hidden from the session timeline without disputing the original match facts.");
   }
 
   return (
@@ -154,37 +143,30 @@ export function MissionExperience() {
     >
       {continuation ? (
         <ContinuationCard
-          verification={continuation.verification}
+          outcome={continuation.outcome}
           chapter={continuation.chapter}
-          feedback={flow.continuation?.feedback ?? null}
+          feedback={continuation.feedback}
           onHide={hideChapter}
         />
-      ) : view.kind === "ready" ? (
-        <MissionReadyCard delivery={delivery} invitees={invitees} onContinue={beginInvitation} />
-      ) : view.kind === "invitation" ? (
-        <InvitationCard
-          delivery={delivery}
-          invitees={invitees}
-          readyIds={view.readyIds}
-          onAccept={acceptInvitations}
-          onSimulate={() => void simulateMatch()}
-        />
-      ) : view.kind === "verifying" ? (
-        <ProcessingCard />
-      ) : view.kind === "error" ? (
+      ) : error ? (
         <section className="player-state-card" role="alert">
           <span>Mission paused</span>
           <h1>The reunion could not continue.</h1>
-          <p>{view.message}</p>
-          <button
-            type="button"
-            onClick={() => setView(flow.invitationReadyIds
-              ? { kind: "invitation", readyIds: flow.invitationReadyIds }
-              : { kind: "ready" })}
-          >
-            Return to mission
-          </button>
+          <p>{error}</p>
+          <button type="button" onClick={() => setError(null)}>Return to mission</button>
         </section>
+      ) : !session ? (
+        <MissionReadyCard delivery={delivery} invitees={invitees} onContinue={beginInvitation} />
+      ) : session.state === "sent" || session.state === "lobby_ready" ? (
+        <InvitationCard
+          delivery={delivery}
+          invitees={invitees}
+          recipients={session.recipients}
+          onAccept={simulateAcceptances}
+          onStart={() => void simulatePrototypeMatch()}
+        />
+      ) : session.state === "match_started" ? (
+        <ProcessingCard family={delivery.next_chapter.family} />
       ) : null}
     </PlayerShell>
   );
@@ -200,24 +182,28 @@ function MissionReadyCard({
   onContinue: () => void;
 }) {
   const requiredObjectives = delivery.next_chapter.objectives.filter((objective) => objective.required);
+  const awayCount = invitees.filter((invitee) => invitee.activity === "away").length;
   return (
     <section className="history-intro mission-start-card" aria-labelledby="mission-title">
-      <p className="demo-kicker">Active mission</p>
+      <p className="demo-kicker">Active mission / {formatWords(delivery.next_chapter.family)}</p>
       <h1 id="mission-title">{challengeTitle(delivery.next_chapter.title)}</h1>
       <p className="mission-source-memory">From “{delivery.memory.title}”</p>
       <p>{delivery.next_chapter.mission}</p>
       <ObjectiveList objectives={requiredObjectives} />
       <div className="safe-squad-block">
-        <span className="next-chapter-label">Opted-in squad only</span>
+        <span className="next-chapter-label">Invitation-eligible squad</span>
         <div className="player-squad-row mission-eligible-summary">
-          <div className="player-avatar-stack" aria-label={`${invitees.length} eligible opted-in players`}>
+          <div className="player-avatar-stack" aria-label={`${invitees.length} invitation-eligible players`}>
             {invitees.slice(0, 4).map((invitee, index) => (
-              <span className={`player-mini-avatar ${avatarClasses[index % avatarClasses.length]}`} key={invitee.player_id} aria-hidden="true">
+              <span className={`player-mini-avatar ${avatarClasses[index % avatarClasses.length]}`} key={invitee.recipient_ref} aria-hidden="true">
                 {invitee.display_name.slice(0, 1)}
               </span>
             ))}
           </div>
-          <span><strong>{invitees.length} eligible players</strong><small>Full roster appears with the invitation</small></span>
+          <span>
+            <strong>{invitees.length} players can be invited</strong>
+            <small>{awayCount ? `${awayCount} away player${awayCount === 1 ? "" : "s"} can still rejoin` : "Everyone is currently online"}</small>
+          </span>
         </div>
       </div>
       <button className="reveal-memory-button" type="button" onClick={onContinue}>Send squad invite</button>
@@ -229,49 +215,50 @@ function MissionReadyCard({
 function InvitationCard({
   delivery,
   invitees,
-  readyIds,
+  recipients,
   onAccept,
-  onSimulate,
+  onStart,
 }: {
   delivery: PendingDelivery;
   invitees: Invitee[];
-  readyIds: string[];
+  recipients: InvitationResponse[];
   onAccept: () => void;
-  onSimulate: () => void;
+  onStart: () => void;
 }) {
-  const allReady = areInviteesReady(invitees, readyIds);
+  const allJoined = areInviteesJoined(invitees, recipients);
+  const joinedCount = recipients.filter((recipient) => recipient.response !== "pending").length;
   const waitingNames = invitees
-    .filter((invitee) => !readyIds.includes(invitee.player_id))
+    .filter((invitee) => recipients.find((recipient) => recipient.recipient_ref === invitee.recipient_ref)?.response === "pending")
     .map((invitee) => invitee.display_name);
   return (
     <section className="history-intro invitation-card" aria-labelledby="invitation-title">
       <p className="demo-kicker">Squad invite</p>
       <h1 id="invitation-title">Bring the squad back.</h1>
-      <p>{challengeTitle(delivery.next_chapter.title)} is ready for the players who opted in.</p>
-      <InviteeList invitees={invitees} readyIds={readyIds} />
+      <p>{challengeTitle(delivery.next_chapter.title)} is ready for every player who allowed reunion invitations.</p>
+      <InviteeList invitees={invitees} recipients={recipients} />
       <div className="squad-ready-count" aria-live="polite">
-        <strong>{readyIds.length}/{invitees.length}</strong>
-        <span>squad ready</span>
+        <strong>{joinedCount}/{invitees.length}</strong>
+        <span>in lobby</span>
       </div>
-      {allReady ? (
-        <button className="reveal-memory-button" type="button" onClick={onSimulate}>Start game</button>
+      {allJoined ? (
+        <button className="reveal-memory-button" type="button" onClick={onStart}>Start game</button>
       ) : (
         <button className="reveal-memory-button" type="button" onClick={onAccept}>
           {waitingNames.length === 1 ? `Simulate ${waitingNames[0]} accepting` : "Simulate squad accepting"}
         </button>
       )}
-      <p className="prototype-boundary">This remains a labelled demo; no live match telemetry is being claimed.</p>
+      <p className="prototype-boundary">Prototype only — invitation responses and lobby joining are simulated.</p>
     </section>
   );
 }
 
 function ContinuationCard({
-  verification,
+  outcome,
   chapter,
   feedback,
   onHide,
 }: {
-  verification: MissionVerification;
+  outcome: PrototypeMatchOutcome;
   chapter: ContinuationChapter;
   feedback: "hidden" | null;
   onHide: () => void;
@@ -279,22 +266,22 @@ function ContinuationCard({
   return (
     <>
       <section className="story-continues-card" aria-labelledby="story-continues-title">
-        <p className="demo-kicker">Mission complete</p>
+        <p className="demo-kicker">Mission complete / {formatWords(outcome.family)}</p>
         <h1 id="story-continues-title">Story Continues: {chapter.title}</h1>
         <p>{chapter.summary}</p>
         <div className="verification-summary">
-          <strong>{verification.required_passed}/{verification.required_total}</strong>
-          <span>required objectives verified</span>
+          <strong>{outcome.objective_results.length}/{outcome.objective_results.length}</strong>
+          <span>prototype objectives completed</span>
         </div>
         <ul className="verification-list">
-          {verification.objective_results.filter((objective) => objective.required).map((objective) => (
-            <li className={objective.passed ? "passed" : "failed"} key={objective.objective_id}>
-              <span aria-hidden="true">{objective.passed ? "✓" : "×"}</span>
+          {outcome.objective_results.map((objective) => (
+            <li className="passed" key={objective.objective_ref}>
+              <span aria-hidden="true">✓</span>
               <p>{objective.description}</p>
             </li>
           ))}
         </ul>
-        <p className="prototype-boundary">Verified against a labelled synthetic new-match result.</p>
+        <p className="prototype-boundary">Prototype match simulation — this successful outcome is scripted and does not claim real or live match telemetry.</p>
       </section>
 
       <section className="chapter-feedback-card" aria-labelledby="chapter-action-title">
@@ -302,17 +289,12 @@ function ContinuationCard({
         <h2 id="chapter-action-title">What should happen to this sequel?</h2>
         {feedback === "hidden" ? (
           <>
-            <p className="feedback-complete" role="status">Hidden from this session timeline. This does not dispute the verified match result.</p>
+            <p className="feedback-complete" role="status">Hidden from this session timeline. This does not dispute the original memory facts.</p>
             <Link className="secondary-action history-home-action" href="/history#latest">View squad history</Link>
           </>
         ) : (
           <div className="review-actions">
-            <Link
-              className="reveal-memory-button history-home-action"
-              href="/history#latest"
-            >
-              View squad history
-            </Link>
+            <Link className="reveal-memory-button history-home-action" href="/history#latest">View squad history</Link>
             <button className="secondary-action" type="button" onClick={onHide}>Hide this chapter</button>
           </div>
         )}
@@ -322,13 +304,13 @@ function ContinuationCard({
   );
 }
 
-function ProcessingCard() {
+function ProcessingCard({ family }: { family: PendingDelivery["next_chapter"]["family"] }) {
   return (
     <section className="demo-processing-card" role="status">
       <div className="demo-processing-mark" aria-hidden="true">M</div>
-      <p className="demo-kicker">Prototype match</p>
+      <p className="demo-kicker">Prototype match simulation / {formatWords(family)}</p>
       <h1>Game in progress.</h1>
-      <p className="reveal-loading-copy">The squad is completing the AI-generated objectives. The labelled result will be checked against every required mission rule.</p>
+      <p className="reveal-loading-copy">The squad is playing the selected Next Chapter. This demonstration will move to its scripted successful completion state.</p>
     </section>
   );
 }
@@ -337,7 +319,7 @@ function ObjectiveList({ objectives }: { objectives: PendingDelivery["next_chapt
   return (
     <ol className="mission-objective-list">
       {objectives.map((objective, index) => (
-        <li key={objective.objective_id}><span>{index + 1}</span><p>{objective.description}</p></li>
+        <li key={objective.objective_ref}><span>{index + 1}</span><p>{objective.description}</p></li>
       ))}
     </ol>
   );
@@ -345,24 +327,26 @@ function ObjectiveList({ objectives }: { objectives: PendingDelivery["next_chapt
 
 function InviteeList({
   invitees,
-  readyIds,
+  recipients,
 }: {
   invitees: Invitee[];
-  readyIds?: string[];
+  recipients: InvitationResponse[];
 }) {
   return (
     <ul className="invitee-list">
       {invitees.map((invitee, index) => {
-        const ready = readyIds?.includes(invitee.player_id);
+        const response = recipients.find((recipient) => recipient.recipient_ref === invitee.recipient_ref)?.response ?? "pending";
+        const joined = response !== "pending";
         return (
-          <li key={invitee.player_id}>
+          <li key={invitee.recipient_ref}>
             <span className={`invitee-avatar ${avatarClasses[index % avatarClasses.length]}`} aria-hidden="true">
               {invitee.display_name.slice(0, 1)}
             </span>
-            <div><strong>{invitee.display_name}</strong><small>{invitee.is_current_player ? "You" : "Opted in"}</small></div>
-            <span className={`invitee-status ${ready ? "ready" : ""}`}>
-              {readyIds ? (ready ? "Ready" : "Invited") : "Eligible"}
-            </span>
+            <div>
+              <strong>{invitee.display_name}</strong>
+              <small>{invitee.is_current_player ? "You" : invitee.activity === "online" ? "Online" : "Away"}</small>
+            </div>
+            <span className={`invitee-status ${joined ? "ready" : ""}`}>{joined ? "Joined" : "Invited"}</span>
           </li>
         );
       })}

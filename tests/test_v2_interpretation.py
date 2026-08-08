@@ -15,6 +15,7 @@ from backend.main import app
 from backend.models.schemas import MemoryType
 from backend.models.v2_schemas import (
     ClaimPredicate,
+    CompactInterpretationDecisionV2,
     CompactMemoryProposalV2,
     GroundedClaim,
     InterpretDeliveryResultV2,
@@ -64,7 +65,7 @@ def test_v2_interprets_telemetry_only_fixture_into_validated_delivery() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["schema_version"] == "2.0"
+    assert body["schema_version"] == "2.1"
     assert body["status"] == "pending_player_decision"
     assert body["validation"] == {
         "passed": True,
@@ -76,10 +77,15 @@ def test_v2_interprets_telemetry_only_fixture_into_validated_delivery() -> None:
     assert body["next_chapter"]["objectives"][0]["verification"]["metric"]
     assert body["metadata"]["mode"] == "deterministic_demo"
     assert body["metadata"]["narrative_fallback"] is False
-    assert "ff-player-7f3c" not in json.dumps(body)
+    assert body["next_chapter"]["invitation_player_ids"] == [
+        "ff-player-lee",
+        "ff-player-mei",
+        "ff-player-amir",
+        "ff-player-7f3c",
+    ]
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     assert all(
-        event.actor_id != "ff-player-7f3c"
+        event.actor_id != "not-a-player"
         for match in prepared.normalized.matches
         for event in match.events
     )
@@ -275,7 +281,7 @@ def test_live_ai_uses_compact_contract_and_server_derives_authoritative_fields()
         if item.candidate_id == compact.mission.candidate_id
     )
     assert result.status == "pending_player_decision"
-    assert generator.requests[0]["response_model"] is CompactMemoryProposalV2
+    assert generator.requests[0]["response_model"] is CompactInterpretationDecisionV2
     assert result.memory.selected_match_id == window.match_id
     assert result.memory.selected_event_ids == window.event_ids
     assert result.next_chapter.recipe == candidate.recipe
@@ -288,18 +294,23 @@ def test_live_ai_uses_compact_contract_and_server_derives_authoritative_fields()
     assert result.grounded_claims
 
 
-def test_live_ai_repairs_an_invented_window_id_when_the_evidence_is_unambiguous() -> None:
+def test_live_ai_requires_an_exact_offered_window_id_then_uses_one_correction() -> None:
     batch = parsed_batch()
     prepared = TelemetryPreparerV2().prepare(batch)
-    compact = MemoryInterpreterV2().demo_compact_proposal(prepared).model_copy(
-        update={"selected_window_id": "invented-window"}
-    )
+    valid = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    invented = valid.model_copy(update={"selected_window_id": "invented-window"})
+    generator = SequenceGenerator([invented, valid])
 
-    result = MemoryInterpretationPipelineV2(SequenceGenerator([compact])).interpret_delivery(batch)
+    result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
 
     assert result.status == "pending_player_decision"
+    assert result.validation.correction_attempted is True
     assert result.memory is not None
     assert result.memory.selected_match_id == prepared.windows[0].match_id
+    assert generator.calls == 2
+    assert generator.requests[1]["payload"]["correction"]["validation_issues"] == [
+        {"code": "unknown_event_window"}
+    ]
 
 
 def test_compact_expander_accepts_exact_selected_match_ledger_evidence_id() -> None:
@@ -1079,10 +1090,18 @@ def test_perspective_literal_support_is_added_only_for_that_player_role() -> Non
 def test_participant_mission_candidate_authorizes_its_exact_player_names() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    description = "Play a match with Lee, Mei, Amir, and Jo."
     compact = compact.model_copy(
         update={
             "mission": compact.mission.model_copy(
-                update={"objective_description": ("squad.participant_ids: Queue with Lee and Mei.")}
+                update={
+                    "objective_descriptions": [
+                        item.model_copy(update={"description": description})
+                        if item.candidate_id == compact.mission.candidate_id
+                        else item
+                        for item in compact.mission.objective_descriptions
+                    ]
+                }
             )
         }
     )
@@ -1091,7 +1110,7 @@ def test_participant_mission_candidate_authorizes_its_exact_player_names() -> No
     report = ProposalValidatorV2().validate(prepared, proposal)
 
     assert report.passed is True
-    assert proposal.mission.objectives[0].description == "Queue with Lee and Mei."
+    assert proposal.mission.objectives[0].description == description
 
 
 def test_participant_mission_rejects_unoffered_survival_and_zone_conditions() -> None:
@@ -1180,13 +1199,13 @@ def test_match_mission_text_must_match_backend_target_and_conditions(
         "Get a double revive.",
     ],
 )
-def test_revive_mission_text_must_match_backend_target(wording: str) -> None:
+def test_role_reversal_must_name_the_assigned_first_reviver(wording: str) -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
     candidate = next(
         item
         for item in prepared.mission_candidates
-        if item.verification.metric == "squad.revive_count"
+        if item.verification.metric == "match.first_squad_revive_actor_id"
         and item.window_id == compact.selected_window_id
     )
     compact = compact.model_copy(
@@ -1204,7 +1223,7 @@ def test_revive_mission_text_must_match_backend_target(wording: str) -> None:
 
     report = ProposalValidatorV2().validate(prepared, proposal)
 
-    assert "mission_target_mismatch" in {issue.code for issue in report.issues}
+    assert "mission_rule_not_expressed" in {issue.code for issue in report.issues}
 
 
 @pytest.mark.parametrize(
@@ -1246,7 +1265,7 @@ def test_match_mission_ignores_numbers_attached_to_other_nouns(wording: str) -> 
     [
         ("squad.participant_ids", "Play a new match."),
         ("squad.matches_completed", "Play again together."),
-        ("squad.revive_count", "Help the squad again."),
+        ("match.first_squad_revive_actor_id", "Help the squad again."),
     ],
 )
 def test_mission_text_must_express_the_selected_backend_rule(
@@ -1589,7 +1608,7 @@ def test_live_interpreter_repairs_one_malformed_provider_output() -> None:
     ]
     correction_instruction = correction_payload["correction"]["instruction"]
     assert "emit every schema field" in correction_instruction
-    assert "fixed-section draft" in correction_instruction
+    assert "CompactInterpretationDecisionV2" in correction_instruction
 
 
 def test_grounding_correction_receives_section_specific_safe_feedback() -> None:
@@ -1679,7 +1698,7 @@ def test_live_interpreter_does_not_retry_nonrepairable_provider_failures(
     assert generator.calls == 1
 
 
-def test_provider_repair_then_uses_transparent_grounded_render_after_one_attempt() -> None:
+def test_provider_repair_failure_withholds_content_after_one_attempt() -> None:
     batch = parsed_batch()
     prepared = TelemetryPreparerV2().prepare(batch)
     valid = MemoryInterpreterV2().demo_compact_proposal(prepared)
@@ -1699,11 +1718,14 @@ def test_provider_repair_then_uses_transparent_grounded_render_after_one_attempt
 
     result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
 
-    assert result.status == "pending_player_decision"
+    assert result.status == "rejected"
     assert result.validation.correction_attempted is True
     assert generator.calls == 2
-    assert result.metadata["grounded_render"] is True
-    assert result.studio_trace.stages[1].summary.startswith("The live proposal was replaced")
+    assert result.memory is None
+    assert result.next_chapter is None
+    assert result.metadata["grounded_render"] is False
+    assert result.metadata["content_origin"] == "no_player_content"
+    assert result.studio_trace.stages[1].status == "withheld"
 
 
 @pytest.mark.parametrize("correction_kind", ["provider_schema", "grounding"])
@@ -1918,6 +1940,12 @@ def test_recursive_model_input_scan_rejects_private_identity_everywhere(
 ) -> None:
     payload = raw_payload()
     payload["squad"]["players"][3]["display_name"] = "PrivatePanda"
+    payload["squad"]["players"][3]["consent"] = {
+        "memory_appearance": False,
+        "identity_display": False,
+        "media_use": False,
+        "mission_invitation": False,
+    }
     if leak_location == "result":
         payload["matches"][0]["result"] = "PrivatePanda escaped"
     else:
@@ -1933,6 +1961,12 @@ def test_preparation_failure_response_never_echoes_private_identity_in_opaque_id
     private_id = payload["squad"]["players"][3]["player_id"]
     private_name = "PrivatePanda"
     payload["squad"]["players"][3]["display_name"] = private_name
+    payload["squad"]["players"][3]["consent"] = {
+        "memory_appearance": False,
+        "identity_display": False,
+        "media_use": False,
+        "mission_invitation": False,
+    }
     payload["matches"][0]["match_id"] = f"match-{private_name}-{private_id}"
 
     response = client.post("/v2/memories/interpret-delivery", json=payload)
@@ -2122,16 +2156,15 @@ def test_provider_projection_is_stably_capped_to_offered_window_events() -> None
     provider_payload = MemoryInterpreterV2._provider_payload(prepared)
     assert "normalized_matches" not in provider_payload
     assert "media_references" not in provider_payload
-    assert provider_payload["squad_history"] == prepared.normalized.squad_history.model_dump(
-        mode="json"
-    )
-    assert provider_payload["current_context"] == prepared.normalized.current_context.model_dump(
+    story_brief = provider_payload["story_brief"]
+    assert story_brief["squad_history"] == prepared.normalized.squad_history.model_dump(mode="json")
+    assert story_brief["current_context"] == prepared.normalized.current_context.model_dump(
         mode="json"
     )
     assert "policy" not in provider_payload
     ledger_event_ids = {
         fact["evidence_id"]
-        for fact in provider_payload["evidence_ledger"]["facts"]
+        for fact in story_brief["evidence_ledger"]["facts"]
         if fact["kind"] == "event"
     }
     assert ledger_event_ids == window_ids
@@ -2158,11 +2191,13 @@ def test_provider_payload_preserves_structured_squad_history_signals() -> None:
     baseline_payload = MemoryInterpreterV2._provider_payload(baseline_prepared)
     changed_payload = MemoryInterpreterV2._provider_payload(changed_prepared)
 
-    assert baseline_payload["squad_history"] != changed_payload["squad_history"]
-    assert changed_payload["squad_history"]["recent_rematch_count"] == 7
+    baseline_brief = baseline_payload["story_brief"]
+    changed_brief = changed_payload["story_brief"]
+    assert baseline_brief["squad_history"] != changed_brief["squad_history"]
+    assert changed_brief["squad_history"]["recent_rematch_count"] == 7
     context_fact_ids = {
         fact["evidence_id"]
-        for fact in changed_payload["evidence_ledger"]["facts"]
+        for fact in changed_brief["evidence_ledger"]["facts"]
         if fact["kind"] == "context"
     }
     assert context_fact_ids >= {
@@ -2172,15 +2207,24 @@ def test_provider_payload_preserves_structured_squad_history_signals() -> None:
     }
 
 
-@pytest.mark.parametrize("context_change", ["inactive", "mode_unavailable"])
-def test_mission_feasibility_requires_active_players_and_available_mode(
-    context_change: str,
-) -> None:
+def test_inactive_but_consented_players_remain_invitation_eligible() -> None:
     payload = raw_payload()
-    if context_change == "inactive":
-        payload["current_context"]["active_player_ids"] = ["ff-player-lee"]
-    else:
-        payload["current_context"]["available_modes"] = ["clash_squad"]
+    payload["current_context"]["active_player_ids"] = ["ff-player-lee"]
+
+    prepared = TelemetryPreparerV2().prepare(RawTelemetryBatchV2.model_validate(payload))
+
+    assert prepared.mission_candidates
+    assert prepared.story_brief.invitation_player_ids == [
+        "ff-player-lee",
+        "ff-player-mei",
+        "ff-player-amir",
+        "ff-player-7f3c",
+    ]
+
+
+def test_mission_feasibility_requires_an_available_mode() -> None:
+    payload = raw_payload()
+    payload["current_context"]["available_modes"] = ["clash_squad"]
 
     prepared = TelemetryPreparerV2().prepare(RawTelemetryBatchV2.model_validate(payload))
 
