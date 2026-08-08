@@ -60,7 +60,7 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
 
-    prompt_version = "memory-interpreter-v2.4-grounded-controls"
+    prompt_version = "memory-interpreter-v2.5-strict-section-repair"
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
@@ -107,10 +107,30 @@ class MemoryInterpreterV2:
                 "validation_issues": validation_feedback,
                 "instruction": (
                     "Return a complete corrected fixed-section draft and emit every schema "
-                    "field. Resolve each issue in its allowlisted section when supplied. When text "
-                    "mentions a player, action, location, match value, or number, cite an exact "
-                    "supporting evidence ID or remove that unsupported wording."
+                    "field. Resolve each issue in its allowlisted section when supplied. This is "
+                    "a strict rewrite, not an edit: do not carry over any unsupported context "
+                    "from a prior draft. When text mentions a player, action, location, match "
+                    "value, category, or number, cite an exact supporting evidence ID or remove "
+                    "that wording."
                 ),
+                "strict_section_rules": {
+                    "story": (
+                        "Use only literal facts from the selected evidence IDs. Do not use a "
+                        "category word such as a vehicle, zone, weapon, item, or ping type unless "
+                        "the cited event carries that exact typed value."
+                    ),
+                    "perspectives": (
+                        "Write one short first-person sentence per narrator. It may describe only "
+                        "that narrator's direct actor or target event, or a cited full-squad event "
+                        "using we/the squad. Do not mention any other player's action, including "
+                        "as before/after context."
+                    ),
+                    "mission": (
+                        "Use only the selected candidate's authoring_scope. Do not mention a past "
+                        "event, location, outcome, or player unless that candidate explicitly "
+                        "allows it."
+                    ),
+                },
             }
         encoded_size = len(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -123,7 +143,53 @@ class MemoryInterpreterV2:
             response_model=CompactMemoryProposalV2,
             stage=stage,
         )
+        compact = self._repair_unknown_window_id(prepared, compact)
         return self._expander.expand(prepared, compact)
+
+    @staticmethod
+    def _repair_unknown_window_id(
+        prepared: PreparedInterpretationV2,
+        compact: CompactMemoryProposalV2,
+    ) -> CompactMemoryProposalV2:
+        """Recover only an invented dynamic window identifier when evidence is unambiguous.
+
+        A provider cannot express the runtime set of valid window IDs as a JSON-schema enum.
+        The selected window remains model-controlled when its ID is valid. If it invents an ID,
+        this repair is allowed only when the sanitized evidence resolves to exactly one offered
+        window (or there is exactly one offered window). It never changes player-facing prose,
+        evidence references, or the selected mission candidate; those still fail closed through
+        the expander and validator.
+        """
+
+        known_windows = {window.window_id for window in prepared.windows}
+        if compact.selected_window_id in known_windows:
+            return compact
+
+        referenced_event_ids = {
+            evidence_id
+            for section in (
+                compact.title,
+                compact.notification_teaser,
+                compact.summary,
+                compact.why_this_matters_now,
+            )
+            for evidence_id in section.evidence_ids
+        }
+        referenced_event_ids.update(
+            evidence_id
+            for perspective in compact.perspectives
+            for evidence_id in perspective.evidence_ids
+        )
+        candidates = [
+            window
+            for window in prepared.windows
+            if referenced_event_ids.intersection(window.event_ids)
+        ]
+        if len(candidates) != 1 and len(prepared.windows) == 1:
+            candidates = list(prepared.windows)
+        if len(candidates) != 1:
+            return compact
+        return compact.model_copy(update={"selected_window_id": candidates[0].window_id})
 
     @staticmethod
     def _provider_payload(prepared: PreparedInterpretationV2) -> dict[str, Any]:
@@ -244,6 +310,18 @@ class MemoryInterpreterV2:
                 objective_description=objective.description,
             ),
         )
+
+    def grounded_evidence_render(
+        self,
+        prepared: PreparedInterpretationV2,
+    ) -> MemoryProposalV2:
+        """Render only verified evidence after live prose exhausts its repair budget.
+
+        This is deliberately separate from the live proposal path. Callers must label the result
+        as a deterministic evidence render; it is never presented as additional model prose.
+        """
+
+        return self._deterministic_demo(prepared)
 
     @classmethod
     def _compact_section(

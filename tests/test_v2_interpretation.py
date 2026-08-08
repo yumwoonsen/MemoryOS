@@ -288,6 +288,20 @@ def test_live_ai_uses_compact_contract_and_server_derives_authoritative_fields()
     assert result.grounded_claims
 
 
+def test_live_ai_repairs_an_invented_window_id_when_the_evidence_is_unambiguous() -> None:
+    batch = parsed_batch()
+    prepared = TelemetryPreparerV2().prepare(batch)
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared).model_copy(
+        update={"selected_window_id": "invented-window"}
+    )
+
+    result = MemoryInterpretationPipelineV2(SequenceGenerator([compact])).interpret_delivery(batch)
+
+    assert result.status == "pending_player_decision"
+    assert result.memory is not None
+    assert result.memory.selected_match_id == prepared.windows[0].match_id
+
+
 def test_compact_expander_accepts_exact_selected_match_ledger_evidence_id() -> None:
     batch = parsed_batch()
     prepared = TelemetryPreparerV2().prepare(batch)
@@ -1665,7 +1679,7 @@ def test_live_interpreter_does_not_retry_nonrepairable_provider_failures(
     assert generator.calls == 1
 
 
-def test_provider_repair_and_grounding_repair_share_one_attempt_budget() -> None:
+def test_provider_repair_then_uses_transparent_grounded_render_after_one_attempt() -> None:
     batch = parsed_batch()
     prepared = TelemetryPreparerV2().prepare(batch)
     valid = MemoryInterpreterV2().demo_compact_proposal(prepared)
@@ -1685,9 +1699,11 @@ def test_provider_repair_and_grounding_repair_share_one_attempt_budget() -> None
 
     result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
 
-    assert result.status == "rejected"
+    assert result.status == "pending_player_decision"
     assert result.validation.correction_attempted is True
     assert generator.calls == 2
+    assert result.metadata["grounded_render"] is True
+    assert result.studio_trace.stages[1].summary.startswith("The live proposal was replaced")
 
 
 @pytest.mark.parametrize("correction_kind", ["provider_schema", "grounding"])

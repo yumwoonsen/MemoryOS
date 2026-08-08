@@ -74,6 +74,7 @@ class MemoryInterpretationPipelineV2:
             )
 
         correction_attempted = False
+        grounded_render_used = False
         try:
             proposal = self.interpreter.propose(prepared)
         except ProviderInputLimitError:
@@ -101,12 +102,15 @@ class MemoryInterpretationPipelineV2:
                     correction_attempted=True,
                 )
             except CompactProposalExpansionError as correction_error:
-                return self._expansion_rejection(
-                    batch,
-                    prepared,
-                    correction_error,
-                    correction_attempted=True,
-                )
+                if correction_error.code in FATAL_VALIDATION_CODES:
+                    return self._expansion_rejection(
+                        batch,
+                        prepared,
+                        correction_error,
+                        correction_attempted=True,
+                    )
+                proposal = self.interpreter.grounded_evidence_render(prepared)
+                grounded_render_used = True
         except OpenAIProviderError as error:
             if self.execution_mode != "live_ai" or error.code != "provider_invalid_response":
                 raise
@@ -128,12 +132,15 @@ class MemoryInterpretationPipelineV2:
                     correction_attempted=True,
                 )
             except CompactProposalExpansionError as correction_error:
-                return self._expansion_rejection(
-                    batch,
-                    prepared,
-                    correction_error,
-                    correction_attempted=True,
-                )
+                if correction_error.code in FATAL_VALIDATION_CODES:
+                    return self._expansion_rejection(
+                        batch,
+                        prepared,
+                        correction_error,
+                        correction_attempted=True,
+                    )
+                proposal = self.interpreter.grounded_evidence_render(prepared)
+                grounded_render_used = True
         validation = self.validator.validate(
             prepared,
             proposal,
@@ -161,12 +168,28 @@ class MemoryInterpretationPipelineV2:
                     correction_attempted=True,
                 )
             except CompactProposalExpansionError as correction_error:
-                return self._expansion_rejection(
-                    batch,
-                    prepared,
-                    correction_error,
-                    correction_attempted=True,
-                )
+                if correction_error.code in FATAL_VALIDATION_CODES:
+                    return self._expansion_rejection(
+                        batch,
+                        prepared,
+                        correction_error,
+                        correction_attempted=True,
+                    )
+                proposal = self.interpreter.grounded_evidence_render(prepared)
+                grounded_render_used = True
+            validation = self.validator.validate(
+                prepared,
+                proposal,
+                correction_attempted=True,
+            )
+        if (
+            not validation.passed
+            and correction_attempted
+            and self.execution_mode == "live_ai"
+            and not any(issue.code in FATAL_VALIDATION_CODES for issue in validation.issues)
+        ):
+            proposal = self.interpreter.grounded_evidence_render(prepared)
+            grounded_render_used = True
             validation = self.validator.validate(
                 prepared,
                 proposal,
@@ -200,6 +223,7 @@ class MemoryInterpretationPipelineV2:
             prepared,
             validation,
             correction_attempted=correction_attempted,
+            grounded_render=grounded_render_used,
             claim_mappings=[
                 StudioClaimTraceV2(
                     claim_id=claim.claim_id,
@@ -248,7 +272,7 @@ class MemoryInterpretationPipelineV2:
             grounded_claims=proposal.claims,
             validation=validation,
             studio_trace=trace,
-            metadata=self._metadata(),
+            metadata=self._metadata(grounded_render=grounded_render_used),
         )
 
     def _provider_input_limit_rejection(
@@ -379,6 +403,7 @@ class MemoryInterpretationPipelineV2:
         *,
         preparation_failed: bool = False,
         correction_attempted: bool = False,
+        grounded_render: bool = False,
         claim_mappings: list[StudioClaimTraceV2] | None = None,
     ) -> StudioInterpretationTraceV2:
         if preparation_failed:
@@ -418,7 +443,10 @@ class MemoryInterpretationPipelineV2:
                     stage="ai_interpretation",
                     status="complete" if validation.passed else "withheld",
                     summary=(
-                        "One complete typed memory proposal was produced."
+                        "The live proposal was replaced by a deterministic evidence render after "
+                        "its single correction attempt failed validation."
+                        if validation.passed and grounded_render
+                        else "One complete typed memory proposal was produced."
                         if validation.passed
                         else "A proposal was produced but its prose is withheld from this trace."
                     ),
@@ -488,14 +516,15 @@ class MemoryInterpretationPipelineV2:
             return TelemetryPreparerV2.trace_id(batch.request_id).replace("trace_", "request_", 1)
         return batch.request_id
 
-    def _metadata(self) -> dict[str, object]:
+    def _metadata(self, *, grounded_render: bool = False) -> dict[str, object]:
         metadata: dict[str, object] = {
             "pipeline_version": "ai-grounded-interpretation-v2",
             "provider": self.provider_name,
             "model": self.model_name,
             "mode": self.execution_mode,
             "prompt_version": self.interpreter.prompt_version,
-            "narrative_fallback": False,
+            "narrative_fallback": grounded_render,
+            "grounded_render": grounded_render,
             "storage": "process_local_prototype",
         }
         if self.interpreter.observability:

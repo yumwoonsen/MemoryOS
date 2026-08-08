@@ -181,6 +181,7 @@ export type PendingDeliveryV2 = {
     model: string;
     mode: "live_ai";
     prompt_version: string;
+    grounded_render?: boolean;
   };
 };
 
@@ -216,7 +217,10 @@ export type PlayerPendingDeliveryV2 = Pick<
   | "player_perspectives"
   | "next_chapter"
 > & {
-  metadata: Pick<PendingDeliveryV2["metadata"], "provider" | "model" | "mode" | "prompt_version">;
+  metadata: Pick<
+    PendingDeliveryV2["metadata"],
+    "provider" | "model" | "mode" | "prompt_version" | "grounded_render"
+  >;
 };
 
 export type StudioPendingDeliveryV2 = Omit<PendingDeliveryV2, "metadata"> & {
@@ -457,6 +461,7 @@ export function projectPendingDeliveryForPlayer(delivery: PendingDeliveryV2): Pl
       model: delivery.metadata.model,
       mode: delivery.metadata.mode,
       prompt_version: delivery.metadata.prompt_version,
+      grounded_render: delivery.metadata.grounded_render,
     },
   };
 }

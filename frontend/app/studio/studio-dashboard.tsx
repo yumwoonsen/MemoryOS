@@ -212,11 +212,15 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
 
   const runtimeTitle = runSource === "sample"
     ? "Deterministic Studio demonstration"
+    : pending?.metadata.grounded_render
+      ? "AI-selected, evidence-rendered memory"
     : pending?.metadata.mode === "live_ai"
       ? "Live AI memory interpretation"
       : "Ready for a v2 interpretation audit";
   const runtimeDetail = runSource === "sample"
     ? "A clearly labelled saved result demonstrates the same privacy, claim, and mission-rule trace. It is never used in the player experience."
+    : pending?.metadata.grounded_render
+      ? "The live draft did not pass validation after one correction, so MemoryOS rendered this delivery directly from verified evidence."
     : "Player delivery is allowed only after one AI proposal passes deterministic evidence and safety validation.";
 
   return (

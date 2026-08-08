@@ -102,6 +102,12 @@ omitted the invited group for a participant mission; rewrite it so the backend-o
 clear in both fields.
 mission_operator_mismatch means wording such as exactly, at least, or at most changes the
 backend-owned operator. Copy the offered target and operator meaning without adding conditions.
+The correction payload's strict_section_rules are mandatory. Treat every section as a fresh rewrite:
+never preserve a transition such as "after Lee was knocked" merely because another cited event is
+true. A perspective may mention only its narrator's direct actor/target action, or a selected
+full-squad event using "we" or "the squad". In particular, do not introduce another named player's
+action as explanation or background. When unsure whether a vehicle, zone, weapon, item, ping, or
+other categorical word is allowed, omit it rather than guessing.
 Return only the typed fixed-section draft.
 
 Final required self-check before emitting JSON:
