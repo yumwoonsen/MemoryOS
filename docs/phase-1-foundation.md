@@ -70,15 +70,17 @@ At the time of the initial commit:
 - The CLI returns a fully validated `ready` result for the golden fixture.
 - The live `/health` endpoint responds successfully in deterministic mode.
 
-## Deliberately deferred
+## Deliberately deferred from Phase 1
 
-The milestone does not include a frontend, database, authentication, notifications, real Free Fire
-integration, media understanding, production deployment, or new-match continuation. Those features
-belong after the team validates whether the generated experience feels uniquely tied to one squad.
+At Phase 1 completion, the milestone did not include a frontend, database, authentication,
+notifications, real Free Fire integration, media understanding, production deployment, or
+new-match continuation. Later prototype phases added the frontend and a synthetic continuation
+flow; production persistence, authentication, notifications, ingestion, and media understanding
+remain deferred.
 
-## Original next milestone (now in progress)
+## Original next milestone (historical)
 
-Build the human review loop: show the discovered memory and its evidence, let a player confirm,
-edit, tag, or dismiss it, and persist that feedback for later retrieval and ranking experiments.
-Phase 2A adds the historical ranking and split review-state backend; the concurrent frontend work
-owns the later persistence and review interface.
+The original next milestone was a human review loop for discovered memories. Phase 2A delivered the
+historical ranking and split review-state compatibility backend. The AI-first v2 pivot subsequently
+moved source verification upstream and made the player's accept/decline choice a relevance decision;
+durable feedback persistence remains deferred.

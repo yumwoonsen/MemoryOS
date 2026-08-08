@@ -1,8 +1,9 @@
 import { MemoryExperience } from "./memory-experience";
-import funnyMemory from "@/data/funny_memory.json";
-import type { MemoryPack } from "@/lib/types";
+import rawTelemetry from "@/data/raw_telemetry_v2.json";
+import { consentSafeTelemetryView } from "@/lib/ai-memory-contract";
+import type { RawTelemetryBatchV2 } from "@/lib/ai-memory-contract";
 
 export default function Home() {
-  const initialPack = funnyMemory as unknown as MemoryPack;
-  return <MemoryExperience initialPack={initialPack} />;
+  const telemetry = rawTelemetry as unknown as RawTelemetryBatchV2;
+  return <MemoryExperience telemetry={consentSafeTelemetryView(telemetry)} />;
 }

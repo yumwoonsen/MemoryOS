@@ -9,7 +9,7 @@ function shouldCallBackend(request: Request) {
   if (configuredApi) return true;
 
   const hostname = new URL(request.url).hostname;
-  return hostname === "localhost" || hostname === "127.0.0.1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
 function sampleHealth(reason: "hosted-sample" | "backend-unavailable") {

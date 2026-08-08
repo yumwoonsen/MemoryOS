@@ -18,6 +18,7 @@ from backend.services.structured_generator import ModelT
 
 DEFAULT_MODEL = "gpt-5.6-luna"
 MAX_OUTPUT_TOKENS = 2_000
+V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 4_000
 REQUEST_TIMEOUT_SECONDS = 30.0
 SDK_MAX_RETRIES = 2
 logger = logging.getLogger(__name__)
@@ -72,7 +73,12 @@ def _translate_sdk_error(
     if isinstance(error, openai.LengthFinishReasonError):
         return error_type(stage=stage, code="provider_output_limit", retryable=False)
     if isinstance(error, openai.APIStatusError):
-        if error.status_code == 401:
+        provider_code = _sdk_error_code(error)
+        if provider_code == "rate_limit_exceeded" or error.status_code == 429:
+            code, retryable = "provider_rate_limited", True
+        elif provider_code == "insufficient_quota":
+            code, retryable = "provider_quota_exhausted", False
+        elif error.status_code == 401:
             code, retryable = "provider_authentication_failed", False
         elif error.status_code == 403:
             code, retryable = "provider_permission_denied", False
@@ -160,7 +166,11 @@ class OpenAIStructuredGenerator:
                 text_format=response_model,
                 reasoning={"effort": "low"},
                 store=False,
-                max_output_tokens=MAX_OUTPUT_TOKENS,
+                max_output_tokens=(
+                    V2_INTERPRETATION_MAX_OUTPUT_TOKENS
+                    if stage.startswith("memory_interpretation")
+                    else MAX_OUTPUT_TOKENS
+                ),
             )
         except openai.OpenAIError as error:
             safe_error = _translate_sdk_error(stage, error)

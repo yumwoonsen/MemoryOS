@@ -50,7 +50,7 @@ class QuestAgent:
                                 "required_meaning": objective.description,
                             }
                             for objective in canonical.objectives
-                        ]
+                        ],
                     },
                 ),
                 response_model=NextChapter,

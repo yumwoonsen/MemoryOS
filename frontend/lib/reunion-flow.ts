@@ -1,8 +1,8 @@
 import type {
-  MemoryDeliveryResult,
-  PlayerPerspective,
-  QuestObjective,
-} from "@/lib/history-types";
+  MissionObjectiveV2,
+  PlayerPendingDeliveryV2,
+  PlayerPerspectiveV2,
+} from "@/lib/ai-memory-contract";
 import {
   buildInvitees as coreBuildInvitees,
   createContinuationChapter as coreCreateContinuationChapter,
@@ -47,7 +47,7 @@ export type ContinuationChapter = {
 };
 
 export function buildInvitees(
-  perspectives: PlayerPerspective[],
+  perspectives: PlayerPerspectiveV2[],
   currentPlayerId?: string,
 ): Invitee[] {
   return coreBuildInvitees(perspectives, currentPlayerId) as Invitee[];
@@ -58,15 +58,15 @@ export function createSyntheticRematch(invitees: Invitee[]): SyntheticMatchResul
 }
 
 export function verifyMission(
-  objectives: QuestObjective[],
+  objectives: MissionObjectiveV2[],
   matchResult: SyntheticMatchResult,
 ): MissionVerification {
   return coreVerifyMission(objectives, matchResult) as MissionVerification;
 }
 
 export function createContinuationChapter(
-  memory: NonNullable<MemoryDeliveryResult["memory"]>,
-  nextChapter: NonNullable<MemoryDeliveryResult["next_chapter"]>,
+  memory: PlayerPendingDeliveryV2["memory"],
+  nextChapter: PlayerPendingDeliveryV2["next_chapter"],
   verification: MissionVerification,
 ): ContinuationChapter | null {
   return coreCreateContinuationChapter(memory, nextChapter, verification) as ContinuationChapter | null;

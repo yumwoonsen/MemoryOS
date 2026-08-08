@@ -73,6 +73,7 @@ export interface paths {
         put?: never;
         /**
          * Generate Memory
+         * @deprecated
          * @description Expand a reviewed candidate into perspectives and a grounded quest.
          */
         post: operations["generate_memory_v1_memories_generate_post"];
@@ -93,6 +94,7 @@ export interface paths {
         put?: never;
         /**
          * Generate Memory Stream
+         * @deprecated
          * @description Expose the canonical generation result as newline-delimited stage events.
          */
         post: operations["generate_memory_stream_v1_memories_generate_stream_post"];
@@ -113,6 +115,7 @@ export interface paths {
         put?: never;
         /**
          * Prepare Delivery
+         * @deprecated
          * @description Prepare one trusted squad memory for an accept-or-decline delivery.
          */
         post: operations["prepare_delivery_v1_memories_prepare_delivery_post"];
@@ -133,9 +136,70 @@ export interface paths {
         put?: never;
         /**
          * Record Delivery Decision
+         * @deprecated
          * @description Record a prototype accept/decline decision for a prepared delivery.
          */
         post: operations["record_delivery_decision_v1_memories_record_delivery_decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/deliveries/{delivery_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Delivery Decision V2
+         * @description Capture exactly one prototype relevance decision for a validated v2 delivery.
+         */
+        post: operations["record_delivery_decision_v2_v2_deliveries__delivery_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/deliveries/{delivery_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Delivery Trace V2
+         * @description Return a sanitized Studio trace, including the recorded player decision.
+         */
+        get: operations["get_delivery_trace_v2_v2_deliveries__delivery_id__trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/memories/interpret-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Interpret Delivery V2
+         * @description Interpret telemetry into one fully validated player delivery or fail closed.
+         */
+        post: operations["interpret_delivery_v2_v2_memories_interpret_delivery_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -167,6 +231,22 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * ClaimPredicate
+         * @enum {string}
+         */
+        ClaimPredicate: "participated_match" | "played_mode" | "played_map" | "placed" | "match_result" | "landed" | "knocked" | "was_knocked" | "eliminated" | "was_eliminated" | "revived" | "assisted" | "healed" | "entered_vehicle" | "exited_vehicle" | "escaped" | "moved_zone" | "looted" | "signalled" | "completed_match" | "connected_episode" | "current_reunion_opportunity" | "mission_rule";
+        /** ConsentPermissionsV2 */
+        ConsentPermissionsV2: {
+            /** Identity Display */
+            identity_display: boolean;
+            /** Media Use */
+            media_use: boolean;
+            /** Memory Appearance */
+            memory_appearance: boolean;
+            /** Mission Invitation */
+            mission_invitation: boolean;
+        };
         /** CurrentContext */
         CurrentContext: {
             /** Active Member Ids */
@@ -179,22 +259,106 @@ export interface components {
             /** Resurfacing Reason */
             resurfacing_reason?: string | null;
         };
+        /** CurrentContextV2 */
+        CurrentContextV2: {
+            /** Active Player Ids */
+            active_player_ids?: string[];
+            /** Available Modes */
+            available_modes?: string[];
+            /**
+             * Reunion Eligible
+             * @default true
+             */
+            reunion_eligible: boolean;
+        };
         /**
          * DeliveryDecision
          * @enum {string}
          */
         DeliveryDecision: "accepted" | "declined";
+        /** DeliveryDecisionRecordV2 */
+        DeliveryDecisionRecordV2: {
+            decision: components["schemas"]["DeliveryDecision"];
+            decline_reason?: components["schemas"]["DeliveryDeclineReason"] | null;
+            /** Delivery Id */
+            delivery_id: string;
+            /**
+             * Delivery Status
+             * @enum {string}
+             */
+            delivery_status: "mission_started" | "suppressed";
+            /**
+             * Schema Version
+             * @default 2.0
+             * @constant
+             */
+            schema_version: "2.0";
+            /** Source Quality Flag */
+            source_quality_flag: boolean;
+        };
         /**
          * DeliveryDeclineReason
          * @enum {string}
          */
         DeliveryDeclineReason: "not_relevant" | "details_wrong";
+        /** DeliveryMemoryV2 */
+        DeliveryMemoryV2: {
+            media_reference?: components["schemas"]["MediaReferenceV2"] | null;
+            memory_type: components["schemas"]["MemoryType"];
+            /** Notification Teaser */
+            notification_teaser: string;
+            /** Selected Event Ids */
+            selected_event_ids: string[];
+            /** Selected Match Id */
+            selected_match_id: string;
+            /** Summary */
+            summary: string;
+            /** Title */
+            title: string;
+            /** Why This Matters Now */
+            why_this_matters_now: string;
+        };
+        /** DeliveryMissionObjectiveV2 */
+        DeliveryMissionObjectiveV2: {
+            /** Assigned Player Id */
+            assigned_player_id?: string | null;
+            /** Description */
+            description: string;
+            /** Objective Id */
+            objective_id: string;
+            /** Required */
+            required: boolean;
+            /** Source Event Ids */
+            source_event_ids: string[];
+            verification: components["schemas"]["VerificationRule"];
+        };
         /** DeliveryNarrative */
         DeliveryNarrative: {
             /** Teaser */
             teaser: string;
             /** Why This Surfaced */
             why_this_surfaced: string;
+        };
+        /** DeliveryNextChapterV2 */
+        DeliveryNextChapterV2: {
+            /** Mission */
+            mission: string;
+            /** Objectives */
+            objectives: components["schemas"]["DeliveryMissionObjectiveV2"][];
+            recipe: components["schemas"]["QuestRecipe"];
+            /** Title */
+            title: string;
+        };
+        /** DeliveryPerspectiveV2 */
+        DeliveryPerspectiveV2: {
+            /** Display Name */
+            display_name: string;
+            /** Evidence Event Ids */
+            evidence_event_ids: string[];
+            /** Message */
+            message: string;
+            /** Player Id */
+            player_id: string;
         };
         /**
          * DeliveryStatus
@@ -211,6 +375,21 @@ export interface components {
             signal_score: number;
             /** Threshold */
             threshold: number;
+        };
+        /** EligibleEventWindow */
+        EligibleEventWindow: {
+            /** End Seconds */
+            end_seconds: number;
+            /** Event Ids */
+            event_ids: string[];
+            /** Match Id */
+            match_id: string;
+            /** Participant Ids */
+            participant_ids?: string[];
+            /** Start Seconds */
+            start_seconds: number;
+            /** Window Id */
+            window_id: string;
         };
         /** EvidenceRef */
         EvidenceRef: {
@@ -289,6 +468,30 @@ export interface components {
              * @enum {string}
              */
             type: "stage";
+        };
+        /** GroundedClaim */
+        GroundedClaim: {
+            /** Claim Id */
+            claim_id: string;
+            /** Location */
+            location?: string | null;
+            /** Output Section */
+            output_section: string;
+            predicate: components["schemas"]["ClaimPredicate"];
+            /** Subject Id */
+            subject_id: string;
+            /** Supporting Context Ids */
+            supporting_context_ids?: string[];
+            /** Supporting Event Ids */
+            supporting_event_ids?: string[];
+            /** Supporting Mission Candidate Ids */
+            supporting_mission_candidate_ids?: string[];
+            /** Target Id */
+            target_id?: string | null;
+            /** Value */
+            value?: string | number | boolean | string[] | null;
+            /** Value Key */
+            value_key?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -408,6 +611,39 @@ export interface components {
          * @enum {string}
          */
         Importance: "low" | "medium" | "high";
+        /** InterpretDeliveryResultV2 */
+        InterpretDeliveryResultV2: {
+            /** Delivery Id */
+            delivery_id?: string | null;
+            /** Grounded Claims */
+            grounded_claims?: components["schemas"]["GroundedClaim"][];
+            memory?: components["schemas"]["DeliveryMemoryV2"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            next_chapter?: components["schemas"]["DeliveryNextChapterV2"] | null;
+            /** Player Perspectives */
+            player_perspectives?: components["schemas"]["DeliveryPerspectiveV2"][];
+            /** Reason Codes */
+            reason_codes?: string[];
+            /** Request Id */
+            request_id: string;
+            /**
+             * Schema Version
+             * @default 2.0
+             * @constant
+             */
+            schema_version: "2.0";
+            status: components["schemas"]["InterpretDeliveryStatusV2"];
+            studio_trace: components["schemas"]["StudioInterpretationTraceV2"];
+            validation: components["schemas"]["ProposalValidationReportV2"];
+        };
+        /**
+         * InterpretDeliveryStatusV2
+         * @enum {string}
+         */
+        InterpretDeliveryStatusV2: "pending_player_decision" | "rejected";
         /**
          * IssueSeverity
          * @enum {string}
@@ -502,6 +738,20 @@ export interface components {
          * @enum {string}
          */
         MeaningStatus: "unreviewed" | "confirmed" | "dismissed";
+        /** MediaReferenceV2 */
+        MediaReferenceV2: {
+            /** Consented Player Ids */
+            consented_player_ids?: string[];
+            /** Event Ids */
+            event_ids: string[];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "clip" | "thumbnail" | "keyframe";
+            /** Media Id */
+            media_id: string;
+        };
         /** MemoryDeliveryResult */
         MemoryDeliveryResult: {
             /** Delivery Id */
@@ -638,6 +888,19 @@ export interface components {
          * @enum {string}
          */
         MemoryType: "chaos" | "comeback" | "clutch" | "ritual" | "first" | "other";
+        /** MissionCapabilityCandidate */
+        MissionCapabilityCandidate: {
+            /** Assigned Player Id */
+            assigned_player_id?: string | null;
+            /** Candidate Id */
+            candidate_id: string;
+            recipe: components["schemas"]["QuestRecipe"];
+            /** Source Event Ids */
+            source_event_ids: string[];
+            verification: components["schemas"]["VerificationRule"];
+            /** Window Id */
+            window_id: string;
+        };
         /** NextChapter */
         NextChapter: {
             /** Mission */
@@ -690,6 +953,18 @@ export interface components {
              */
             schema_version: "1.1";
         };
+        /** ProposalValidationReportV2 */
+        ProposalValidationReportV2: {
+            /**
+             * Correction Attempted
+             * @default false
+             */
+            correction_attempted: boolean;
+            /** Issues */
+            issues?: components["schemas"]["V2ValidationIssue"][];
+            /** Passed */
+            passed: boolean;
+        };
         /** ProviderErrorBody */
         ProviderErrorBody: {
             /** Code */
@@ -731,6 +1006,88 @@ export interface components {
          * @enum {string}
          */
         QuestRecipe: "recreate" | "remix" | "resolve";
+        /** RawMatchV2 */
+        RawMatchV2: {
+            /** Ended At */
+            ended_at?: string | null;
+            /** Events */
+            events: components["schemas"]["RawTelemetryEventV2"][];
+            /** Game */
+            game: string;
+            /** Map Name */
+            map_name?: string | null;
+            /** Match Id */
+            match_id: string;
+            /** Mode */
+            mode: string;
+            /** Placement */
+            placement?: number | null;
+            /** Result */
+            result?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** RawPlayerV2 */
+        RawPlayerV2: {
+            consent: components["schemas"]["ConsentPermissionsV2"];
+            /** Display Name */
+            display_name?: string | null;
+            /** Player Id */
+            player_id: string;
+        };
+        /** RawSquadV2 */
+        RawSquadV2: {
+            /** Players */
+            players: components["schemas"]["RawPlayerV2"][];
+            /** Squad Id */
+            squad_id: string;
+        };
+        /**
+         * RawTelemetryBatchV2
+         * @description Realistic telemetry-only input. Unknown/pre-authored fields fail validation.
+         */
+        RawTelemetryBatchV2: {
+            current_context?: components["schemas"]["CurrentContextV2"];
+            /** Matches */
+            matches: components["schemas"]["RawMatchV2"][];
+            /** Media References */
+            media_references?: components["schemas"]["MediaReferenceV2"][];
+            /** Request Id */
+            request_id: string;
+            /**
+             * Schema Version
+             * @default 2.0
+             * @constant
+             */
+            schema_version: "2.0";
+            social_context?: components["schemas"]["SocialContextV2"] | null;
+            squad: components["schemas"]["RawSquadV2"];
+            squad_history?: components["schemas"]["SquadHistoryV2"];
+            /** Target Player Id */
+            target_player_id: string;
+        };
+        /** RawTelemetryEventV2 */
+        RawTelemetryEventV2: {
+            /** Actor Id */
+            actor_id?: string | null;
+            /** Details */
+            details?: {
+                [key: string]: string | number | boolean | string[];
+            };
+            /** Event Id */
+            event_id: string;
+            /** Location */
+            location?: string | null;
+            /** Provider Event Type */
+            provider_event_type: string;
+            /** Target Id */
+            target_id?: string | null;
+            /** Timestamp Seconds */
+            timestamp_seconds: number;
+        };
         /** Reactions */
         Reactions: {
             /**
@@ -756,6 +1113,17 @@ export interface components {
             /** Delivery Id */
             delivery_id: string;
         };
+        /** RecordDeliveryDecisionRequestV2 */
+        RecordDeliveryDecisionRequestV2: {
+            decision: components["schemas"]["DeliveryDecision"];
+            decline_reason?: components["schemas"]["DeliveryDeclineReason"] | null;
+            /**
+             * Schema Version
+             * @default 2.0
+             * @constant
+             */
+            schema_version: "2.0";
+        };
         /** RecordDeliveryDecisionResponse */
         RecordDeliveryDecisionResponse: {
             decision: components["schemas"]["DeliveryDecision"];
@@ -774,6 +1142,24 @@ export interface components {
              */
             reason: "player_opted_out";
         };
+        /** SocialContextV2 */
+        SocialContextV2: {
+            /** Caption Author Player Id */
+            caption_author_player_id?: string | null;
+            /** Event Tags */
+            event_tags?: string[];
+            /** Player Caption */
+            player_caption?: string | null;
+            /** Reaction Counts */
+            reaction_counts?: {
+                [key: string]: number;
+            };
+            /**
+             * Saved Clip
+             * @default false
+             */
+            saved_clip: boolean;
+        };
         /**
          * SourceStatus
          * @enum {string}
@@ -789,6 +1175,18 @@ export interface components {
             members: components["schemas"]["SquadMember"][];
             /** Squad Id */
             squad_id: string;
+        };
+        /** SquadHistoryV2 */
+        SquadHistoryV2: {
+            /** Days Since Full Squad */
+            days_since_full_squad?: number | null;
+            /** Previous Session At */
+            previous_session_at?: string[];
+            /**
+             * Recent Rematch Count
+             * @default 0
+             */
+            recent_rematch_count: number;
         };
         /** SquadMember */
         SquadMember: {
@@ -825,6 +1223,74 @@ export interface components {
             members: components["schemas"]["SquadMemberV11"][];
             /** Squad Id */
             squad_id: string;
+        };
+        /** StudioClaimTraceV2 */
+        StudioClaimTraceV2: {
+            /** Claim Id */
+            claim_id: string;
+            /** Evidence Ids */
+            evidence_ids: string[];
+            /** Output Section */
+            output_section: string;
+            predicate: components["schemas"]["ClaimPredicate"];
+        };
+        /** StudioInterpretationTraceV2 */
+        StudioInterpretationTraceV2: {
+            /** Claim Mappings */
+            claim_mappings?: components["schemas"]["StudioClaimTraceV2"][];
+            /**
+             * Correction Attempted
+             * @default false
+             */
+            correction_attempted: boolean;
+            /** Eligible Windows */
+            eligible_windows?: components["schemas"]["EligibleEventWindow"][];
+            /** Mission Candidates */
+            mission_candidates?: components["schemas"]["MissionCapabilityCandidate"][];
+            /** Normalized Event Count */
+            normalized_event_count: number;
+            /** Normalized Match Count */
+            normalized_match_count: number;
+            /** Privacy Redaction Count */
+            privacy_redaction_count: number;
+            /**
+             * Source Quality Flag
+             * @default false
+             */
+            source_quality_flag: boolean;
+            /** Stages */
+            stages: components["schemas"]["StudioTraceStageV2"][];
+            /** Trace Id */
+            trace_id: string;
+        };
+        /** StudioTraceStageV2 */
+        StudioTraceStageV2: {
+            /** Issue Codes */
+            issue_codes?: string[];
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "deterministic_preparation" | "ai_interpretation" | "deterministic_validation" | "player_decision";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "complete" | "rejected" | "withheld" | "pending";
+            /** Summary */
+            summary: string;
+        };
+        /** V2ValidationIssue */
+        V2ValidationIssue: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "warning" | "error";
         };
         /** ValidationError */
         ValidationError: {
@@ -1128,6 +1594,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_delivery_decision_v2_v2_deliveries__delivery_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordDeliveryDecisionRequestV2"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryDecisionRecordV2"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_delivery_trace_v2_v2_deliveries__delivery_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioInterpretationTraceV2"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    interpret_delivery_v2_v2_memories_interpret_delivery_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RawTelemetryBatchV2"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterpretDeliveryResultV2"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
                 };
             };
         };

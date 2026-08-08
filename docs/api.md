@@ -1,8 +1,243 @@
-# API reference
+# API reference and v2 contract
 
-FastAPI publishes the authoritative schemas at `/openapi.json` and interactive documentation at
-`/docs`. The examples below are intentionally shortened to show the Phase 1/2 flow; use OpenAPI for
-complete field definitions and generated frontend types.
+FastAPI publishes the implemented schemas at `/openapi.json` and interactive documentation at
+`/docs`. The v2 schemas are included in the checked-in generated OpenAPI document. The v1.0 and
+v1.1 sections describe the runnable compatibility API.
+
+## V2 implementation status
+
+The implemented consumer API is additive:
+
+- `POST /v2/memories/interpret-delivery` ingests raw telemetry and returns either one fully
+  validated delivery or a fail-closed result with no generated artifacts.
+- `POST /v2/deliveries/{delivery_id}/decision` records one prototype accept/decline decision and
+  suppresses the exact delivery when declined.
+
+Their Pydantic models, normalizer, validators, OpenAPI snapshot, and integration tests are
+implemented. They remain prototype routes without player authentication or durable storage.
+Existing `/v1/memories/discover-history`, `/generate`, `/prepare-delivery`, and
+`/record-delivery-decision` remain compatibility/internal behavior during migration.
+
+## `POST /v2/memories/interpret-delivery`
+
+The request contains raw telemetry and limited context, never a pre-authored memory. This shortened
+example illustrates the boundary; use OpenAPI for the complete generated schema:
+
+```json
+{
+  "schema_version": "2.0",
+  "request_id": "request-17",
+  "target_player_id": "player-lee",
+  "squad": {
+    "squad_id": "squad-17",
+    "players": [
+      {
+        "player_id": "player-lee",
+        "display_name": "Lee",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": true,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "player-mei",
+        "display_name": "Mei",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": true,
+          "mission_invitation": true
+        }
+      }
+    ]
+  },
+  "matches": [
+    {
+      "match_id": "match-001",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-05-10T12:00:00Z",
+      "ended_at": "2026-05-10T12:20:00Z",
+      "placement": 5,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "event-16",
+          "provider_event_type": "PLAYER_KNOCKED",
+          "actor_id": "player-lee",
+          "timestamp_seconds": 888,
+          "location": "Clock Tower",
+          "details": {"zone_phase": 4}
+        },
+        {
+          "event_id": "event-17",
+          "provider_event_type": "TEAMMATE_REVIVED",
+          "actor_id": "player-mei",
+          "target_id": "player-lee",
+          "timestamp_seconds": 900,
+          "location": "Clock Tower",
+          "details": {"zone_phase": 4}
+        }
+      ]
+    }
+  ],
+  "squad_history": {
+    "previous_session_at": ["2026-05-10T12:00:00Z"],
+    "days_since_full_squad": 42,
+    "recent_rematch_count": 0
+  },
+  "current_context": {
+    "active_player_ids": ["player-lee", "player-mei"],
+    "available_modes": ["battle_royale_squad"],
+    "reunion_eligible": true
+  },
+  "media_references": [
+    {
+      "media_id": "clip-synthetic-17",
+      "kind": "clip",
+      "event_ids": ["event-17"],
+      "consented_player_ids": ["player-lee", "player-mei"]
+    }
+  ]
+}
+```
+
+The telemetry adapter deterministically maps `provider_event_type` and allowlisted details into
+canonical events. Unknown JSON fields and broken schema cross-references return `422`. Unsupported
+provider events, unsafe detail combinations, failed eligibility, or invalid media consent return a
+typed `rejected` result before a provider call. Opted-out identities are replaced with request-scoped
+aliases before window construction or prompting; opted-out-authored social prose is excluded.
+
+A successful response has `status: "pending_player_decision"` and only validated delivery fields.
+This abridged example omits additional required section claims and trace details:
+
+```json
+{
+  "schema_version": "2.0",
+  "request_id": "request-17",
+  "delivery_id": "delivery-opaque-id",
+  "status": "pending_player_decision",
+  "reason_codes": [],
+  "memory": {
+    "title": "Back for One More",
+    "memory_type": "comeback",
+    "summary": "Mei revived Lee at Clock Tower.",
+    "notification_teaser": "A squad moment is ready.",
+    "why_this_matters_now": "It has been 42 days since the full squad played.",
+    "selected_match_id": "match-001",
+    "selected_event_ids": ["event-16", "event-17"]
+  },
+  "player_perspectives": [
+    {
+      "player_id": "player-lee",
+      "display_name": "Lee",
+      "message": "Mei brought you back into the match.",
+      "evidence_event_ids": ["event-17"]
+    },
+    {
+      "player_id": "player-mei",
+      "display_name": "Mei",
+      "message": "You brought Lee back into the match.",
+      "evidence_event_ids": ["event-17"]
+    }
+  ],
+  "next_chapter": {
+    "title": "Return the Favour",
+    "mission": "Bring the squad back for one verifiable match.",
+    "recipe": "remix",
+    "objectives": [
+      {
+        "objective_id": "squad_revive:window_match-001_1",
+        "description": "Complete one squad revive.",
+        "required": true,
+        "source_event_ids": ["event-16", "event-17"],
+        "verification": {"metric": "squad.revive_count", "operator": "at_least", "target": 1}
+      }
+    ]
+  },
+  "grounded_claims": [
+    {
+      "claim_id": "claim-summary-revive",
+      "output_section": "summary",
+      "subject_id": "player-mei",
+      "predicate": "revived",
+      "target_id": "player-lee",
+      "location": "Clock Tower",
+      "supporting_event_ids": ["event-17"]
+    }
+  ],
+  "validation": {"passed": true, "correction_attempted": false, "issues": []},
+  "studio_trace": {"trace_id": "trace-redacted", "stages": []},
+  "metadata": {
+    "provider": "groq",
+    "model": "openai/gpt-oss-20b",
+    "mode": "live_ai",
+    "prompt_version": "memory-interpreter-v2.1",
+    "narrative_fallback": false
+  }
+}
+```
+
+Every factual clause or constrained factual field must carry evidence references in the complete
+schema. Perspectives cover exactly the opted-in roster. The reunion mission may contain AI-authored
+descriptions, but player assignments, required flags, source event IDs, and machine-verification
+rules are deterministic controls.
+
+The provider may select only one deterministically offered chronological event window. It may not
+invent players, events, roles, locations, timestamps, numbers, outcomes, media mappings, consent
+state, assignments, or verification rules. `why_this_matters_now` may use only supplied structured
+current-context signals.
+
+Provider failure, refusal, or malformed structured output returns a safe HTTP `503`. Eligibility or
+proposal-validation failure returns `rejected` with no memory, perspectives, mission, claims, or
+media selection. One bounded correction call may receive stable issue codes. If it also fails, the result
+remains closed. Rejected proposal prose must not be returned to the player or Developer Studio.
+
+Groq GPT-OSS is the preferred live v2 provider. Deterministic mode remains available for tests and
+explicitly labelled offline Studio demonstrations; deterministic narrative must never be labelled as
+a live AI delivery.
+
+## `POST /v2/deliveries/{delivery_id}/decision`
+
+Accepted request:
+
+```json
+{"schema_version": "2.0", "decision": "accepted"}
+```
+
+Declined request:
+
+```json
+{"schema_version": "2.0", "decision": "declined", "decline_reason": "not_relevant"}
+```
+
+`decline_reason` is required only for a decline and is exactly `not_relevant` or `details_wrong`.
+Acceptance marks the validated mission as started and hands off to the invitation/continuation
+experience. Either decline suppresses that exact process-local prototype delivery.
+`details_wrong` additionally creates a source-quality signal for operations; it does not edit raw
+telemetry, perform a client-side correction, or trigger automatic prompt/model changes.
+
+The current prototype decision store is process-local and unauthenticated. Durable decisions,
+idempotency, player binding, retention, deletion, and operations access remain deferred until
+consent and privacy decisions are approved.
+
+## V2 media and Studio boundary
+
+Media is reference-only. A `media_id` may be selected only when its deterministic mapping covers the
+proposal's allowed selected event IDs. Unknown or mismatched IDs fail closed. The first prototype
+uses curated synthetic clips, thumbnails, or keyframes and makes no automated video-understanding
+claim.
+
+Developer Studio may show synthetic raw telemetry, normalization results, eligibility and consent
+outcomes, offered window IDs, validated evidence links, provider/model/prompt version, safe usage
+metrics, validator issue codes, final delivery status, and structured feedback. It never shows raw
+prompts, chain-of-thought, API keys, opted-out identities, provider exception text, or rejected and
+unvalidated proposal prose.
+
+## Current v1.0/v1.1 compatibility API
 
 ## Start the service
 
@@ -20,14 +255,14 @@ Confirms the service is running and reports the active provider and model.
 ```json
 {
   "status": "ok",
-  "phase": "1",
+  "phase": "v1-compatibility+v2",
   "provider": "deterministic",
-  "model": "rules-v1"
+  "model": "rules-v1",
+  "mode": "deterministic"
 }
 ```
 
-The health payload intentionally remains compatible with the Phase 1 client while the FastAPI
-application version advances to `0.2.0`.
+The FastAPI application version is `0.3.0`; v1 compatibility routes remain available.
 
 ## `POST /v1/memories/discover-history`
 
@@ -274,6 +509,10 @@ evidence, action, objective-alignment, and lexical checks above.
 
 ## Provider configuration
 
+The deterministic provider is appropriate for repeatable tests and offline Studio demos. The v2
+player route requires an explicitly configured Groq or OpenAI provider and fails closed; it never
+silently uses deterministic narrative when a live provider is unavailable.
+
 The default needs no credentials:
 
 ```dotenv
@@ -316,13 +555,15 @@ Keep the key server-side. The live provider uses structured typed responses, but
 still owns evidence, consent, eligibility, review state, and final validation.
 
 For a deployed server-to-server frontend proxy, optionally set `MEMORYOS_PROXY_TOKEN`. When it is
-non-empty, data-bearing POST routes require the same value in the `X-MemoryOS-Proxy-Token` header;
-`/health` remains public. Keep this value in server environment variables only—never bundle it into
-browser JavaScript. Local development remains unchanged while the variable is unset.
+non-empty, protected data-bearing routes require the same value in the
+`X-MemoryOS-Proxy-Token` header, including the v2 Studio trace lookup; `/health` remains public.
+Keep this value in server environment variables only—never bundle it into browser JavaScript.
+Local development remains unchanged while the variable is unset.
 
-Each model request uses low reasoning effort, a 30-second timeout, at most two SDK retries, and a
-2,000-token output ceiling. OpenAI responses use `store=False`; Groq requests omit the unsupported
-`store` field. See the official
+Each current v1.1 model request uses low reasoning effort, a 30-second timeout, at most two SDK
+retries, and a 2,000-token output ceiling. The single complete v2 proposal uses a 4,000-token
+ceiling and still fails closed rather than returning a partial delivery. OpenAI responses use
+`store=False`; Groq requests omit the unsupported `store` field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
 configured model's current capabilities and pricing.
 
@@ -343,20 +584,20 @@ should compare the generated client against the running backend. Do not copy Pyd
 hand or retain a separate Worker implementation of ranking and generation; that creates conflicting
 meaning for schema version, consent, and `ready`.
 
-The current player prototype intentionally remains on deprecated `/v1/memories/discover` while the
-Phase 2 review screens are built. Its `/api/discover` route is a server-side compatibility proxy,
-not a second ranking engine. New historical UI work should call `/discover-history`, retain the
-selected complete Memory Pack, collect both review decisions, and then call `/generate`.
+The canonical `/` player route uses same-origin `/api/delivery/prepare` and
+`/api/delivery/decision` proxies for `POST /v2/memories/interpret-delivery` and
+`POST /v2/deliveries/{delivery_id}/decision`. The prepare route supplies the server-held synthetic
+raw telemetry fixture and accepts only fully validated live-AI delivery output. The decision route
+accepts `accepted` or `declined`; a decline must be either `not_relevant` or `details_wrong`.
+Decisions are process-local prototype data only.
 
-The implemented Phase 2B client exposes that handoff as same-origin `/api/history` and
-`/api/generate` server routes. It sends the entire selected v1.1 pack, never a candidate ID or
-score, and treats only `status: "ready"` as permission to render generated artifacts.
+`/history` is a separate read-only view. It does not prepare a delivery, collect review decisions,
+or record accept/decline feedback. The older `/api/discover`, `/api/history`, and `/api/generate`
+routes remain compatibility infrastructure and are not the canonical consumer decision path.
 
-`POST /v1/memories/prepare-delivery` is the consumer delivery route. It ranks a submitted trusted
-history, selects the highest source-verified candidate, and returns `pending_player_decision` with
-validated artifacts while `meaning_status` remains `unreviewed`. `POST
-/v1/memories/record-delivery-decision` accepts `accepted` or `declined`; a decline must be either
-`not_relevant` or `details_wrong`. Decisions are process-local prototype data only.
+Types are generated from the v2 OpenAPI schema, opaque delivery IDs remain behind the same-origin
+server boundary, and malformed, rejected, or deterministic-demo results fail closed in the player
+route. Delivery preparation and decision controls do not belong in `/history`.
 
 ## Data boundary
 

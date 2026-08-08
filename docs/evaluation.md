@@ -1,10 +1,10 @@
-# Phase 1/2 evaluation
+# Evaluation: v1.1 compatibility baseline and AI-first v2
 
 Fluent prose alone is not a success criterion. MemoryOS must find the right episodes, know when to
 abstain, protect consent, keep structured evidence references traceable, and reject the unsupported
-factual patterns covered by its deterministic scaffolds and conservative lexical rules.
+factual patterns covered by its deterministic control plane and conservative lexical rules.
 
-## Deterministic acceptance criteria
+## Current v1.1 deterministic acceptance criteria
 
 The automated suite covers:
 
@@ -34,6 +34,64 @@ The original golden cases remain compatibility regressions:
 4. Unknown players and invalid cross-references fail at input validation.
 5. Invented evidence and unsupported relationships fail final validation.
 
+## Current v2 acceptance criteria
+
+The v2 route is implemented in this branch. Its release and regression gates must prove the
+complete raw-input-to-decision contract, not only the quality of generated prose:
+
+- A telemetry-only fixture with no authored caption or precomposed memory produces one valid live
+  `MemoryProposal` from `POST /v2/memories/interpret-delivery`.
+- Unknown event types, unsupported event/detail combinations, invalid cross-references, and
+  unstructured current-context claims are rejected before any provider call.
+- Raw opted-out identities and opted-out-authored social prose are absent from provider payloads,
+  player output, logs, and Studio views. Important shared events may remain only with a
+  request-scoped anonymous role for factual continuity; that role receives no perspective, media
+  identity, invitation, or mission ownership.
+- The provider selects exactly one deterministically offered chronological window and references
+  only that window's allowed events, identities, context signals, and curated media mappings.
+- Every factual clause has valid evidence references; perspectives cover exactly the opted-in
+  roster; roles and current relevance are supported by structured inputs.
+- Mission assignments, required flags, source event IDs, objective constraints, and verification
+  rules exactly match deterministic controls.
+- Refusal, timeout, malformed output, unsupported claims, and failed correction produce no
+  proposal, teaser, perspective, mission, media selection, or rejected proposal prose in the
+  player response or Studio.
+- Live results are unambiguously labelled with provider, model, mode, and prompt version.
+  Deterministic output is available only as an explicitly offline test or Studio demonstration and
+  is never presented as a live-AI fallback.
+- `POST /v2/deliveries/{delivery_id}/decision` accepts only `accepted` or `declined`; a decline
+  requires exactly `not_relevant` or `details_wrong`. Both suppress that exact delivery, while
+  `details_wrong` also creates an operations source-quality signal without editing telemetry.
+- All v1.0/v1.1 compatibility tests remain green throughout migration.
+
+The typed v2 offline evaluator reports:
+
+| Metric | Definition | Release expectation |
+|---|---|---:|
+| Proposal validity | Live responses that pass schema and all deterministic validators | Report baseline; no invalid delivery |
+| Episode-selection accuracy | Selected window matches an optional expected-window label | Report baseline |
+| Factual-claim grounding | Offline-labeled factual claims that are grounded; unsupported claims are reported separately | 100% grounded; 0 unsupported |
+| Offered-window compliance | Proposals select exactly one offered window and no outside events | 100% |
+| Perspective roster precision/coverage | Returned player IDs exactly equal the opted-in roster | 100% |
+| Perspective distinctness | Delivered player perspectives are pairwise distinct after normalization | Report baseline |
+| Consent leak count | Supplied forbidden raw identity terms found in the serialized safe result | 0 |
+| Mission feasibility and story connection | Mission validation passes and every objective source ID belongs to the selected episode | 100% |
+| Fail-closed artifact count | Generated artifact fields returned after provider or validation failure | 0 |
+| Media mapping validity | Selected media IDs whose deterministic mapping covers all required selected events | 100% |
+| Deliverability and abstention correctness | Delivered/rejected outcome matches an optional expected-deliverability label | 100% |
+| Correction outcome | Attempted correction and successful corrected delivery are counted separately | Report baseline |
+| Provider usage | Safe observability totals for request count, latency, and input/output tokens | Report baseline |
+| Feedback outcome | Accepted and declined decisions, reasons, and source-quality flags grouped by prompt/model version | Report baseline |
+
+`summarize_v2_evaluation` consumes typed `V2OfflineEvaluationCase` values. Expected labels and
+delivery decisions are optional, and evaluation never changes telemetry, prompts, provider
+configuration, or model selection. `summarize_v2_results` remains available as the compatibility
+smoke summary for callers that only provide interpretation results.
+
+The complete proposal schema is tested against the v2 4,000-token output ceiling. Worst-case
+opted-in rosters, references, and mission controls must still fail closed rather than return a
+partial delivery.
+
 ## Historical ranking evaluation
 
 Historical fixtures include strong, weak, stale, duplicate, dismissed, disputed, diverse, and
@@ -61,7 +119,7 @@ useful role diversity; and the serialized-output leak scan does not inspect prov
 logs. Prompt redaction is covered by separate tests. Human-labeled datasets and qualitative review
 are still required before treating these values as product-quality measurements.
 
-The scaffold checks make evidence, identity, ownership, assignment, and verification controls exact,
+The deterministic control checks make evidence, identity, ownership, assignment, and verification controls exact,
 but they do not turn model-authored memory, perspective, or quest prose into semantic proofs. Those
 narrative fields still rely on bounded schemas, evidence/privacy checks, conservative lexical rules,
 and human review.
@@ -97,15 +155,22 @@ The cost field uses configurable `OPENAI_INPUT_COST_PER_MILLION` and
 
 For any prompt or model change:
 
-1. Run deterministic CI gates to protect schemas and guardrails.
-2. Run the complete eligible fixture set in explicit Groq or OpenAI mode.
-3. Save results outside source fixtures and remove any secret-bearing logs.
-4. Compare ranking labels and generation metrics against the previous run.
-5. Add a regression fixture for every newly observed failure mode.
-6. Promote the change only when it improves usefulness without weakening grounding or consent.
+1. Run deterministic CI gates to protect schemas, normalization, consent filtering, window
+   construction, mission controls, and validators.
+2. Run the complete eligible fixture set in explicit Groq mode; use other providers only as a
+   documented comparison.
+3. Save responses and aggregate metrics only in an approved offline evaluation location; remove
+   secrets, opted-out content, raw prompts, chain-of-thought, and provider exception text.
+4. Compare proposal validity, factual-clause grounding, window compliance, roster coverage,
+   mission-control integrity, latency, token use, and failure rate against the previous run.
+5. Review narrative usefulness with human raters separately from deterministic safety checks.
+6. Add a regression fixture for every newly observed failure mode.
+7. Promote the change only when it improves usefulness without weakening grounding, consent, or
+   fail-closed behavior.
 
-Never use the live provider to calculate historical rank. Model comparisons begin only after the
-same deterministic candidates have been selected and reviewed.
+For the v1.1 compatibility flow, never use the live provider to calculate historical rank. For v2,
+deterministic code builds the eligible windows and the model may choose only one of those offered
+windows; it does not expand eligibility or create a new episode boundary.
 
 ## Quality gates
 

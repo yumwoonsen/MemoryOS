@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import funnyMemory from "@/data/funny_memory.json";
-import type { MemoryPack } from "@/lib/types";
+import rawTelemetry from "@/data/raw_telemetry_v2.json";
+import { consentSafeTelemetryView } from "@/lib/ai-memory-contract";
+import type { RawTelemetryBatchV2 } from "@/lib/ai-memory-contract";
 import { StudioDashboard } from "./studio-dashboard";
 
 export const metadata: Metadata = {
@@ -10,6 +11,6 @@ export const metadata: Metadata = {
 };
 
 export default function StudioPage() {
-  const initialPack = funnyMemory as unknown as MemoryPack;
-  return <StudioDashboard initialPack={initialPack} />;
+  const telemetry = rawTelemetry as unknown as RawTelemetryBatchV2;
+  return <StudioDashboard telemetry={consentSafeTelemetryView(telemetry)} />;
 }

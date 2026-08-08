@@ -15,11 +15,11 @@
 - Selected-memory generation and strengthened validation
 - OpenAPI contract and regression evaluation
 
-## Phase 2B — Consumer memory delivery (in progress)
+## Phase 2B — Consumer memory delivery (complete for prototype)
 
 Completed in the integrated teammate slice and Phase 2B delivery flow:
 
-- Mobile-first reveal flow for one grounded legacy memory
+- Mobile-first reveal flow for one grounded current memory
 - Evidence-first story, current-player perspective, and quest preview
 - Server-side backend proxy with an exact-fixture hosted fallback
 - Runtime result guards and rendered HTML regression tests
@@ -28,42 +28,39 @@ Completed in the integrated teammate slice and Phase 2B delivery flow:
 - Ready-only player reveal and consent-safe redaction presentation
 - OpenAPI-derived client types and API contract tests
 
-The `/history` player flow is now an AI Memory Inbox: it prepares one source-verified memory and
-mission, then records accept, not-relevant, or details-wrong feedback in process-local prototype
-storage. Source verification remains an upstream telemetry/data-quality responsibility; player
-feedback expresses relevance and is never used to rewrite match facts.
+The `/` player flow is now the AI Memory Inbox: it prepares one source-verified memory and mission,
+then records accept, not-relevant, or details-wrong feedback in process-local prototype storage.
+`/mission` owns the accepted reunion continuation, while `/history` is a compact, privacy-safe
+timeline rather than a second decision interface. Source verification remains an upstream
+telemetry/data-quality responsibility; player feedback expresses relevance and is never used to
+rewrite match facts.
 
-## Phase 3 — Backend validation, dashboard, and reunion loop (next)
+## Phase 3 — Backend validation, Studio, and reunion loop (complete for prototype)
 
 ### 3.1 — Test and select a no-cost/open-source model
 
-- Define a provider evaluation harness using the existing synthetic Memory Pack fixtures and
-  deterministic validators as the safety baseline.
-- Evaluate locally runnable or free-tier open-source models for structured title, perspective, and
-  mission generation; compare format adherence, grounding, latency, hardware needs, and failure
-  rate against the current deterministic provider and optional OpenAI demo provider.
-- Add the selected provider behind the existing provider boundary rather than changing ranking,
-  consent, redaction, or validation ownership.
-- Document the model licence, hosting/runtime requirements, prompt format, known failure modes,
-  and fallback behaviour. A model is eligible only if malformed or ungrounded output fails closed.
+**Prototype status: integrated, with broader model comparison still open.** Groq GPT-OSS is
+available behind the provider boundary for structured live interpretation. The offline evaluator
+captures grounding, abstention, consent, mission, latency, token, correction, and feedback metrics
+by prompt/model version. Malformed, unavailable, or ungrounded output fails closed. A wider
+comparison of hosting cost, hardware needs, latency, and model quality remains production research;
+it does not change deterministic consent, evidence, or validation ownership.
 
 ### 3.2 — Collaborator dashboard and backend visibility
 
-- Connect the backend to the teammate-built dashboard through server-side API routes and the
-  versioned OpenAPI contract.
-- Provide a safe, demo-oriented operations view of the pipeline: submitted synthetic pack,
-  eligibility outcome, source-quality state, selected delivery, generated artifacts, validation
-  outcome, provider used, and recorded delivery decision.
-- Keep player-facing data minimal: redact opted-out identities and do not expose raw prompts,
-  secrets, internal scores, or unvalidated model output.
-- Add dashboard integration checks for loading, API/provider errors, malformed responses, and
-  empty states so judges can see both the successful path and the safety gates.
+**Prototype status: complete in Developer Studio.** The Studio uses same-origin server routes and
+the versioned OpenAPI contract to show sanitized telemetry preparation, eligible event windows, AI
+provider metadata, validated claim mappings, backend-owned mission rules, correction status,
+delivery status, and source-quality feedback. Player responses remain minimal, and neither Studio
+nor the player UI exposes raw prompts, secrets, opted-out identities, or rejected prose. Integration
+checks cover loading, provider failures, malformed responses, offline demonstration labels, and
+empty states.
 
 ### 3.3 — Complete the consumer decision path
 
-**Prototype status: complete on the consumer continuation branch.** The inbox now keeps an explicit
-route back to the player memory, validates the recorded decision response, shows reason-specific
-decline completion, and hands an accepted mission into a consent-safe invitation simulation.
+**Prototype status: complete on the consumer continuation branch.** The canonical `/` view
+validates the recorded decision response, shows reason-specific decline completion, and hands an
+accepted delivery to the dedicated `/mission` route through an ephemeral in-memory session.
 
 - Adjust the player frontend around the final delivery contract: one AI-prepared memory, its
   grounded explanation, and a clear reunion mission.
@@ -77,11 +74,12 @@ decline completion, and hands an accepted mission into a consent-safe invitation
 
 ### 3.4 — Reunion and continuation experience
 
-**Prototype status: in progress.** The current slice includes a clearly labelled synthetic moment
-preview, invitations derived only from privacy-filtered perspectives, deterministic evaluation of
-the existing mission rules against a synthetic rematch, a grounded “Story Continues” chapter,
-timeline presentation, and session-only relevance feedback. Real notifications, clips, Garena
-match-result ingestion, authentication, and durable feedback remain deferred production work.
+**Prototype status: complete for the local simulation.** The `/mission` slice includes invitations
+derived only from privacy-filtered perspectives, deterministic evaluation of the existing mission
+rules against a synthetic rematch, a grounded “Story Continues” chapter, a mission continuation
+timeline, and session-only relevance feedback. `/history` reflects the resulting milestones in a
+compact read-only timeline. Real notifications, clips, Garena match-result ingestion,
+authentication, and durable feedback remain deferred production work.
 
 - In-app Memory Inbox or notification delivery with a curated moment clip
 - Squad invitation and acceptance simulation
@@ -89,6 +87,61 @@ match-result ingestion, authentication, and durable feedback remain deferred pro
 - “Story Continues” chapter generation
 - Memory timeline and feedback capture
 - Optional dismissal feedback, kept separate from factual source disputes
+
+## Phase 4 — AI-first v2 prototype (implemented)
+
+The Phase 1–3 implementation remains the v1.1 compatibility baseline. New ingestion now uses a
+separate v2 contract rather than extending or inheriting the composed `MemoryPackV11` shape.
+Compatibility endpoints stay available during migration and are deprecated only after production
+authentication, persistence, and rollout telemetry are ready.
+
+### 4.1 — Raw telemetry contract and deterministic preparation — complete
+
+- Defines a telemetry-only v2 DTO with squad, match, event, structured current-context, optional
+  social, and optional curated-media mapping inputs.
+- Normalizes source formats before provider use and rejects unknown event/detail combinations and
+  malformed cross-references at the API boundary.
+- Replaces opted-out identities with request-scoped aliases when their events are needed for factual
+  continuity and excludes their social prose, perspectives, media identity, invitations, and missions.
+- Builds deterministic eligible chronological event windows with stable IDs and allowed evidence,
+  identity, context, and media sets.
+
+### 4.2 — One complete AI Memory Proposal with deterministic validation — complete
+
+- Requests one typed `MemoryProposal` from the preferred live Groq GPT-OSS provider, selected from exactly
+  one offered event window: memory framing, notification teaser, player perspectives, current
+  relevance, and reunion-mission prose.
+- Requires evidence references for every factual clause and exactly one perspective for each
+  opted-in squad member.
+- Keeps assignments, required flags, source event IDs, media eligibility, and machine-verification
+  rules deterministic; the model never creates or changes those controls.
+- Permits at most one correction call using stable validator issue codes. Provider failure,
+  refusal, malformed output, or a second validation failure returns no generated artifacts.
+- Keeps deterministic narrative generation only for tests and explicitly labelled offline Studio
+  demonstrations; never present it as a live-AI fallback.
+
+### 4.3 — V2 API, player adapter, and safe Studio trace — complete
+
+- Implements `POST /v2/memories/interpret-delivery` and
+  `POST /v2/deliveries/{delivery_id}/decision`, with generated OpenAPI client types and contract
+  tests.
+- Moves the canonical `/` player route to same-origin v2 proxies while keeping `/history` read-only
+  and preserving the completed Phase 3.3/3.4 interaction sequence.
+- Shows synthetic normalization, offered window IDs, validated evidence links, safe provider
+  metadata, issue codes, final status, and structured feedback in Studio.
+- Excludes raw prompts, chain-of-thought, secrets, opted-out identities, provider exception
+  text, or rejected and unvalidated proposal prose in Studio or the player client.
+- Treats curated synthetic media as reference-only, requires deterministic event mappings, and makes
+  no automated video-understanding claim.
+
+### 4.4 — Authenticated durable decisions and operations feedback
+
+- Bind decisions and exact-delivery suppression to an authenticated player with idempotency and
+  ownership checks.
+- Route `details_wrong` to an operations source-quality queue without editing trusted telemetry or
+  automatically changing prompts/models; keep optional dismissal feedback separate.
+- Approve consent, retention, access, deletion, regional privacy, and audit policies before
+  replacing the prototype's process- and session-local stores.
 
 ## Production questions to resolve later
 
@@ -98,6 +151,9 @@ match-result ingestion, authentication, and durable feedback remain deferred pro
   operational-cost envelope at Garena scale?
 - Which constrained-generation, semantic-grounding, moderation, and human-audit layers should
   replace the prototype's lexical validation heuristics?
-- How should player edits and confirmations update future memory ranking?
+- How should relevance feedback and upstream source-quality outcomes affect future eligibility
+  without treating players as telemetry editors?
 - What experiment design can isolate dormant-squad reactivation impact?
 - How should pseudonyms, deletions, and consent changes propagate across stored squad memories?
+- What authenticated retention, deletion, suppression, and operations-access policy is acceptable
+  for delivery decisions and source-quality signals?

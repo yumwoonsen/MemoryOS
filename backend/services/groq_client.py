@@ -1,4 +1,4 @@
-"""Groq Responses API adapter for GPT-OSS structured generation."""
+"""Groq Chat Completions adapter for GPT-OSS strict structured generation."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ from typing import Any
 
 import openai
 from openai import OpenAI
-from pydantic import BaseModel, ValidationError
+from openai.lib._pydantic import to_strict_json_schema
+from pydantic import ValidationError
 
 from backend.services.openai_client import (
     OpenAIProviderError,
-    _contains_refusal,
+    _sdk_error_code,
     _translate_sdk_error,
 )
 from backend.services.prompt_loader import load_prompt
@@ -24,6 +25,7 @@ from backend.services.structured_generator import ModelT
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 MAX_OUTPUT_TOKENS = 2_000
+V2_INTERPRETATION_MAX_OUTPUT_TOKENS = 4_000
 REQUEST_TIMEOUT_SECONDS = 30.0
 SDK_MAX_RETRIES = 2
 logger = logging.getLogger(__name__)
@@ -85,25 +87,51 @@ class GroqStructuredGenerator:
         started = time.perf_counter()
         safe_error: GroqProviderError | None = None
         try:
-            response = self._client.responses.parse(
+            response = self._client.chat.completions.create(
                 model=self.model_name,
-                input=[
+                messages=[
                     {"role": "system", "content": load_prompt(prompt_name)},
                     {
                         "role": "user",
                         "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
                     },
                 ],
-                text_format=response_model,
-                reasoning={"effort": "low"},
-                max_output_tokens=MAX_OUTPUT_TOKENS,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": response_model.__name__,
+                        "strict": True,
+                        "schema": to_strict_json_schema(response_model),
+                    },
+                },
+                reasoning_effort="low",
+                temperature=0,
+                max_completion_tokens=(
+                    V2_INTERPRETATION_MAX_OUTPUT_TOKENS
+                    if stage.startswith("memory_interpretation")
+                    else MAX_OUTPUT_TOKENS
+                ),
             )
         except openai.OpenAIError as error:
-            safe_error = _translate_sdk_error(
-                stage,
-                error,
-                error_type=GroqProviderError,
-            )
+            # Groq reports strict-schema generation failures as a 400 with the
+            # stable json_validate_failed code.  Treat that one response as a
+            # repairable malformed model output; never retain its body because
+            # it can contain the rejected generation.
+            if (
+                isinstance(error, openai.BadRequestError)
+                and _sdk_error_code(error) == "json_validate_failed"
+            ):
+                safe_error = GroqProviderError(
+                    stage=stage,
+                    code="provider_invalid_response",
+                    retryable=False,
+                )
+            else:
+                safe_error = _translate_sdk_error(
+                    stage,
+                    error,
+                    error_type=GroqProviderError,
+                )
         except (ValidationError, ValueError, TypeError):
             safe_error = GroqProviderError(
                 stage=stage,
@@ -129,22 +157,63 @@ class GroqStructuredGenerator:
             raise safe_error
 
         usage = getattr(response, "usage", None)
-        input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
-        output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+        input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
 
-        parsed = getattr(response, "output_parsed", None)
-        if parsed is None:
-            code = "provider_refusal" if _contains_refusal(response) else "provider_no_output"
+        choices = getattr(response, "choices", None) or []
+        message = getattr(choices[0], "message", None) if choices else None
+        refusal = getattr(message, "refusal", None) if message is not None else None
+        finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+        content = getattr(message, "content", None) if message is not None else None
+        if refusal or finish_reason == "content_filter":
             self._record_failure(
                 stage=stage,
-                code=code,
+                code="provider_refusal",
                 retryable=False,
                 started=started,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
             )
-            raise GroqProviderError(stage=stage, code=code, retryable=False)
-        if not isinstance(parsed, BaseModel) or not isinstance(parsed, response_model):
+            raise GroqProviderError(stage=stage, code="provider_refusal", retryable=False)
+        if finish_reason == "length":
+            self._record_failure(
+                stage=stage,
+                code="provider_output_limit",
+                retryable=False,
+                started=started,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+            raise GroqProviderError(
+                stage=stage,
+                code="provider_output_limit",
+                retryable=False,
+            )
+        if not isinstance(content, str) or not content.strip():
+            self._record_failure(
+                stage=stage,
+                code="provider_no_output",
+                retryable=False,
+                started=started,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+            raise GroqProviderError(
+                stage=stage,
+                code="provider_no_output",
+                retryable=False,
+            )
+        parsed_error: GroqProviderError | None = None
+        parsed: ModelT | None = None
+        try:
+            parsed = response_model.model_validate_json(content)
+        except (ValidationError, ValueError, TypeError):
+            parsed_error = GroqProviderError(
+                stage=stage,
+                code="provider_invalid_response",
+                retryable=False,
+            )
+        if parsed_error is not None or parsed is None:
             self._record_failure(
                 stage=stage,
                 code="provider_invalid_response",
@@ -153,7 +222,7 @@ class GroqStructuredGenerator:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
             )
-            raise GroqProviderError(
+            raise parsed_error or GroqProviderError(
                 stage=stage,
                 code="provider_invalid_response",
                 retryable=False,

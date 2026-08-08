@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "garena-memoryos"
-version = "0.2.0"
-description = "Phase 1/2 AI Memory Engine prototype for Garena Next Chapter"
+version = "0.3.0"
+description = "AI-first grounded memory interpretation prototype for Garena Next Chapter"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

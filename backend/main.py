@@ -1,4 +1,4 @@
-"""FastAPI entrypoint for the Phase 1/2 Memory Engine."""
+"""FastAPI entrypoint for AI-first v2 interpretation and v1 compatibility routes."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from backend.models.schemas import (
     GenerateMemoryRequest,
@@ -27,9 +27,18 @@ from backend.models.schemas import (
     RecordDeliveryDecisionRequest,
     RecordDeliveryDecisionResponse,
 )
+from backend.models.v2_schemas import (
+    DeliveryDecisionRecordV2,
+    InterpretDeliveryResultV2,
+    RawTelemetryBatchV2,
+    RecordDeliveryDecisionRequestV2,
+    StudioInterpretationTraceV2,
+)
 from backend.pipeline import MemoryPipeline, build_pipeline
 from backend.services.delivery_store import delivery_decision_store
 from backend.services.openai_client import OpenAIProviderError
+from backend.services.v2_delivery_repository import v2_delivery_repository
+from backend.v2_pipeline import MemoryInterpretationPipelineV2, build_v2_pipeline
 
 
 class NDJSONStreamingResponse(StreamingResponse):
@@ -57,8 +66,11 @@ GENERATE_STREAM_EVENT_SCHEMA = {
 
 app = FastAPI(
     title="Garena Next Chapter — MemoryOS",
-    description="Discover grounded squad memories and turn them into personalized next chapters.",
-    version="0.2.0",
+    description=(
+        "Interpret trusted gameplay telemetry into grounded squad memories and personalized "
+        "next chapters. Legacy v1.1 routes remain available during the v2 migration."
+    ),
+    version="0.3.0",
 )
 
 default_origins = (
@@ -84,15 +96,17 @@ PROTECTED_POST_PATHS = {
     "/v1/memories/generate-stream",
     "/v1/memories/prepare-delivery",
     "/v1/memories/record-delivery-decision",
+    "/v2/memories/interpret-delivery",
+    "/v2/deliveries/{delivery_id}/decision",
 }
 
 
 @app.middleware("http")
-async def require_trusted_proxy(request: Request, call_next):
-    """Optionally restrict data-bearing POST routes to a trusted server-side proxy."""
+async def protect_sensitive_routes(request: Request, call_next):
+    """Optionally restrict data-bearing API routes to a trusted server-side proxy."""
 
     expected = os.getenv("MEMORYOS_PROXY_TOKEN")
-    if expected and request.method == "POST" and request.url.path in PROTECTED_POST_PATHS:
+    if expected and _is_protected_request(request.method, request.url.path):
         supplied = request.headers.get("X-MemoryOS-Proxy-Token", "")
         if not hmac.compare_digest(supplied.encode(), expected.encode()):
             return JSONResponse(
@@ -108,6 +122,18 @@ async def require_trusted_proxy(request: Request, call_next):
     return await call_next(request)
 
 
+def _is_protected_post_path(path: str) -> bool:
+    if path in PROTECTED_POST_PATHS:
+        return True
+    return path.startswith("/v2/deliveries/") and path.endswith("/decision")
+
+
+def _is_protected_request(method: str, path: str) -> bool:
+    if method == "POST":
+        return _is_protected_post_path(path)
+    return method == "GET" and path.startswith("/v2/deliveries/") and path.endswith("/trace")
+
+
 @app.get("/health", tags=["system"], response_model=None)
 def health() -> dict[str, str] | JSONResponse:
     try:
@@ -117,7 +143,7 @@ def health() -> dict[str, str] | JSONResponse:
         return _provider_error_response(error)
     return {
         "status": "ok",
-        "phase": "1",
+        "phase": "v1-compatibility+v2",
         "provider": pipeline.provider_name,
         "model": pipeline.model_name,
         "mode": pipeline.execution_mode,
@@ -159,6 +185,7 @@ def discover_history(request: HistoricalDiscoveryRequest) -> HistoricalDiscovery
     response_model_exclude_none=True,
     responses={503: {"model": ProviderErrorBody}},
     tags=["memory-engine"],
+    deprecated=True,
 )
 def generate_memory(request: GenerateMemoryRequest) -> MemoryEngineResultV11 | JSONResponse:
     """Expand a reviewed candidate into perspectives and a grounded quest."""
@@ -175,6 +202,7 @@ def generate_memory(request: GenerateMemoryRequest) -> MemoryEngineResultV11 | J
     response_model_exclude_none=True,
     responses={503: {"model": ProviderErrorBody}},
     tags=["memory-engine"],
+    deprecated=True,
 )
 def prepare_delivery(request: PrepareDeliveryRequest) -> MemoryDeliveryResult | JSONResponse:
     """Prepare one trusted squad memory for an accept-or-decline delivery."""
@@ -186,10 +214,89 @@ def prepare_delivery(request: PrepareDeliveryRequest) -> MemoryDeliveryResult | 
 
 
 @app.post(
+    "/v2/memories/interpret-delivery",
+    response_model=InterpretDeliveryResultV2,
+    response_model_exclude_none=True,
+    responses={503: {"model": ProviderErrorBody}},
+    tags=["memory-interpretation-v2"],
+)
+def interpret_delivery_v2(
+    request: RawTelemetryBatchV2,
+) -> InterpretDeliveryResultV2 | JSONResponse:
+    """Interpret telemetry into one fully validated player delivery or fail closed."""
+
+    try:
+        return _build_configured_v2_pipeline().interpret_delivery(request)
+    except OpenAIProviderError as error:
+        return _provider_error_response(error)
+
+
+@app.post(
+    "/v2/deliveries/{delivery_id}/decision",
+    response_model=DeliveryDecisionRecordV2,
+    response_model_exclude_none=True,
+    responses={404: {"model": ProviderErrorBody}},
+    tags=["memory-interpretation-v2"],
+)
+def record_delivery_decision_v2(
+    delivery_id: str,
+    request: RecordDeliveryDecisionRequestV2,
+) -> DeliveryDecisionRecordV2 | JSONResponse:
+    """Capture exactly one prototype relevance decision for a validated v2 delivery."""
+
+    result = v2_delivery_repository.record_decision(
+        delivery_id,
+        request.decision,
+        request.decline_reason,
+    )
+    if result is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "stage": "player_decision",
+                "code": "unknown_delivery",
+                "retryable": False,
+                "message": "This validated delivery is no longer available.",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+    return result
+
+
+@app.get(
+    "/v2/deliveries/{delivery_id}/trace",
+    response_model=StudioInterpretationTraceV2,
+    responses={404: {"model": ProviderErrorBody}},
+    tags=["memory-interpretation-v2"],
+)
+def get_delivery_trace_v2(
+    delivery_id: str,
+    response: Response,
+) -> StudioInterpretationTraceV2 | JSONResponse:
+    """Return a sanitized Studio trace, including the recorded player decision."""
+
+    trace = v2_delivery_repository.get_trace(delivery_id)
+    if trace is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "stage": "studio_trace",
+                "code": "unknown_delivery",
+                "retryable": False,
+                "message": "This validated delivery trace is no longer available.",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return trace
+
+
+@app.post(
     "/v1/memories/record-delivery-decision",
     response_model=RecordDeliveryDecisionResponse,
     responses={404: {"model": ProviderErrorBody}},
     tags=["memory-engine"],
+    deprecated=True,
 )
 def record_delivery_decision(
     request: RecordDeliveryDecisionRequest,
@@ -226,6 +333,7 @@ def record_delivery_decision(
         }
     },
     tags=["memory-engine"],
+    deprecated=True,
 )
 def generate_memory_stream(request: GenerateMemoryRequest) -> NDJSONStreamingResponse:
     """Expose the canonical generation result as newline-delimited stage events."""
@@ -342,12 +450,32 @@ def _provider_error_response(error: OpenAIProviderError) -> JSONResponse:
             **error.as_dict(),
             "message": "The live AI provider could not complete this generation stage.",
         },
+        headers={"Cache-Control": "no-store"},
     )
 
 
 def _build_configured_pipeline() -> MemoryPipeline:
     try:
         return build_pipeline()
+    except ValueError:
+        raise OpenAIProviderError(
+            stage="configuration",
+            code="invalid_provider",
+            retryable=False,
+        ) from None
+
+
+def _build_configured_v2_pipeline() -> MemoryInterpretationPipelineV2:
+    try:
+        pipeline = build_v2_pipeline()
+        pipeline.validate_provider_configuration()
+        if pipeline.execution_mode != "live_ai":
+            raise OpenAIProviderError(
+                stage="configuration",
+                code="live_ai_required",
+                retryable=False,
+            )
+        return pipeline
     except ValueError:
         raise OpenAIProviderError(
             stage="configuration",

@@ -5,6 +5,10 @@ const backendApi = normalizedConfiguredApi || "http://127.0.0.1:8000";
 const proxyToken = process.env.MEMORYOS_PROXY_TOKEN?.trim();
 const GENERATION_TIMEOUT_MS = 90_000;
 
+function proxyResponseHeaders() {
+  return { "cache-control": "no-store", "x-memoryos-mode": "live" };
+}
+
 export function backendUrl(path: string) {
   return `${backendApi}${path}`;
 }
@@ -43,8 +47,12 @@ export async function proxyMemoryOs(request: Request, path: string): Promise<Res
   try {
     body = await request.json();
   } catch {
-    return Response.json({ stage: "frontend_proxy", code: "invalid_json", retryable: false, message: "The request was not valid JSON." }, { status: 400 });
+    return Response.json({ stage: "frontend_proxy", code: "invalid_json", retryable: false, message: "The request was not valid JSON." }, { status: 400, headers: proxyResponseHeaders() });
   }
+  return proxyMemoryOsPayload(body, path);
+}
+
+export async function proxyMemoryOsPayload(body: unknown, path: string): Promise<Response> {
   try {
     const response = await fetch(backendUrl(path), {
       method: "POST",
@@ -56,12 +64,41 @@ export async function proxyMemoryOs(request: Request, path: string): Promise<Res
     const text = await response.text();
     let payload: unknown;
     try { payload = JSON.parse(text); } catch {
-      return Response.json({ stage: "frontend_proxy", code: "upstream_invalid_response", retryable: true, message: "MemoryOS returned an unreadable response." }, { status: 502 });
+      return Response.json({ stage: "frontend_proxy", code: "upstream_invalid_response", retryable: true, message: "MemoryOS returned an unreadable response." }, { status: 502, headers: proxyResponseHeaders() });
     }
     return response.ok
-      ? Response.json(payload, { status: response.status, headers: { "x-memoryos-mode": "live" } })
-      : Response.json(errorResponse(payload, response.status), { status: response.status, headers: { "x-memoryos-mode": "live" } });
+      ? Response.json(payload, { status: response.status, headers: proxyResponseHeaders() })
+      : Response.json(errorResponse(payload, response.status), { status: response.status, headers: proxyResponseHeaders() });
   } catch {
-    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "The configured MemoryOS backend is unavailable. Start it and try again." }, { status: 503 });
+    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "The configured MemoryOS backend is unavailable. Start it and try again." }, { status: 503, headers: proxyResponseHeaders() });
+  }
+}
+
+export function isSameOriginRequest(request: Request) {
+  const requestUrl = new URL(request.url);
+  const origin = request.headers.get("origin");
+  if (origin && origin !== requestUrl.origin) return false;
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return !fetchSite || fetchSite === "same-origin";
+}
+
+export async function proxyMemoryOsGet(path: string): Promise<Response> {
+  try {
+    const response = await fetch(backendUrl(path), {
+      method: "GET",
+      headers: backendRequestHeaders({ json: false }),
+      signal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    const text = await response.text();
+    let payload: unknown;
+    try { payload = JSON.parse(text); } catch {
+      return Response.json({ stage: "frontend_proxy", code: "upstream_invalid_response", retryable: true, message: "MemoryOS returned an unreadable response." }, { status: 502, headers: proxyResponseHeaders() });
+    }
+    return response.ok
+      ? Response.json(payload, { status: response.status, headers: proxyResponseHeaders() })
+      : Response.json(errorResponse(payload, response.status), { status: response.status, headers: proxyResponseHeaders() });
+  } catch {
+    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "The configured MemoryOS backend is unavailable. Start it and try again." }, { status: 503, headers: proxyResponseHeaders() });
   }
 }

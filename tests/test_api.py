@@ -23,7 +23,7 @@ def test_health_endpoint() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "phase": "1",
+        "phase": "v1-compatibility+v2",
         "provider": "deterministic",
         "model": "rules-v1",
         "mode": "deterministic",
@@ -255,6 +255,13 @@ def test_openapi_exposes_v11_contracts_and_deprecated_legacy_route() -> None:
     ].endswith("/ProviderErrorBody")
     assert "/v1/memories/discover-history" in schema["paths"]
     assert "/v1/memories/generate" in schema["paths"]
+    for path in (
+        "/v1/memories/generate",
+        "/v1/memories/prepare-delivery",
+        "/v1/memories/record-delivery-decision",
+        "/v1/memories/generate-stream",
+    ):
+        assert schema["paths"][path]["post"]["deprecated"] is True
     assert "HistoricalDiscoveryRequest" in schema["components"]["schemas"]
     assert "MemoryEngineResultV11" in schema["components"]["schemas"]
     result_schema = schema["components"]["schemas"]["MemoryEngineResultV11"]
@@ -415,9 +422,7 @@ def test_stream_reports_the_actual_rejected_generation_stage(
 
     events = [json.loads(line) for line in response.text.splitlines()]
     stage_states = [
-        (event["stage"], event["status"])
-        for event in events
-        if event["type"] == "stage"
+        (event["stage"], event["status"]) for event in events if event["type"] == "stage"
     ]
 
     assert stage_states == [

@@ -22,6 +22,7 @@ from backend.models.schemas import (
     PerspectiveSet,
     PipelineStatusV11,
 )
+from backend.models.v2_schemas import MemoryProposalV2
 from backend.pipeline import MemoryPipeline
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "backend" / "data"
@@ -37,7 +38,7 @@ class FakeResponses:
         self.error = error
         self.calls: list[dict[str, Any]] = []
 
-    def parse(self, **kwargs: Any) -> Any:
+    def create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         if self.error:
             raise self.error
@@ -46,7 +47,7 @@ class FakeResponses:
 
 class FakeClient:
     def __init__(self, responses: FakeResponses) -> None:
-        self.responses = responses
+        self.chat = SimpleNamespace(completions=responses)
 
 
 class SequenceResponses(FakeResponses):
@@ -54,9 +55,32 @@ class SequenceResponses(FakeResponses):
         super().__init__()
         self.results = list(results)
 
-    def parse(self, **kwargs: Any) -> Any:
+    def create(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         return self.results.pop(0)
+
+
+def chat_response(
+    output: BaseModel | str | None,
+    *,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    refusal: str | None = None,
+    finish_reason: str = "stop",
+) -> SimpleNamespace:
+    content = output.model_dump_json() if isinstance(output, BaseModel) else output
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, refusal=refusal),
+                finish_reason=finish_reason,
+            )
+        ],
+        usage=SimpleNamespace(
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+        ),
+    )
 
 
 def install_fake_client(
@@ -80,11 +104,7 @@ def test_groq_request_is_backend_keyed_bounded_and_observable(
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-be-used")
     monkeypatch.delenv("GROQ_MODEL", raising=False)
     expected = ExampleOutput(message="grounded result")
-    response = SimpleNamespace(
-        output_parsed=expected,
-        output=[],
-        usage=SimpleNamespace(input_tokens=12, output_tokens=7),
-    )
+    response = chat_response(expected, input_tokens=12, output_tokens=7)
     responses = FakeResponses(result=response)
     constructor_options = install_fake_client(monkeypatch, responses)
 
@@ -96,7 +116,7 @@ def test_groq_request_is_backend_keyed_bounded_and_observable(
         stage="memory_discovery",
     )
 
-    assert result is expected
+    assert result == expected
     assert generator.provider_name == "groq"
     assert generator.model_name == "openai/gpt-oss-20b"
     assert constructor_options == {
@@ -107,11 +127,16 @@ def test_groq_request_is_backend_keyed_bounded_and_observable(
     }
     request = responses.calls[0]
     assert request["model"] == "openai/gpt-oss-20b"
-    assert request["text_format"] is ExampleOutput
-    assert request["reasoning"] == {"effort": "low"}
-    assert "store" not in request  # Groq Responses explicitly does not support this field.
-    assert request["max_output_tokens"] == 2_000
-    assert json.loads(request["input"][1]["content"]) == {"event_ids": ["event-1"]}
+    assert request["reasoning_effort"] == "low"
+    assert request["temperature"] == 0
+    assert "store" not in request
+    assert request["max_completion_tokens"] == 2_000
+    assert json.loads(request["messages"][1]["content"]) == {"event_ids": ["event-1"]}
+    response_format = request["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["name"] == "ExampleOutput"
+    assert response_format["json_schema"]["strict"] is True
+    assert response_format["json_schema"]["schema"] == to_strict_json_schema(ExampleOutput)
 
     metrics = generator.observability
     assert metrics["provider"] == "groq"
@@ -155,21 +180,13 @@ def test_one_groq_generator_drives_all_three_model_capable_agents(
     assert baseline.next_chapter is not None
     responses = SequenceResponses(
         [
-            SimpleNamespace(
-                output_parsed=baseline.memory,
-                output=[],
-                usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+            chat_response(baseline.memory, input_tokens=10, output_tokens=5),
+            chat_response(
+                PerspectiveSet(perspectives=baseline.player_perspectives),
+                input_tokens=20,
+                output_tokens=8,
             ),
-            SimpleNamespace(
-                output_parsed=PerspectiveSet(perspectives=baseline.player_perspectives),
-                output=[],
-                usage=SimpleNamespace(input_tokens=20, output_tokens=8),
-            ),
-            SimpleNamespace(
-                output_parsed=baseline.next_chapter,
-                output=[],
-                usage=SimpleNamespace(input_tokens=30, output_tokens=12),
-            ),
+            chat_response(baseline.next_chapter, input_tokens=30, output_tokens=12),
         ]
     )
     monkeypatch.setenv("GROQ_API_KEY", "groq-test-only-key")
@@ -179,10 +196,10 @@ def test_one_groq_generator_drives_all_three_model_capable_agents(
     result = pipeline.generate(pack)
 
     assert result.status == PipelineStatusV11.READY
-    assert [call["text_format"] for call in responses.calls] == [
-        MemoryRecord,
-        PerspectiveSet,
-        NextChapter,
+    assert [call["response_format"]["json_schema"]["name"] for call in responses.calls] == [
+        "MemoryRecord",
+        "PerspectiveSet",
+        "NextChapter",
     ]
     assert [item["stage"] for item in result.metadata["observability"]["stages"]] == [
         "memory_discovery",
@@ -197,7 +214,7 @@ def test_one_groq_generator_drives_all_three_model_capable_agents(
     [
         (
             openai.APITimeoutError(
-                httpx.Request("POST", "https://api.groq.com/openai/v1/responses")
+                httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
             ),
             "provider_timeout",
             True,
@@ -207,7 +224,9 @@ def test_one_groq_generator_drives_all_three_model_capable_agents(
                 "sensitive provider detail",
                 response=httpx.Response(
                     429,
-                    request=httpx.Request("POST", "https://api.groq.com/openai/v1/responses"),
+                    request=httpx.Request(
+                        "POST", "https://api.groq.com/openai/v1/chat/completions"
+                    ),
                 ),
                 body={"detail": "sensitive provider detail"},
             ),
@@ -224,6 +243,53 @@ def test_one_groq_generator_drives_all_three_model_capable_agents(
                 body={"detail": "sensitive provider detail"},
             ),
             "provider_authentication_failed",
+            False,
+        ),
+        (
+            openai.APIStatusError(
+                "sensitive provider detail",
+                response=httpx.Response(
+                    413,
+                    request=httpx.Request(
+                        "POST", "https://api.groq.com/openai/v1/chat/completions"
+                    ),
+                ),
+                body={"error": {"code": "rate_limit_exceeded"}},
+            ),
+            "provider_rate_limited",
+            True,
+        ),
+        (
+            openai.BadRequestError(
+                "sensitive provider detail",
+                response=httpx.Response(
+                    400,
+                    request=httpx.Request(
+                        "POST", "https://api.groq.com/openai/v1/chat/completions"
+                    ),
+                ),
+                body={"detail": "sensitive provider detail"},
+            ),
+            "provider_request_rejected",
+            False,
+        ),
+        (
+            openai.BadRequestError(
+                "sensitive provider detail",
+                response=httpx.Response(
+                    400,
+                    request=httpx.Request(
+                        "POST", "https://api.groq.com/openai/v1/chat/completions"
+                    ),
+                ),
+                body={
+                    "error": {
+                        "code": "json_validate_failed",
+                        "message": "failed_generation containing rejected private prose",
+                    }
+                },
+            ),
+            "provider_invalid_response",
             False,
         ),
     ],
@@ -257,7 +323,58 @@ def test_groq_sdk_errors_map_to_safe_stable_codes(
     assert generator.observability["stages"][0]["status"] == "failed"
 
 
-@pytest.mark.parametrize("response_model", [MemoryRecord, PerspectiveSet, NextChapter])
+@pytest.mark.parametrize(
+    ("response", "expected_code"),
+    [
+        (chat_response("not valid json"), "provider_invalid_response"),
+        (chat_response(None), "provider_no_output"),
+        (chat_response(None, refusal="cannot comply"), "provider_refusal"),
+        (chat_response("{}", finish_reason="length"), "provider_output_limit"),
+    ],
+)
+def test_groq_chat_output_failures_are_safe_and_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    response: SimpleNamespace,
+    expected_code: str,
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-only-key")
+    install_fake_client(monkeypatch, FakeResponses(result=response))
+    generator = adapter.GroqStructuredGenerator()
+
+    with pytest.raises(adapter.GroqProviderError) as raised:
+        generator.generate(
+            prompt_name="memory_prompt.txt",
+            payload={"event_ids": ["event-1"]},
+            response_model=ExampleOutput,
+            stage="memory_discovery",
+        )
+
+    assert raised.value.code == expected_code
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+
+
+def test_v2_interpretation_uses_larger_but_bounded_chat_output_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test-only-key")
+    responses = FakeResponses(result=chat_response(ExampleOutput(message="ok")))
+    install_fake_client(monkeypatch, responses)
+    generator = adapter.GroqStructuredGenerator()
+
+    generator.generate(
+        prompt_name="memory_prompt.txt",
+        payload={"event_ids": ["event-1"]},
+        response_model=ExampleOutput,
+        stage="memory_interpretation",
+    )
+
+    assert responses.calls[0]["max_completion_tokens"] == 4_000
+
+
+@pytest.mark.parametrize(
+    "response_model", [MemoryRecord, PerspectiveSet, NextChapter, MemoryProposalV2]
+)
 def test_all_agent_contracts_convert_to_groq_compatible_strict_schema(
     response_model: type[BaseModel],
 ) -> None:
@@ -285,6 +402,14 @@ def test_quest_target_schema_does_not_overlap_integer_and_number() -> None:
     target_types = {option["type"] for option in target_options}
 
     assert target_types == {"string", "integer", "boolean", "array"}
+
+
+def test_v2_claim_value_schema_does_not_overlap_integer_and_number() -> None:
+    schema = to_strict_json_schema(MemoryProposalV2)
+    options = schema["$defs"]["GroundedClaim"]["properties"]["value"]["anyOf"]
+    value_types = {option["type"] for option in options}
+
+    assert value_types == {"string", "integer", "boolean", "array", "null"}
 
 
 @pytest.mark.skipif(

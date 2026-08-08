@@ -1,28 +1,86 @@
-# Phase 1/2 architecture
+# MemoryOS architecture: AI-first v2 and v1.1 compatibility
 
 ## Objective
 
-MemoryOS discovers several promising moments from historical Memory Packs, lets a player review one,
-and only then generates a grounded memory, teammate perspectives, and a connected quest.
+MemoryOS v2 is an AI-first interpretation pipeline. Its external input is raw, realistic synthetic
+game telemetry plus limited squad context—not a pre-authored memory. Deterministic code establishes
+the trusted evidence boundary, prepares eligible event windows, and validates the model's proposal
+before anything reaches a player.
+
+The correct product claim is:
+
+> MemoryOS uses AI to turn trusted gameplay evidence into a grounded, personalized memory and
+> reunion mission. Deterministic validation checks that the AI stayed within the supplied evidence.
+
+AI is not the final authority on whether telemetry is authentic. That trust must come from an
+authenticated telemetry adapter and source-quality controls. The player decides whether a validated
+memory is relevant; the player is not asked to audit raw telemetry.
+
+> **Implementation status:** the additive v2 contract, orchestration, validators, frontend adapter,
+> and acceptance tests are implemented. Existing v1.0 and v1.1 routes remain runnable compatibility
+> paths while production authentication, persistence, and telemetry integrations are deferred.
 
 ```mermaid
 flowchart LR
-    A["1-50 Memory Packs"] --> B["Validate and normalize"]
-    B --> C["Apply consent and redaction"]
-    C --> D["Score and rank"]
-    D --> E["Reviewable top candidates"]
-    E --> F{"Verified and meaningful?"}
-    F -->|"no"| G["Wait for review"]
-    F -->|"yes"| H["Compile evidence ledger"]
-    H --> I["Bounded AI stages"]
-    I --> J["Deterministic validator"]
-    J --> K["Ready next chapter"]
+    A["Raw telemetry + squad context + consent"] --> B["Normalize canonical events"]
+    B --> C["Filter consent and source quality"]
+    C --> D["Build eligible event windows"]
+    D --> E["AI returns one typed MemoryProposal"]
+    E --> F["Deterministic evidence, privacy, and mission validation"]
+    F -->|"pass"| G["Pending player decision"]
+    F -->|"fail"| H["Rejected with no proposal prose"]
+    G --> I{"Player decision"}
+    I -->|"accept"| J["Mission started"]
+    I -->|"decline"| K["Suppress exact delivery"]
 ```
 
-The engine is Python-first. FastAPI and its OpenAPI document are the canonical backend/frontend
-contract; a browser or Worker must not implement an independent scoring or validation pipeline.
+The engine is Python-first. FastAPI and its OpenAPI document remain the canonical backend/frontend
+contract; a browser or Worker must not implement an independent normalization, scoring, consent, or
+validation pipeline.
 
-## Historical discovery
+## V2 responsibility boundary
+
+| Layer | Responsibility |
+|---|---|
+| Telemetry adapter | Map external game event names and shapes into a strict canonical vocabulary; reject unknown or unsafe data |
+| Deterministic backend | Source trust, consent, filtering, deduplication, eligibility, event windows, mission controls, validation, and fail-closed delivery |
+| AI Memory Interpreter | Select one offered connected episode and author one complete typed memory proposal |
+| Player frontend | Render validated delivery content only and collect one accept/decline decision |
+| Player | Judge relevance and choose whether to start the reunion mission |
+
+The additive v2 raw contract contains match metadata, squad membership and current consent, canonical
+telemetry events, structured current context, optional social signals, and optional media references.
+It does not accept a title, memory type, summary, perspective, mission, selected evidence set, or
+prewritten “why this surfaced” narrative. Optional captions and tags remain player-authored context,
+not telemetry facts.
+
+External event names and detail shapes must pass through a deterministic adapter before eligibility.
+The adapter outputs a canonical event vocabulary with typed numeric details and rejects unknown or
+unsafe fields. It is not a model stage. The legacy `MemoryPack` models remain unchanged for v1.0 and
+v1.1 compatibility; v2 uses separate composed request models rather than inheriting their review and
+scaffold semantics.
+
+## V2 eligible windows and AI proposal
+
+The deterministic backend builds bounded chronological windows from consent-safe canonical events.
+Each offered window carries allowed event IDs, participant roles, locations, timestamps, numeric
+facts, current-context signals, valid media mappings, and a deterministic mission-control bundle.
+The AI may choose one offered window; it may not choose an arbitrary subset from the complete match.
+
+One live provider call returns a typed `MemoryProposal` containing:
+
+- selected event IDs, memory type, and narrative angle;
+- title, notification teaser, summary, and why the memory matters now;
+- exactly one evidence-linked perspective for each opted-in player;
+- reunion mission title, recipe, mission text, and objective descriptions; and
+- optional media selection only from the window's allowed mappings.
+
+Evidence references accompany each factual clause or tightly constrained factual field. Player IDs,
+event IDs, assignments, consent state, media mappings, and machine-verification rules remain
+deterministic controls. A single bounded correction call may use validator issue codes; if the
+corrected proposal still fails, v2 rejects it and exposes no generated prose.
+
+## V1.1 compatibility: historical discovery
 
 Historical discovery is deterministic. It is cheap enough to run across every submitted pack,
 repeatable in tests, and explainable to a player reviewing a candidate. It does not call OpenAI.
@@ -57,10 +115,16 @@ combining historical snapshots that disagree about who currently permits resurfa
 
 ## Evidence and privacy boundary
 
-The evidence compiler is the only input-data representation passed to generative stages. It
-contains allowed event IDs, event types, actors, targets, locations, timestamps, and sanitized
-detail values. Later stages also receive only the preceding typed stage output, never the original
-unsanitized Memory Pack.
+In v2, only a consent-safe ledger and eligible windows may reach the provider. When an event is
+needed for factual continuity, an opted-out actor or target may remain only as a request-scoped
+anonymous role; their raw ID and display name never cross the privacy boundary. Social content
+authored by an opted-out player is excluded. Anonymous roles do not receive a perspective, media
+identity, invitation, or mission assignment, and they do not count toward the minimum eligible
+participants required for a shared memory.
+
+The current v1.1 evidence compiler remains a compatibility boundary with its own stable aliasing
+rules. V2 uses request-scoped aliases and recursively checks the complete outbound model payload
+for private identity terms before interpretation.
 
 Before a prompt is assembled:
 
@@ -77,7 +141,7 @@ relationships, emotions, and motives. These rules catch known failure patterns; 
 general proof that arbitrary natural language entails only ledger facts. Interpretive language
 therefore remains reviewable and must not be presented as measured telemetry.
 
-## Split human trust
+## V1.1 compatibility: split human trust
 
 One confirmation flag cannot express two different questions. Schema v1.1 separates:
 
@@ -93,23 +157,25 @@ states; `false` maps to both unreviewed states, with the conversion recorded in 
 The deprecated v1.0 `/discover` route intentionally preserves its older behavior and may create
 reviewable drafts before confirmation; new clients must not use it as the Phase 2 trust boundary.
 
+V2 removes the pre-generation player meaning gate. Authenticated ingestion and deterministic source
+quality establish whether telemetry may be interpreted. The player then accepts or declines the
+validated delivery. `not_relevant` is a relevance signal; `details_wrong` is a source-quality signal
+for operations. Neither decision edits trusted telemetry or triggers automatic prompt changes.
+
 ## Stage ownership
 
-| Stage | Model-capable? | Deterministic responsibility |
+| V2 stage | Model-capable? | Owned behavior |
 |---|---:|---|
-| Input and normalization | No | Types, cross-references, version compatibility |
-| Evidence compiler | No | Consent, redaction, fact ledger |
-| Historical ranker | No | Eligibility, scoring, deduplication, diversity |
-| Memory discovery | Yes | Select evidence; preserve confidence and review state |
-| Perspectives | Yes | Fix player identity, ordering, ownership, and evidence references |
-| Quest | Yes | Fix objective IDs, assignments, evidence, and verification rules |
-| Validation | No | Claims, evidence, identity, assignment, review status |
-| Orchestration | No | Stage order, provider errors, final status |
+| Raw ingestion and normalization | No | Types, external-to-canonical mappings, provenance, and rejection |
+| Consent and eligibility | No | Current consent, source quality, deduplication, and event-window construction |
+| Memory proposal | Yes | Choose one offered window and author the complete player-facing interpretation |
+| Proposal validation | No | Chronology, claim references, roles, privacy, context, media, and mission controls |
+| Delivery and feedback | No | Final status, exact-delivery suppression, and structured decision semantics |
 
 “Agent” means a bounded typed stage, not an autonomous multi-agent runtime. Stages have no authority
 to bypass an earlier gate or weaken a later validation rule.
 
-## Narrative generation on deterministic scaffolds
+## V1.1 compatibility: narrative generation on deterministic scaffolds
 
 Schema-constrained output is not, by itself, proof that free prose is grounded. MemoryOS therefore
 separates player-facing language from factual and consent controls:
@@ -127,11 +193,20 @@ passes deterministic privacy, evidence, action, objective-alignment, and conserv
 checks before it can be returned. These checks deliberately fail closed but remain prototype
 guardrails rather than a proof of every implication in natural language.
 
+V2 replaces the three narrative scaffolds with one proposal schema plus structural controls. The
+legacy scaffold path stays available for regression tests and explicitly labelled offline Studio
+demonstrations, but it is not presented as a live v2 AI delivery.
+
 ## Provider boundary
 
-Deterministic mode is the default and the regression baseline. Groq or OpenAI mode may replace the
-three semantic stages, but each receives the same sanitized ledger plus the previous typed output and
-returns the same Pydantic output types.
+The provider-neutral structured-generation interface remains reusable. The preferred v2 live
+provider is the existing Groq GPT-OSS integration; the provider returns one `MemoryProposal` under a
+strict schema. Provider refusal, timeout, malformed output, or failed deterministic validation fails
+closed. V2 never substitutes deterministic narrative text into a response labelled as live AI.
+
+Deterministic mode remains the credential-free regression baseline and may power explicitly labelled
+offline Studio demonstrations. The current v1.1 compatibility path still uses three semantic stages
+with the same sanitized ledger plus the previous typed output.
 
 ```text
 sanitized evidence
@@ -139,14 +214,27 @@ sanitized evidence
     `-- structured live-provider stage call --|--> typed output --> deterministic validator
 ```
 
-The live adapters use the Responses API with Pydantic Structured Outputs, low reasoning effort, a
-30-second timeout, at most two SDK retries, and a 2,000-token output ceiling. OpenAI sets
-`store=False`; Groq omits that unsupported field. On a
-direct JSON route, a provider failure is reported as a structured HTTP `503`; the service never
-silently changes a live request to deterministic prose. Once an NDJSON response has begun, the
-equivalent failure is a typed `error` event under HTTP `200`.
+The OpenAI adapter uses the Responses API with Pydantic Structured Outputs and `store=False`. The
+Groq adapter uses Chat Completions with an explicit strict JSON Schema and validates the returned
+JSON through the same Pydantic response model. Both use low reasoning effort, a 30-second timeout,
+at most two SDK transport retries, a 2,000-token legacy-stage ceiling, and a 4,000-token v2 proposal
+ceiling. On a direct JSON route, a provider failure is reported as a structured HTTP `503`; the
+service never silently changes a live request to deterministic prose. Once an NDJSON response has
+begun, the equivalent failure is a typed `error` event under HTTP `200`.
 
 ## Status and failure behavior
+
+`POST /v2/memories/interpret-delivery` returns either a fully validated
+`pending_player_decision` delivery or a rejected/provider-error result with no generated artifacts.
+Rejected proposal prose is never included in a player response or Developer Studio trace; Studio may
+show stable issue codes and a structural, redacted validation trace only.
+
+`POST /v2/deliveries/{delivery_id}/decision` records `accepted` or `declined`. A decline
+requires exactly `not_relevant` or `details_wrong` and suppresses that exact process-local delivery.
+Authentication, durable storage, retention, deletion, and operational review are deferred
+until their consent and privacy policies are approved.
+
+The following statuses describe the current v1.1 compatibility routes:
 
 - Invalid schemas, mixed squads, and mixed target players fail with HTTP `422`.
 - Ineligible, disputed, dismissed, or validation-failing packs return `rejected`.
@@ -169,50 +257,64 @@ The top-level result `status` is authoritative for readiness. `validation.passed
 when deterministic abstention succeeded or when no validation error precedes a human-review gate;
 only `status == "ready"` authorizes presentation of generated artifacts as ready.
 
-## Frontend handoff
+## Frontend handoff: v1.1 compatibility and canonical v2
 
-The frontend should use `/openapi.json` or `/docs` while integrating and derive client types from
-that contract. It should display backend scores and reasons, keep the complete selected pack, apply
-the player's review decision, and resubmit that pack for generation. It should not recompute
-status, consent, ranking, or validation, and a candidate rank or ID is not a generation token.
-Review persistence may live in the frontend team's data layer during the prototype, but stored
-values must use the v1.1 state semantics above.
+Legacy v1.1 review tools should use `/openapi.json` or `/docs`, derive client types from that
+contract, display backend scores and reasons, preserve the selected compatibility pack, apply the
+review decision, and resubmit that pack for generation. They must not recompute status, consent,
+ranking, or validation, and a candidate rank or ID is not a generation token. Any prototype review
+persistence must use the v1.1 state semantics above. This pack-resubmission workflow is retained for
+compatibility only; it is not the canonical player delivery path.
 
-The merged `/` player view remains a Phase 1 compatibility client: it calls the deprecated
-single-pack route and adds browser-side result guards before rendering. Those guards are useful
-defense in depth, but they do not replace backend validation. The `/history` UI provides historical
-candidate selection and separate source and meaning actions with types generated from the FastAPI
-OpenAPI document.
+The player frontend now has one canonical consumer flow split by responsibility:
 
-The Phase 2B `/history` experience is the v1.1 client. Its state machine moves from historical
-loading to candidate selection, source review, meaning review, and generation; disputed and
-dismissed paths are terminal safe stops. It retains the full selected Memory Pack locally because
-a candidate ID, rank, or score is never authorization to generate. Browser requests use same-origin
-server proxies, while generated types and a backend snapshot test keep FastAPI as the contract
-source of truth.
+- `/` prepares and reveals the current source-verified memory, its grounded explanation, the
+  current player's perspective, and one reunion proposal. It alone owns **Accept mission** and the
+  two structured decline reasons.
+- `/mission` receives an accepted delivery through session-only React state and owns invitation,
+  synthetic rematch, deterministic mission verification, and the resulting continuation chapter.
+- `/history` is a compact, read-only timeline. It shows the current session milestones plus only
+  sanitized metadata from eligible past packs; it does not prepare deliveries or record decisions.
 
-The consumer-facing AI Memory Inbox uses a separate delivery contract. It automatically chooses a
-source-verified candidate, prepares a grounded AI memory and mission while player meaning remains
-unreviewed, and returns `pending_player_decision`. A player can accept or decline; `details_wrong`
-is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the browser rewrite
-telemetry. The older split-review route remains available for internal quality workflows.
+The current-memory route uses the v2 interpretation contract through same-origin server proxies.
+The server normalizes synthetic raw telemetry, asks one live model for a complete proposal, validates
+its claims and mission controls, and returns `pending_player_decision`. A player can accept or decline;
+`details_wrong` is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the
+browser rewrite telemetry. Generated types, runtime guards, and a backend snapshot test keep
+FastAPI as the contract source of truth. The older discovery and split-review contracts remain only
+for internal compatibility and quality workflows, not as a second player interface.
+
+`/` proxies `/v2/memories/interpret-delivery` and
+`/v2/deliveries/{delivery_id}/decision` without exposing backend credentials. `/history` remains
+read-only and does not prepare a delivery or record a decision.
+
+Developer Studio may display raw **synthetic** telemetry, deterministic normalization and window
+metadata, provider/model/prompt version, evidence links from a validated proposal, validator issue
+codes, final delivery status, and recorded prototype feedback. It must never display raw prompts,
+chain-of-thought, credentials, opted-out identities, or rejected/unvalidated proposal prose.
 
 ## Phase 3 reunion prototype
 
-The consumer continuation remains inside `/history` so a process-local delivery does not need to be
-placed in a URL or treated as durable authorization. An accepted decision unlocks a squad invitation
+The consumer continuation lives at `/mission`. A shared client provider carries the accepted
+delivery between player routes for the current browser session, so the delivery is not placed in a
+URL, browser storage, or treated as durable authorization. Refreshing or directly opening the route
+therefore shows an honest no-active-mission state. An accepted decision unlocks a squad invitation
 simulation built only from the delivery's privacy-filtered player perspectives. Opted-out roster
 members never enter the invitation model.
 
 The prototype then evaluates a labelled synthetic rematch against the quest's existing
 machine-readable `equals`, `at_least`, and `contains_all` rules. Every required objective must pass
-before the UI can construct the deterministic “Story Continues” chapter and timeline. This proves
-the continuation state machine and verification semantics without claiming access to live Garena
-telemetry. Optional post-chapter relevance feedback is session-only and deliberately excludes the
-`details_wrong` source-quality reason used during the original delivery decision.
+before the UI can construct the deterministic “Story Continues” chapter. `/history` then reflects
+that milestone in its session timeline. This proves the continuation state machine and verification
+semantics without claiming access to live Garena telemetry. Optional post-chapter relevance
+feedback is session-only and deliberately excludes the `details_wrong` source-quality reason used
+during the original delivery decision.
 
 ## Deferred production boundaries
 
 This phase does not add authentication, durable backend storage, queues, notifications, production
-telemetry, regional retention enforcement, cross-request pseudonym management, or real match result
-verification. Those require Garena data contracts and privacy review rather than prototype guesses.
+telemetry, regional retention enforcement, cross-request pseudonym management, or real match-result
+verification. Optional v2 media references are limited to curated synthetic clip, thumbnail, or
+keyframe IDs mapped deterministically to allowed event IDs. The prototype makes no automated video
+understanding claim. Unknown or mismatched media mappings fail closed. Production media access,
+storage, deletion, and retention require Garena data contracts and privacy review.

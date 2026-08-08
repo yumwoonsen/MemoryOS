@@ -1,0 +1,174 @@
+{
+  "schema_version": "2.0",
+  "request_id": "req-ff-20260808-001",
+  "target_player_id": "ff-player-lee",
+  "squad": {
+    "squad_id": "ff-squad-47a1",
+    "players": [
+      {
+        "player_id": "ff-player-lee",
+        "display_name": "Lee",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": true,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-mei",
+        "display_name": "Mei",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": true,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-amir",
+        "display_name": "Amir",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-7f3c",
+        "consent": {
+          "memory_appearance": false,
+          "identity_display": false,
+          "media_use": false,
+          "mission_invitation": false
+        }
+      }
+    ]
+  },
+  "matches": [
+    {
+      "match_id": "ff-match-01J4Y7M8W2",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-06-26T12:14:03Z",
+      "ended_at": "2026-06-26T12:34:52Z",
+      "placement": 5,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "ffevt-01-land-clock",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 34,
+          "location": "Clock Tower",
+          "details": { "team_members_nearby": 3 }
+        },
+        {
+          "event_id": "ffevt-02-knock-lee",
+          "provider_event_type": "PLAYER_KNOCKED",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 1088,
+          "location": "Clock Tower",
+          "details": { "zone_phase": 4 }
+        },
+        {
+          "event_id": "ffevt-03-ping-retreat",
+          "provider_event_type": "TACTICAL_PING_PLACED",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 1094,
+          "location": "Clock Tower",
+          "details": { "ping_type": "retreat" }
+        },
+        {
+          "event_id": "ffevt-04-revive-lee",
+          "provider_event_type": "TEAMMATE_REVIVED",
+          "actor_id": "ff-player-mei",
+          "target_id": "ff-player-lee",
+          "timestamp_seconds": 1101,
+          "location": "Clock Tower",
+          "details": { "zone_phase": 4 }
+        },
+        {
+          "event_id": "ffevt-05-vehicle-enter",
+          "provider_event_type": "SQUAD_ENTERED_VEHICLE",
+          "actor_id": "ff-player-7f3c",
+          "timestamp_seconds": 1106,
+          "location": "Clock Tower",
+          "details": { "squad_members_aboard": 4, "vehicle_type": "pickup" }
+        },
+        {
+          "event_id": "ffevt-06-zone-exit",
+          "provider_event_type": "SQUAD_EXITED_DAMAGE_ZONE",
+          "actor_id": "ff-player-7f3c",
+          "timestamp_seconds": 1120,
+          "location": "Clock Tower",
+          "details": { "squad_members_alive": 4 }
+        },
+        {
+          "event_id": "ffevt-07-match-end",
+          "provider_event_type": "MATCH_PLACEMENT_RECORDED",
+          "timestamp_seconds": 1249,
+          "details": { "placement": 5, "squad_members_alive": 0 }
+        }
+      ]
+    },
+    {
+      "match_id": "ff-match-01J6J2Q9K4",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-07-18T13:02:11Z",
+      "ended_at": "2026-07-18T13:20:44Z",
+      "placement": 12,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "ffevt-08-land-peak",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 29,
+          "location": "Peak",
+          "details": { "team_members_nearby": 2 }
+        },
+        {
+          "event_id": "ffevt-09-elimination",
+          "provider_event_type": "PLAYER_ELIMINATED_OPPONENT",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 246,
+          "location": "Peak",
+          "details": { "weapon_class": "smg" }
+        },
+        {
+          "event_id": "ffevt-10-match-end",
+          "provider_event_type": "MATCH_PLACEMENT_RECORDED",
+          "timestamp_seconds": 1113,
+          "details": { "placement": 12, "squad_members_alive": 0 }
+        }
+      ]
+    }
+  ],
+  "squad_history": {
+    "previous_session_at": [
+      "2026-05-10T12:00:00Z",
+      "2026-06-26T12:14:03Z",
+      "2026-07-18T13:02:11Z"
+    ],
+    "days_since_full_squad": 21,
+    "recent_rematch_count": 2
+  },
+  "current_context": {
+    "active_player_ids": ["ff-player-lee", "ff-player-mei"],
+    "available_modes": ["battle_royale_squad"],
+    "reunion_eligible": true
+  },
+  "media_references": [
+    {
+      "media_id": "ff-keyframe-01J4Y7QZ",
+      "kind": "keyframe",
+      "event_ids": ["ffevt-04-revive-lee"],
+      "consented_player_ids": ["ff-player-lee", "ff-player-mei"]
+    }
+  ]
+}
