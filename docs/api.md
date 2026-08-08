@@ -111,6 +111,48 @@ provider events, unsafe detail combinations, failed eligibility, or invalid medi
 typed `rejected` result before a provider call. Opted-out identities are replaced with request-scoped
 aliases before window construction or prompting; opted-out-authored social prose is excluded.
 
+For the current v2 contract, the batch-level `squad.players` list is the provider-asserted roster
+for every submitted match. A production adapter must split batches when the roster changes (or add
+an authenticated per-match roster field in a later contract) rather than infer participation from
+an unrelated event.
+
+### Internal compact draft and enrichment boundary
+
+The public request and response above do not expose the provider's internal draft schema. For one
+eligible request, AI returns a compact typed draft that:
+
+- selects exactly one offered window;
+- authors the title, teaser, summary, current-relevance explanation, player perspectives, mission
+  title/text, and one objective description; and
+- attaches bounded fact references and mission-capability references to those authored sections.
+
+The draft does not author authoritative match or event ID lists, complete `GroundedClaim` objects,
+media mappings, mission recipe, objective IDs, assignments, required flags, source event IDs,
+verification rules, the consent-safe roster, a delivery ID/status, or Studio trace records. The
+backend resolves the selected window and compact references against the prepared evidence ledger and
+mission catalogue. A literal player name, canonical action, location, or selected-match value may
+add conservative candidate evidence from the selected window when a reference was omitted. This is
+not a unique semantic mapping and does not infer emotion, meaning, or causality; the expanded claims
+and prose still have to pass the full role-tuple, value, privacy, and grounding validators. Event
+categorical and ordinary numeric detail claims require lexical detection of a typed value plus an
+associated field/action cue. Survival wording may use positive squad-alive telemetry without
+restating its numeric count. Lexically selected candidate events replace redundant broad
+citations; when no event evidence is inferred, at most one explicitly cited event is retained as a
+fallback for that section. The backend derives
+the authoritative proposal fields and controls, validates the complete
+proposal, and only then creates the delivery ID/status, safe Studio trace, and public result.
+
+This is an internal structured-output simplification only. The public
+`InterpretDeliveryResultV2` remains the fully enriched delivery shown below, so clients do not
+consume the compact draft. Removing duplicated IDs and backend-owned controls from model output is
+expected to reduce malformed and contradictory structured responses; it does not reduce grounding,
+privacy, or mission checks because deterministic code reconstructs and validates the complete
+control plane. Player, action, and target terms are checked as one supported role tuple; merely
+citing separate events that contain each word is insufficient. That expected reliability benefit
+is not inferred from schema size alone. The automated suites and one telemetry-only Groq
+`openai/gpt-oss-120b` request passed on 8 August 2026 with no correction and a fully validated
+pending delivery; broader model and prompt sampling remains an evaluation task.
+
 A successful response has `status: "pending_player_decision"` and only validated delivery fields.
 This abridged example omits additional required section claims and trace details:
 
@@ -175,25 +217,51 @@ This abridged example omits additional required section claims and trace details
     "provider": "groq",
     "model": "openai/gpt-oss-20b",
     "mode": "live_ai",
-    "prompt_version": "memory-interpreter-v2.1",
+    "prompt_version": "memory-interpreter-v2.4-grounded-controls",
     "narrative_fallback": false
   }
 }
 ```
 
-Every factual clause or constrained factual field must carry evidence references in the complete
-schema. Perspectives cover exactly the opted-in roster. The reunion mission may contain AI-authored
-descriptions, but player assignments, required flags, source event IDs, and machine-verification
-rules are deterministic controls.
+Every factual clause or constrained factual field must have a complete backend-derived claim in the
+public schema. The provider must return every consent-safe eligible perspective ID exactly once;
+the backend orders those supplied perspectives by the trusted roster and validates the exact set. It
+does not restore or synthesize a missing perspective.
+The reunion mission may contain AI-authored descriptions, but media selection, recipe, objective
+IDs, player assignments, required flags, source event IDs, and machine-verification rules are
+deterministic controls. The compact draft selects exactly one offered mission candidate and authors
+exactly one objective description. Each offered candidate includes a deterministic
+`authoring_scope` that limits mission prose to its intent, allowed player IDs, and allowed count.
+Conservative lexical validation rejects tested conflicting metric actions, operators,
+metric-associated counts, player names, and known unoffered gameplay condition terms. Counts
+attached to participants or other nouns are evaluated in their own context rather than compared
+with the mission target. Both the mission and objective must state the selected deterministic rule.
+This is not a universal semantic proof for arbitrary mission prose.
 
-The provider may select only one deterministically offered chronological event window. It may not
-invent players, events, roles, locations, timestamps, numbers, outcomes, media mappings, consent
-state, assignments, or verification rules. `why_this_matters_now` may use only supplied structured
-current-context signals.
+Every normalized event fact declares `event_scope` as `player`, `squad`, or `match`. A player-scoped
+event keeps its actor/target semantics; squad- and match-scoped facts are collective rather than an
+individual player's action. The provider receives direct-role event IDs for each required
+perspective. It receives a squad event as a full-squad perspective permission only when an
+allowlisted membership detail proves participation by the complete submitted roster. Categorical
+event details are restricted to deterministic key/value allowlists before prompting.
+
+The provider may select only one deterministically offered chronological event window and cite only
+supplied compact fact or capability references. It may not invent players, events, roles, locations,
+timestamps, numbers, outcomes, media mappings, consent state, assignments, or verification rules.
+`why_this_matters_now` may use only supplied structured current-context signals. Unknown,
+cross-window, wrong-player, or otherwise unsupported references fail enrichment or validation.
+Those consent-safe signals include previous-session timestamps, days since full-squad activity,
+recent rematch count, active players, available modes, and reunion eligibility. Secret-like input is
+rejected before provider use. Delivered memory types are checked against episode/history evidence,
+and unsupported observation language is withheld.
+
+Media mapped to a collective or match-scoped event requires media consent from the complete
+submitted roster; sparse actor/target fields are not treated as proof that nobody else appears.
 
 Provider failure, refusal, or malformed structured output returns a safe HTTP `503`. Eligibility or
 proposal-validation failure returns `rejected` with no memory, perspectives, mission, claims, or
-media selection. One bounded correction call may receive stable issue codes. If it also fails, the result
+media selection. One bounded correction call may receive stable issue codes and allowlisted section
+IDs, never rejected generated prose or validator messages. If it also fails, the result
 remains closed. Rejected proposal prose must not be returned to the player or Developer Studio.
 
 Groq GPT-OSS is the preferred live v2 provider. Deterministic mode remains available for tests and
@@ -226,16 +294,19 @@ consent and privacy decisions are approved.
 
 ## V2 media and Studio boundary
 
-Media is reference-only. A `media_id` may be selected only when its deterministic mapping covers the
-proposal's allowed selected event IDs. Unknown or mismatched IDs fail closed. The first prototype
+Media is reference-only. The backend may attach a `media_id` only when every event represented by
+that media reference belongs to the selected episode: `media.event_ids` must be a subset of the
+enriched delivery's selected event IDs. The media reference does not have to cover every selected
+event. The AI draft does not choose authoritative media.
+Unknown or mismatched IDs fail closed. The first prototype
 uses curated synthetic clips, thumbnails, or keyframes and makes no automated video-understanding
 claim.
 
 Developer Studio may show synthetic raw telemetry, normalization results, eligibility and consent
 outcomes, offered window IDs, validated evidence links, provider/model/prompt version, safe usage
 metrics, validator issue codes, final delivery status, and structured feedback. It never shows raw
-prompts, chain-of-thought, API keys, opted-out identities, provider exception text, or rejected and
-unvalidated proposal prose.
+prompts, the raw compact provider draft, chain-of-thought, API keys, opted-out identities, provider
+exception text, or rejected and unvalidated proposal prose.
 
 ## Current v1.0/v1.1 compatibility API
 
@@ -561,9 +632,10 @@ Keep this value in server environment variables only—never bundle it into brow
 Local development remains unchanged while the variable is unset.
 
 Each current v1.1 model request uses low reasoning effort, a 30-second timeout, at most two SDK
-retries, and a 2,000-token output ceiling. The single complete v2 proposal uses a 4,000-token
-ceiling and still fails closed rather than returning a partial delivery. OpenAI responses use
-`store=False`; Groq requests omit the unsupported `store` field. See the official
+retries, and a 2,000-token output ceiling. For v2 compact interpretation, Groq uses a 2,000-token
+ceiling and OpenAI uses a 4,000-token ceiling; either provider fails closed rather than returning a
+partial delivery. OpenAI responses use `store=False`; Groq requests omit the unsupported `store`
+field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
 configured model's current capabilities and pricing.
 

@@ -12,8 +12,11 @@ The Phase 3 continuation extends that trust loop with an explicitly synthetic mo
 opted-in invitation simulation, deterministic rematch verification, a “Story Continues” chapter,
 and session-only feedback. It does not claim to send a real notification or consume live telemetry.
 
-The AI-first v2 raw-telemetry route and one-proposal flow are implemented. The v1.1 routes remain
-available as compatibility APIs.
+The AI-first v2 raw-telemetry route and public delivery flow exist. The compact internal AI-draft
+refinement passed the updated automated suites and one telemetry-only live request on 8 August 2026
+with Groq `openai/gpt-oss-120b`, no correction, and a fully validated pending delivery. Treat that
+as an end-to-end smoke result, not a benchmark for every model. The v1.1 routes remain available as
+compatibility APIs.
 
 ## Run the local demo
 
@@ -65,9 +68,14 @@ or understand gameplay video.
 2. In Developer Studio, show only the safe structural trace: normalization and source-quality
    outcome, consent filtering, offered chronological window IDs, and allowed evidence/context/media
    references.
-3. Show the single live-AI `MemoryProposal`: one selected window, grounded memory framing, exactly
-   one perspective per opted-in player, current relevance, and reunion-mission prose.
-4. Show deterministic proposal validation and the resulting `pending_player_decision` delivery.
+3. Use the provider/model/prompt metadata and validated result to explain the internal compact-draft
+   boundary: one selected window, authored memory sections, ordered perspective IDs, one mission
+   candidate, one objective description, and bounded fact/capability references. Studio intentionally
+   does not display the raw compact provider draft.
+4. Show deterministic expansion deriving selected match/event IDs, complete `GroundedClaim`
+   records, eligible media, mission recipe, objective ID/assignment/rule, the ordered and
+   exact-set-validated consent-safe perspectives. Then show validation, followed by construction of
+   the delivery record, safe Studio trace, and resulting `pending_player_decision` delivery.
    If generation fails, show stable issue codes and a closed status—never the rejected proposal
    prose.
 5. Accept through `POST /v2/deliveries/{delivery_id}/decision` and continue through the existing
@@ -103,23 +111,50 @@ or understand gameplay video.
   player output, and Studio. An event needed for factual continuity may remain only under a
   request-scoped anonymous role, which cannot receive a perspective, media identity, invitation,
   or mission assignment.
-- AI selects exactly one offered chronological window; every factual clause and current-relevance
-  claim references only allowed event or structured-context inputs.
-- Perspectives cover exactly the opted-in roster. Mission assignments, required flags, source event
-  IDs, and machine-verification rules remain deterministic and unchanged.
+- AI selects exactly one offered chronological window and uses only supplied compact fact or
+  mission-capability references for authored memory, perspective, and mission sections.
+- The backend derives authoritative match/event IDs and complete claims, orders provider-supplied
+  perspective IDs and validates that they exactly equal the consent-safe eligible roster, and
+  derives media, mission recipe, one objective ID, assignment, required flag, source event IDs, and
+  machine-verification rule. It never restores a missing perspective.
+- Normalized facts declare `player`, `squad`, or `match` event scope. Provider perspective
+  permissions contain direct-role events and only full-squad collective events whose allowlisted
+  membership count proves participation by the complete submitted roster.
+- Deterministic categorical allowlists constrain telemetry details. Categorical and ordinary
+  numeric detail claims require lexical detection of the typed value plus an associated field/action
+  cue; survival wording may use positive squad-alive telemetry without restating its numeric count.
+  Conservative literal enrichment adds only candidate evidence and remains subject to all final
+  tuple and prose checks.
+- The provider selects one mission candidate and writes one objective description within its
+  deterministic `authoring_scope` of allowed intent, player IDs, and count.
+- Unknown, cross-window, wrong-player, or unsupported compact references fail closed. Non-unique
+  literal matches use a conservative scored candidate and remain subject to the full deterministic
+  validation pass; simplifying model output does not remove that pass.
 - A provider refusal, timeout, malformed response, or validation failure returns no proposal or
-  partial player-facing artifacts. At most one issue-code-guided correction is attempted.
+  partial player-facing artifacts. At most one correction is guided by stable issue codes and
+  allowlisted section IDs; rejected prose and validator messages are never sent back to the provider.
 - Groq live output and deterministic offline output have unambiguous provenance. A live failure
   never silently becomes deterministic narrative.
-- Unknown or mismatched media mappings fail closed; only curated synthetic media is claimed.
+- Unknown or mismatched media mappings fail closed; selected media must represent only events in the
+  selected episode (`media.event_ids` is a subset of selected event IDs), and only curated synthetic
+  media is claimed.
 - Developer Studio exposes safe structural observability and issue codes, but no raw prompt,
-  chain-of-thought, key, opted-out identity, provider exception text, or rejected proposal prose.
+  raw compact provider draft, chain-of-thought, key, opted-out identity, provider exception text, or
+  rejected proposal prose.
 - The decision route accepts only `accepted` or a decline with exactly `not_relevant` or
   `details_wrong`; exact-delivery suppression and the operations signal are verified.
 - Authenticated durable storage is not enabled until ownership, consent, retention, deletion, and
   operations-access policies are approved.
 
 ## Verification
+
+The commands below verify the deterministic and rendered boundaries but do not by themselves prove
+live-provider behavior. For each release, also start the backend with an explicitly configured Groq
+or OpenAI provider and submit `backend/data/raw_telemetry_v2.json` to
+`POST /v2/memories/interpret-delivery`. Record whether the draft parsed, whether correction was
+used, whether every reference resolved, and whether the enriched public delivery passed final
+validation. The 8 August 2026 smoke run passed with Groq `openai/gpt-oss-120b`, no correction, and
+no deterministic narrative fallback; repeat it when provider, model, prompt, or contract changes.
 
 ```powershell
 $env:MEMORYOS_PROVIDER = "deterministic"

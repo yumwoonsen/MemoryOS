@@ -106,16 +106,30 @@ authentication, persistence, and rollout telemetry are ready.
 - Builds deterministic eligible chronological event windows with stable IDs and allowed evidence,
   identity, context, and media sets.
 
-### 4.2 — One complete AI Memory Proposal with deterministic validation — complete
+### 4.2 — One compact AI draft, deterministic expansion, and validation — complete
 
-- Requests one typed `MemoryProposal` from the preferred live Groq GPT-OSS provider, selected from exactly
-  one offered event window: memory framing, notification teaser, player perspectives, current
-  relevance, and reunion-mission prose.
-- Requires evidence references for every factual clause and exactly one perspective for each
-  opted-in squad member.
-- Keeps assignments, required flags, source event IDs, media eligibility, and machine-verification
-  rules deterministic; the model never creates or changes those controls.
-- Permits at most one correction call using stable validator issue codes. Provider failure,
+- Requests one typed internal `CompactMemoryProposalV2` from the preferred live Groq GPT-OSS
+  provider: one offered event window, memory framing, notification teaser, player perspectives,
+  current relevance, one mission candidate, and one objective description.
+- Requires evidence references for every factual clause and provider-supplied perspective IDs for
+  every opted-in squad member. The backend orders those perspectives and validates the exact roster;
+  it does not restore a missing perspective.
+- Deterministically expands the compact draft into authoritative match/event IDs, complete claims,
+  eligible media, mission recipe, and objective ID/assignment/rule; after the full validation pass,
+  it creates delivery state and a safe trace.
+- Carries explicit `player`, `squad`, and `match` event scopes. Collective perspective permission is
+  granted only when allowlisted membership telemetry proves full-squad participation; categorical
+  detail values are allowlisted. Categorical and ordinary numeric detail claims require the typed
+  value plus an associated field/action cue; survival wording may use positive squad-alive telemetry
+  without restating its numeric count.
+- Uses conservative lexical candidate evidence without treating it as a unique semantic mapping;
+  tuple, prose, privacy, value, and grounding validators still decide delivery.
+- Supplies a deterministic candidate `authoring_scope` of allowed intent, player IDs, and count;
+  conservative lexical checks reject tested conflicting mission actions, quantities, operators,
+  names, and known extra-condition terms. Assignments, required flags, source event IDs, media
+  eligibility, and machine-verification rules remain deterministic.
+- Permits at most one correction call using stable validator issue codes and allowlisted section
+  IDs, never rejected provider prose or validator messages. Provider failure,
   refusal, malformed output, or a second validation failure returns no generated artifacts.
 - Keeps deterministic narrative generation only for tests and explicitly labelled offline Studio
   demonstrations; never present it as a live-AI fallback.
@@ -129,10 +143,12 @@ authentication, persistence, and rollout telemetry are ready.
   and preserving the completed Phase 3.3/3.4 interaction sequence.
 - Shows synthetic normalization, offered window IDs, validated evidence links, safe provider
   metadata, issue codes, final status, and structured feedback in Studio.
-- Excludes raw prompts, chain-of-thought, secrets, opted-out identities, provider exception
-  text, or rejected and unvalidated proposal prose in Studio or the player client.
+- Excludes raw prompts, chain-of-thought, secrets, opted-out identities, provider exception text,
+  the raw compact provider draft, or rejected and unvalidated proposal prose in Studio or the
+  player client.
 - Treats curated synthetic media as reference-only, requires deterministic event mappings, and makes
-  no automated video-understanding claim.
+  a media reference eligible only when `media.event_ids` is a subset of the selected episode; it
+  makes no automated video-understanding claim.
 
 ### 4.4 — Authenticated durable decisions and operations feedback
 

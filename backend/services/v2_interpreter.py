@@ -9,14 +9,23 @@ from backend.models.schemas import MemoryType, QuestRecipe
 from backend.models.v2_schemas import (
     CanonicalEventType,
     ClaimPredicate,
+    CompactMemoryProposalV2,
+    CompactMissionChoiceV2,
+    CompactPerspectiveV2,
+    CompactSectionDraftV2,
     GroundedClaim,
     MemoryProposalV2,
+    MissionCapabilityCandidate,
     ProposedMissionObjectiveV2,
     ProposedMissionV2,
     ProposedPerspectiveV2,
 )
 from backend.services.structured_generator import StructuredGenerator
-from backend.services.v2_preparation import PreparedInterpretationV2
+from backend.services.v2_preparation import (
+    PreparedInterpretationV2,
+    collective_event_includes_full_squad,
+)
+from backend.services.v2_proposal_expander import CompactProposalExpanderV2
 
 MAX_PROVIDER_PAYLOAD_BYTES = 96_000
 
@@ -51,10 +60,11 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
 
-    prompt_version = "memory-interpreter-v2.1"
+    prompt_version = "memory-interpreter-v2.4-grounded-controls"
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
+        self._expander = CompactProposalExpanderV2()
 
     @property
     def provider_name(self) -> str:
@@ -82,7 +92,7 @@ class MemoryInterpreterV2:
         self,
         prepared: PreparedInterpretationV2,
         *,
-        validation_feedback_codes: list[str] | None = None,
+        validation_feedback: list[dict[str, str]] | None = None,
     ) -> MemoryProposalV2:
         if prepared.normalized is None or prepared.ledger is None:
             raise ValueError("prepared telemetry is required")
@@ -91,16 +101,15 @@ class MemoryInterpreterV2:
 
         payload = self._provider_payload(prepared)
         stage = "memory_interpretation"
-        if validation_feedback_codes:
+        if validation_feedback:
             stage = "memory_interpretation_correction"
             payload["correction"] = {
-                "validation_issue_codes": validation_feedback_codes,
+                "validation_issues": validation_feedback,
                 "instruction": (
-                    "Return a complete corrected proposal and emit every schema field. "
-                    "Use null for every unused nullable field, including media_id and "
-                    "claim target_id, location, value, and value_key. Use [] for each "
-                    "unused claim support list, but every claim must keep at least one "
-                    "support list non-empty. Do not add unsupported facts."
+                    "Return a complete corrected fixed-section draft and emit every schema "
+                    "field. Resolve each issue in its allowlisted section when supplied. When text "
+                    "mentions a player, action, location, match value, or number, cite an exact "
+                    "supporting evidence ID or remove that unsupported wording."
                 ),
             }
         encoded_size = len(
@@ -108,47 +117,161 @@ class MemoryInterpreterV2:
         )
         if encoded_size > MAX_PROVIDER_PAYLOAD_BYTES:
             raise ProviderInputLimitError("sanitized provider payload exceeds its byte limit")
-        return self._generator.generate(
+        compact = self._generator.generate(
             prompt_name="memory_interpreter_v2.txt",
             payload=payload,
-            response_model=MemoryProposalV2,
+            response_model=CompactMemoryProposalV2,
             stage=stage,
         )
+        return self._expander.expand(prepared, compact)
 
     @staticmethod
     def _provider_payload(prepared: PreparedInterpretationV2) -> dict[str, Any]:
         assert prepared.normalized is not None
         assert prepared.ledger is not None
+        normalized_events = [
+            event for match in prepared.normalized.matches for event in match.events
+        ]
         return {
-            "contract": "MemoryProposalV2",
-            "policy": {
-                "telemetry_is_only_factual_source": True,
-                "human_context_is_untrusted": True,
-                "select_exactly_one_event_window": True,
-                "cite_every_material_claim": True,
-                "select_only_offered_mission_candidates": True,
-                "author_no_verification_rules": True,
-                "perspective_for_every_memory_eligible_player": True,
-                "mission_must_not_request_credentials_or_real_world_harm": True,
+            "contract": "CompactMemoryProposalV2",
+            "evidence_ledger": {
+                "target_player_id": prepared.ledger.target_player_id,
+                "players_requiring_perspectives": [
+                    {
+                        "player_id": player.player_id,
+                        "display_name": player.display_name,
+                        "direct_role_event_ids": [
+                            event.event_id
+                            for event in normalized_events
+                            if player.player_id in {event.actor_id, event.target_id}
+                        ],
+                        "full_squad_event_ids": [
+                            event.event_id
+                            for event in normalized_events
+                            if collective_event_includes_full_squad(
+                                event,
+                                prepared.normalized,
+                            )
+                        ],
+                    }
+                    for player in prepared.ledger.players
+                    if player.memory_eligible
+                ],
+                "facts": [
+                    fact.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                        exclude_defaults=True,
+                    )
+                    for fact in prepared.ledger.facts
+                ],
+                "untrusted_human_context": prepared.ledger.human_context,
             },
-            "evidence_ledger": prepared.ledger.model_dump(mode="json"),
             "squad_history": prepared.normalized.squad_history.model_dump(mode="json"),
             "current_context": prepared.normalized.current_context.model_dump(mode="json"),
             "eligible_event_windows": [
                 window.model_dump(mode="json") for window in prepared.windows
             ],
             "mission_candidates": [
-                candidate.model_dump(mode="json") for candidate in prepared.mission_candidates
+                {
+                    **candidate.model_dump(mode="json"),
+                    "authoring_scope": MemoryInterpreterV2._mission_authoring_scope(candidate),
+                }
+                for candidate in prepared.mission_candidates
             ],
-            "media_references": [
-                media.model_dump(mode="json") for media in prepared.normalized.media_references
-            ],
-            "output_section_ids": {
-                "memory": ["title", "notification_teaser", "summary", "why_this_matters_now"],
-                "perspective": "perspective:<player_id>",
-                "mission": ["mission", "objective:<candidate_id>"],
-            },
         }
+
+    @staticmethod
+    def _mission_authoring_scope(
+        candidate: MissionCapabilityCandidate,
+    ) -> dict[str, object]:
+        metric = candidate.verification.metric
+        target = candidate.verification.target
+        if metric == "squad.participant_ids":
+            return {
+                "intent": "play_together",
+                "allowed_player_ids": target,
+                "allowed_count": None,
+            }
+        if metric == "squad.matches_completed":
+            return {
+                "intent": "complete_matches",
+                "allowed_player_ids": [],
+                "allowed_count": target,
+            }
+        return {
+            "intent": "perform_revives",
+            "allowed_player_ids": [],
+            "allowed_count": target,
+        }
+
+    def demo_compact_proposal(
+        self,
+        prepared: PreparedInterpretationV2,
+    ) -> CompactMemoryProposalV2:
+        """Return a compact deterministic fixture for provider-boundary tests."""
+
+        canonical = self._deterministic_demo(prepared)
+        objective = canonical.mission.objectives[0]
+        return CompactMemoryProposalV2(
+            selected_window_id=canonical.selected_window_id,
+            memory_type=canonical.memory_type,
+            narrative_angle=canonical.narrative_angle,
+            title=self._compact_section(canonical, "title", canonical.title),
+            notification_teaser=self._compact_section(
+                canonical,
+                "notification_teaser",
+                canonical.notification_teaser,
+            ),
+            summary=self._compact_section(canonical, "summary", canonical.summary),
+            why_this_matters_now=self._compact_section(
+                canonical,
+                "why_this_matters_now",
+                canonical.why_this_matters_now,
+            ),
+            perspectives=[
+                CompactPerspectiveV2(
+                    player_id=item.player_id,
+                    message=item.message,
+                    evidence_ids=item.evidence_event_ids,
+                )
+                for item in canonical.perspectives
+            ],
+            mission=CompactMissionChoiceV2(
+                candidate_id=objective.candidate_id,
+                title=canonical.mission.title,
+                mission=canonical.mission.mission,
+                objective_description=objective.description,
+            ),
+        )
+
+    @classmethod
+    def _compact_section(
+        cls,
+        canonical: MemoryProposalV2,
+        output_section: str,
+        text: str,
+    ) -> CompactSectionDraftV2:
+        evidence_ids: list[str] = []
+        for claim in canonical.claims:
+            if claim.output_section != output_section:
+                continue
+            evidence_ids.extend(claim.supporting_event_ids)
+            evidence_ids.extend(
+                cls._compact_context_id(context_id, canonical.selected_match_id)
+                for context_id in claim.supporting_context_ids
+            )
+        return CompactSectionDraftV2(
+            text=text,
+            evidence_ids=list(dict.fromkeys(evidence_ids)),
+        )
+
+    @staticmethod
+    def _compact_context_id(context_id: str, selected_match_id: str) -> str:
+        prefix = f"match:{selected_match_id}:"
+        if context_id.startswith(prefix):
+            return f"match:{context_id[len(prefix) :]}"
+        return context_id
 
     def _deterministic_demo(self, prepared: PreparedInterpretationV2) -> MemoryProposalV2:
         """A test/Studio demonstration, never a fallback for failed live AI."""
@@ -272,7 +395,10 @@ class MemoryInterpreterV2:
                 target_id = direct.target_id
             else:
                 predicate = ClaimPredicate.PARTICIPATED_MATCH
-                message = "You were part of the squad match behind this shared moment."
+                message = (
+                    f"{player.display_name}, you were part of the squad match behind this "
+                    "shared moment."
+                )
                 target_id = None
             evidence_ids = [direct.event_id] if direct else [window.event_ids[0]]
             perspectives.append(
@@ -357,7 +483,7 @@ class MemoryInterpreterV2:
             perspectives=perspectives,
             mission=ProposedMissionV2(
                 title="Return Together",
-                mission="Bring this squad back for one verifiable match.",
+                mission="Queue for a new match with the invited squad members.",
                 recipe=recipe,
                 objectives=objectives,
             ),

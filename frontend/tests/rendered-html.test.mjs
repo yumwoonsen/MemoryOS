@@ -533,6 +533,9 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(v2Contract, /grounded_claims/);
   assert.match(v2Contract, /supporting_mission_candidate_ids/);
   assert.match(v2Contract, /anonymous:squadmate/);
+  assert.match(v2Contract, /match:\$\{binding\.selectedMatch\.match_id\}:game/);
+  assert.match(v2Contract, /context:previous_session_at/);
+  assert.match(v2Contract, /context:recent_rematch_count/);
   assert.match(studioClient, /\/api\/studio\/delivery-trace/);
   assert.match(studioClient, /usePlayerFlow/);
   assert.match(studioClient, /Details-wrong source-quality flag recorded for operations/);

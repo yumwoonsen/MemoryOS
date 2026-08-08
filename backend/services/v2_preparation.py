@@ -23,6 +23,10 @@ from backend.models.v2_schemas import (
     SocialContextV2,
     V2ValidationIssue,
 )
+from backend.services.content_safety import (
+    contains_secret_like,
+    contains_unsafe_player_content,
+)
 from backend.services.identity import contains_identity, identifier_contains_identity
 
 FREE_FIRE_EVENT_MAP: dict[str, tuple[CanonicalEventType, str]] = {
@@ -49,20 +53,20 @@ FREE_FIRE_EVENT_MAP: dict[str, tuple[CanonicalEventType, str]] = {
     "player_healed": (CanonicalEventType.HEAL, "actor_performs"),
     "vehicle_enter": (CanonicalEventType.VEHICLE_ENTER, "actor_performs"),
     "entered_vehicle": (CanonicalEventType.VEHICLE_ENTER, "actor_performs"),
-    "squad_entered_vehicle": (CanonicalEventType.VEHICLE_ENTER, "actor_performs"),
+    "squad_entered_vehicle": (CanonicalEventType.VEHICLE_ENTER, "squad_performs"),
     "vehicle_exit": (CanonicalEventType.VEHICLE_EXIT, "actor_performs"),
     "exited_vehicle": (CanonicalEventType.VEHICLE_EXIT, "actor_performs"),
     "escape": (CanonicalEventType.ESCAPE, "actor_performs"),
     "vehicle_escape": (CanonicalEventType.ESCAPE, "actor_performs"),
-    "squad_exited_damage_zone": (CanonicalEventType.ESCAPE, "actor_performs"),
+    "squad_exited_damage_zone": (CanonicalEventType.ESCAPE, "squad_performs"),
     "zone_move": (CanonicalEventType.ZONE_MOVE, "actor_performs"),
     "zone_rotation": (CanonicalEventType.ZONE_MOVE, "actor_performs"),
     "loot": (CanonicalEventType.LOOT, "actor_performs"),
     "item_picked_up": (CanonicalEventType.LOOT, "actor_performs"),
     "tactical_ping_placed": (CanonicalEventType.SIGNAL, "actor_performs"),
-    "match_complete": (CanonicalEventType.MATCH_COMPLETE, "actor_performs"),
-    "match_end": (CanonicalEventType.MATCH_COMPLETE, "actor_performs"),
-    "match_placement_recorded": (CanonicalEventType.MATCH_COMPLETE, "actor_performs"),
+    "match_complete": (CanonicalEventType.MATCH_COMPLETE, "match_records"),
+    "match_end": (CanonicalEventType.MATCH_COMPLETE, "match_records"),
+    "match_placement_recorded": (CanonicalEventType.MATCH_COMPLETE, "match_records"),
 }
 
 GAME_ALIASES = {
@@ -110,9 +114,77 @@ INTEGER_DETAIL_KEYS = {
     "placement",
 }
 
-ALLOWED_DETAIL_STATES = {
+ALLOWED_CATEGORICAL_DETAILS = {
     "health_state": {"critical", "low", "stable", "full", "unknown"},
     "zone_state": {"closing", "closed", "safe", "shrinking", "unknown"},
+    "weapon_class": {
+        "assault_rifle",
+        "smg",
+        "shotgun",
+        "sniper",
+        "marksman_rifle",
+        "lmg",
+        "pistol",
+        "melee",
+        "throwable",
+        "launcher",
+        "other",
+        "unknown",
+    },
+    "vehicle_type": {
+        "pickup",
+        "jeep",
+        "sports_car",
+        "amphibian",
+        "motorcycle",
+        "tuk_tuk",
+        "monster_truck",
+        "other",
+        "unknown",
+    },
+    "item_type": {
+        "weapon",
+        "ammo",
+        "armor",
+        "helmet",
+        "medkit",
+        "inhaler",
+        "grenade",
+        "utility",
+        "attachment",
+        "token",
+        "supply",
+        "other",
+        "unknown",
+    },
+    "ping_type": {
+        "retreat",
+        "attack",
+        "defend",
+        "move",
+        "enemy",
+        "loot",
+        "help",
+        "regroup",
+        "other",
+        "unknown",
+    },
+}
+
+INTEGER_DETAIL_MAXIMUMS = {
+    "count": 100,
+    "duration_seconds": 86_400,
+    "nearby_enemies": 100,
+    "passengers": 20,
+    "placement_reached": 100,
+    "squad_alive": 4,
+    "distance_meters": 100_000,
+    "rank_points": 1_000_000,
+    "team_members_nearby": 4,
+    "zone_phase": 20,
+    "squad_members_aboard": 4,
+    "squad_members_alive": 4,
+    "placement": 100,
 }
 
 MAX_ELIGIBLE_WINDOWS = 6
@@ -120,6 +192,25 @@ MAX_WINDOW_EVENTS = 10
 MAX_WINDOW_SPAN_SECONDS = 120
 MAX_PROVIDER_EVENTS = MAX_ELIGIBLE_WINDOWS * MAX_WINDOW_EVENTS
 MAX_PROVIDER_CORE_BYTES = 80_000
+
+COLLECTIVE_MEMBERSHIP_DETAIL = {
+    CanonicalEventType.VEHICLE_ENTER: "squad_members_aboard",
+    CanonicalEventType.ESCAPE: "squad_members_alive",
+}
+
+
+def collective_event_includes_full_squad(
+    event: NormalizedEventV2,
+    normalized: NormalizedTelemetryV2,
+) -> bool:
+    """Return true only when an explicit squad event proves full-roster participation."""
+
+    membership_key = COLLECTIVE_MEMBERSHIP_DETAIL.get(event.event_type)
+    return bool(
+        event.event_scope == "squad"
+        and membership_key
+        and event.details.get(membership_key) == len(normalized.players)
+    )
 
 
 @dataclass(frozen=True)
@@ -138,6 +229,13 @@ class TelemetryPreparerV2:
 
     def prepare(self, batch: RawTelemetryBatchV2) -> PreparedInterpretationV2:
         issues: list[V2ValidationIssue] = []
+        if contains_secret_like(batch.model_dump_json()):
+            issues.append(
+                self._issue(
+                    "secret_in_input",
+                    "Input contains text that resembles a credential or secret.",
+                )
+            )
         raw_players = {player.player_id: player for player in batch.squad.players}
         forbidden_terms = {
             term
@@ -287,15 +385,47 @@ class TelemetryPreparerV2:
                 canonical_type, role_mapping = mapping
                 actor_id = aliases.get(event.actor_id) if event.actor_id else None
                 target_id = aliases.get(event.target_id) if event.target_id else None
+                event_scope = "player"
+                if role_mapping == "actor_performs" and actor_id is None:
+                    issues.append(
+                        self._issue(
+                            "missing_event_actor",
+                            f"Event {event.event_id} requires an actor.",
+                        )
+                    )
+                    continue
                 if role_mapping == "actor_is_target":
+                    if actor_id is None:
+                        issues.append(
+                            self._issue(
+                                "missing_event_target",
+                                f"Event {event.event_id} requires the affected player.",
+                            )
+                        )
+                        continue
                     target_id, actor_id = actor_id, target_id
                 elif role_mapping == "target_performs":
+                    if target_id is None:
+                        issues.append(
+                            self._issue(
+                                "missing_event_actor",
+                                f"Event {event.event_id} requires the acting player.",
+                            )
+                        )
+                        continue
                     actor_id, target_id = target_id, actor_id
+                elif role_mapping == "squad_performs":
+                    actor_id, target_id = None, None
+                    event_scope = "squad"
+                elif role_mapping == "match_records":
+                    actor_id, target_id = None, None
+                    event_scope = "match"
                 events.append(
                     NormalizedEventV2(
                         event_id=event.event_id,
                         match_id=match.match_id,
                         event_type=canonical_type,
+                        event_scope=event_scope,
                         actor_id=actor_id,
                         target_id=target_id,
                         timestamp_seconds=event.timestamp_seconds,
@@ -424,11 +554,20 @@ class TelemetryPreparerV2:
     def _details_valid(details: dict[str, object]) -> bool:
         for key in INTEGER_DETAIL_KEYS & details.keys():
             value = details[key]
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+                or value > INTEGER_DETAIL_MAXIMUMS[key]
+            ):
                 return False
-        for key, allowed in ALLOWED_DETAIL_STATES.items():
-            if key in details and details[key] not in allowed:
-                return False
+        for key, allowed in ALLOWED_CATEGORICAL_DETAILS.items():
+            if key in details:
+                value = details[key]
+                if not isinstance(value, str) or value not in allowed:
+                    return False
+        if set(details) - INTEGER_DETAIL_KEYS - ALLOWED_CATEGORICAL_DETAILS.keys():
+            return False
         return True
 
     @staticmethod
@@ -446,19 +585,31 @@ class TelemetryPreparerV2:
                 event_tags=[],
             )
         caption = social.player_caption
-        if caption and any(contains_identity(caption, term) for term in forbidden_terms):
+        if caption and (
+            any(contains_identity(caption, term) for term in forbidden_terms)
+            or contains_secret_like(caption)
+            or contains_unsafe_player_content(caption)
+        ):
             caption = None
             author = None
         safe_tags = [
             tag
             for tag in social.event_tags
             if not any(contains_identity(tag, term) for term in forbidden_terms)
+            and not contains_secret_like(tag)
+            and not contains_unsafe_player_content(tag)
         ]
+        safe_reactions = {
+            key: value
+            for key, value in social.reaction_counts.items()
+            if not contains_secret_like(key) and not contains_unsafe_player_content(key)
+        }
         return social.model_copy(
             update={
                 "player_caption": caption,
                 "caption_author_player_id": aliases.get(author) if author else None,
                 "event_tags": safe_tags,
+                "reaction_counts": safe_reactions,
             }
         )
 
@@ -467,7 +618,7 @@ class TelemetryPreparerV2:
         events_by_id = {event.event_id: event for match in batch.matches for event in match.events}
         safe_media: list[MediaReferenceV2] = []
         for media in batch.media_references:
-            visible_people = {
+            visible_people: set[str] = {
                 player_id
                 for event_id in media.event_ids
                 for player_id in (
@@ -476,11 +627,22 @@ class TelemetryPreparerV2:
                 )
                 if player_id is not None
             }
+            if any(
+                (
+                    mapping := FREE_FIRE_EVENT_MAP.get(
+                        events_by_id[event_id].provider_event_type.strip().lower()
+                    )
+                )
+                and mapping[1] in {"squad_performs", "match_records"}
+                for event_id in media.event_ids
+            ):
+                visible_people.update(raw_players)
             consented = set(media.consented_player_ids)
             if any(
-                not raw_players[player_id].consent.media_use or player_id not in consented
-                for player_id in visible_people
-            ):
+                not raw_players[player_id].consent.memory_appearance
+                or not raw_players[player_id].consent.media_use
+                for player_id in consented
+            ) or not visible_people.issubset(consented):
                 issues.append(
                     V2ValidationIssue(
                         code="media_consent_invalid",
@@ -689,6 +851,7 @@ class TelemetryPreparerV2:
                         kind="event",
                         match_id=match.match_id,
                         event_type=event.event_type,
+                        event_scope=event.event_scope,
                         actor_id=event.actor_id,
                         target_id=event.target_id,
                         timestamp_seconds=event.timestamp_seconds,
@@ -697,6 +860,14 @@ class TelemetryPreparerV2:
                     )
                 )
         history = normalized.squad_history
+        if history.previous_session_at:
+            facts.append(
+                EvidenceFactV2(
+                    evidence_id="context:previous_session_at",
+                    kind="context",
+                    value=[item.isoformat() for item in history.previous_session_at],
+                )
+            )
         if history.days_since_full_squad is not None:
             facts.append(
                 EvidenceFactV2(
@@ -705,12 +876,24 @@ class TelemetryPreparerV2:
                     value=history.days_since_full_squad,
                 )
             )
+        facts.append(
+            EvidenceFactV2(
+                evidence_id="context:recent_rematch_count",
+                kind="context",
+                value=history.recent_rematch_count,
+            )
+        )
         facts.extend(
             [
                 EvidenceFactV2(
                     evidence_id="context:active_player_ids",
                     kind="context",
                     value=normalized.current_context.active_player_ids,
+                ),
+                EvidenceFactV2(
+                    evidence_id="context:available_modes",
+                    kind="context",
+                    value=normalized.current_context.available_modes,
                 ),
                 EvidenceFactV2(
                     evidence_id="context:reunion_eligible",

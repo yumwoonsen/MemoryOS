@@ -555,8 +555,12 @@ export function isDeliveryBoundToTelemetryV2(
 
   const allowedContextIds = new Set([
     "context:days_since_full_squad",
+    "context:previous_session_at",
+    "context:recent_rematch_count",
     "context:active_player_ids",
+    "context:available_modes",
     "context:reunion_eligible",
+    `match:${binding.selectedMatch.match_id}:game`,
     `match:${binding.selectedMatch.match_id}:mode`,
   ]);
   if (binding.selectedMatch.map_name) allowedContextIds.add(`match:${binding.selectedMatch.match_id}:map`);

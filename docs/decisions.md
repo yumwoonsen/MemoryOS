@@ -145,18 +145,21 @@ trusted telemetry facts.
 
 ## ADR-014 — One AI MemoryProposal, deterministic control plane
 
-**Status:** accepted and implemented for v2
+**Status:** accepted for the initial v2 design; refined by ADR-018
 
-After deterministic eligibility, consent filtering, and connected-window construction, the live
-provider returns one typed `MemoryProposal`. The proposal contains selected event IDs, memory type,
-narrative angle, title, teaser, summary, current relevance explanation, one perspective per opted-in
-player, and reunion mission prose.
+The initial v2 contract asked the live provider for one complete typed `MemoryProposal` after
+deterministic eligibility, consent filtering, and connected-window construction. That proposal
+repeated selected event IDs and other controls beside memory type, narrative angle, title, teaser,
+summary, current relevance explanation, one perspective per opted-in player, and reunion mission
+prose. ADR-018 keeps the single-call interpretation boundary but replaces this provider schema with
+a compact draft and deterministic enrichment.
 
 The model may choose only one offered event window. It cannot invent event IDs, people, roles,
 locations, timestamps, numbers, consent state, media mappings, assignments, or machine-verification
 rules. Those controls are prepared and validated deterministically. Evidence references accompany
 each factual clause or constrained factual field. One bounded correction call may receive stable
-validator issue codes; a second failure rejects the proposal.
+issue codes and allowlisted section IDs, but never rejected generated prose or validator messages;
+a second failure rejects the proposal.
 
 The three-stage scaffold pipeline remains available for v1.1 compatibility and deterministic
 offline demonstrations. It is not the normal v2 live-delivery path.
@@ -197,10 +200,62 @@ session/process-local state, but authenticated durable storage is not introduced
 retention, deletion, regional privacy, and operations-access decisions are approved.
 
 Optional media is reference-only. A proposal may select a curated synthetic clip, thumbnail, or
-keyframe ID only when deterministic metadata maps it to every represented selected event. Unknown
-or mismatched mappings fail closed. MemoryOS does not claim automated video understanding.
+keyframe ID only when every event represented by that media belongs to the selected episode
+(`media.event_ids` is a subset of the selected event IDs). The media need not represent every event
+in the episode. Unknown or mismatched mappings fail closed. MemoryOS does not claim automated video
+understanding.
 
 Developer Studio is an auditable structural trace, not a prompt inspector. It may show synthetic raw
 input, normalization, eligibility, consent decisions, offered windows, validated evidence links,
 provider metadata, validator issue codes, final delivery status, and structured feedback. Rejected
-proposal prose is withheld.
+proposal prose and the raw compact provider draft are withheld.
+
+## ADR-018 — Compact AI draft, deterministic enrichment, stable public delivery
+
+**Status:** implemented; automated suites and one configured live-provider smoke run passed
+
+The internal v2 provider schema is simplified so AI selects one offered event window and returns only
+the player-facing language, perspectives, mission wording, and compact fact/capability references it
+must reason about. The model does not repeat authoritative selected match/event ID lists, complete
+`GroundedClaim` objects, media mappings, mission recipe, objective IDs, assignments, required flags,
+source event IDs, verification rules, the eligible roster, delivery state, or Studio trace.
+
+After the provider returns, deterministic code resolves the window and compact references against
+the consent-safe evidence ledger and mission capability catalogue. It derives the omitted fields,
+orders the provider-supplied perspective IDs by the trusted roster, validates that the IDs equal the
+exact eligible set, constructs the full proposal claims and controls, and then runs the existing
+privacy, chronology, role, value, context, media, prose-grounding, and mission validators. A delivery
+record and safe trace are created only after that complete proposal passes.
+It does not restore or synthesize a perspective omitted by the provider. Literal terms may add
+conservative candidate evidence from the selected window, but this is not a unique semantic mapping
+and never bypasses the complete validators. Categorical and ordinary numeric detail claims require
+lexical detection of the typed value plus an associated field/action cue; survival wording may use
+positive squad-alive telemetry without restating its numeric count. Unknown, wrong-player,
+cross-window, or unsupported references fail closed; when several events share a literal term,
+enrichment makes a conservative scored candidate selection that still passes complete validation.
+One correction attempt remains bounded by safe validator codes and allowlisted section IDs.
+
+Normalized facts distinguish `player`, `squad`, and `match` event scopes. Direct actor/target events
+define a player's ordinary perspective permissions. A squad event becomes available as collective
+perspective evidence only when an allowlisted membership count proves full-roster participation;
+match-scoped facts cannot be reframed as an individual's action. Deterministic categorical
+allowlists constrain accepted telemetry detail values.
+
+The provider selects one offered mission candidate and authors one objective description. Its
+candidate-specific `authoring_scope` limits prose to the permitted intent, player IDs, and count;
+recipe, assignment, source events, and verification rule remain deterministic.
+
+This decision changes an internal model-output contract, not the public API. The public
+`InterpretDeliveryResultV2`, player projection, decision endpoints, and Studio trace retain their
+existing responsibilities. The smaller schema is expected to improve structured-output reliability
+by removing duplicated identifiers and values that deterministic code already knows. It does not
+weaken validation because those values are derived and checked rather than trusted from AI.
+
+The reliability claim is not accepted as demonstrated merely because the schema is smaller.
+Automated tests cover draft parsing, reference
+resolution, deterministic enrichment, public-contract stability, adversarial unsupported facts,
+privacy, fail-closed behavior, and correction. On 8 August 2026, a telemetry-only request through
+Groq `openai/gpt-oss-120b` and prompt `memory-interpreter-v2.4-grounded-controls` produced a valid
+`pending_player_decision` delivery without correction or deterministic narrative fallback. This
+single smoke result proves operability, not a statistical reliability advantage over the former
+schema or equivalent behavior from the default 20B model.

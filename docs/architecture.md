@@ -16,22 +16,26 @@ AI is not the final authority on whether telemetry is authentic. That trust must
 authenticated telemetry adapter and source-quality controls. The player decides whether a validated
 memory is relevant; the player is not asked to audit raw telemetry.
 
-> **Implementation status:** the additive v2 contract, orchestration, validators, frontend adapter,
-> and acceptance tests are implemented. Existing v1.0 and v1.1 routes remain runnable compatibility
-> paths while production authentication, persistence, and telemetry integrations are deferred.
+> **Implementation status:** the additive v2 public contract, orchestration, validators, frontend
+> adapter, and acceptance tests exist. The updated automated suites and one telemetry-only live
+> smoke run passed on 8 August 2026 with Groq `openai/gpt-oss-120b`, prompt
+> `memory-interpreter-v2.4-grounded-controls`, no correction, and a validated pending delivery.
+> Existing v1.0 and v1.1 routes remain runnable compatibility paths while production authentication,
+> persistence, telemetry integrations, and broader comparative live evaluation are deferred.
 
 ```mermaid
 flowchart LR
     A["Raw telemetry + squad context + consent"] --> B["Normalize canonical events"]
     B --> C["Filter consent and source quality"]
     C --> D["Build eligible event windows"]
-    D --> E["AI returns one typed MemoryProposal"]
-    E --> F["Deterministic evidence, privacy, and mission validation"]
-    F -->|"pass"| G["Pending player decision"]
-    F -->|"fail"| H["Rejected with no proposal prose"]
-    G --> I{"Player decision"}
-    I -->|"accept"| J["Mission started"]
-    I -->|"decline"| K["Suppress exact delivery"]
+    D --> E["AI returns one compact typed draft"]
+    E --> F["Deterministic expansion: resolve references and enrich controls"]
+    F --> G["Deterministic evidence, privacy, and mission validation"]
+    G -->|"pass"| H["Pending player decision"]
+    G -->|"fail"| I["Rejected with no draft prose"]
+    H --> J{"Player decision"}
+    J -->|"accept"| K["Mission started"]
+    J -->|"decline"| L["Suppress exact delivery"]
 ```
 
 The engine is Python-first. FastAPI and its OpenAPI document remain the canonical backend/frontend
@@ -43,8 +47,8 @@ validation pipeline.
 | Layer | Responsibility |
 |---|---|
 | Telemetry adapter | Map external game event names and shapes into a strict canonical vocabulary; reject unknown or unsafe data |
-| Deterministic backend | Source trust, consent, filtering, deduplication, eligibility, event windows, mission controls, validation, and fail-closed delivery |
-| AI Memory Interpreter | Select one offered connected episode and author one complete typed memory proposal |
+| Deterministic backend | Source trust, consent, filtering, deduplication, eligibility, event windows, authoritative enrichment, mission controls, validation, trace construction, and fail-closed delivery |
+| AI Memory Interpreter | Select one offered connected episode and author a compact typed draft containing player-facing language and bounded fact/capability references |
 | Player frontend | Render validated delivery content only and collect one accept/decline decision |
 | Player | Judge relevance and choose whether to start the reunion mission |
 
@@ -56,29 +60,89 @@ not telemetry facts.
 
 External event names and detail shapes must pass through a deterministic adapter before eligibility.
 The adapter outputs a canonical event vocabulary with typed numeric details and rejects unknown or
-unsafe fields. It is not a model stage. The legacy `MemoryPack` models remain unchanged for v1.0 and
-v1.1 compatibility; v2 uses separate composed request models rather than inheriting their review and
-scaffold semantics.
+unsafe fields. Categorical detail keys and values are accepted only from deterministic allowlists.
+Each normalized event explicitly carries `event_scope`: `player` preserves actor/target roles,
+`squad` represents a collective squad action, and `match` represents a match-level fact. It is not a
+model stage. The legacy `MemoryPack` models remain unchanged for v1.0 and v1.1 compatibility; v2 uses
+separate composed request models rather than inheriting their review and scaffold semantics.
 
-## V2 eligible windows and AI proposal
+## V2 eligible windows, compact AI draft, and deterministic enrichment
 
 The deterministic backend builds bounded chronological windows from consent-safe canonical events.
-Each offered window carries allowed event IDs, participant roles, locations, timestamps, numeric
-facts, current-context signals, valid media mappings, and a deterministic mission-control bundle.
-The AI may choose one offered window; it may not choose an arbitrary subset from the complete match.
+Each offered window carries consent-safe roles, facts, context, media capabilities, and mission
+capabilities behind bounded references. The AI may choose one offered window; it may not choose an
+arbitrary event subset from the complete match or author authoritative control values.
 
-One live provider call returns a typed `MemoryProposal` containing:
+One live provider call returns an internal compact draft containing:
 
-- selected event IDs, memory type, and narrative angle;
+- one offered window reference and a supported narrative framing;
 - title, notification teaser, summary, and why the memory matters now;
-- exactly one evidence-linked perspective for each opted-in player;
-- reunion mission title, recipe, mission text, and objective descriptions; and
-- optional media selection only from the window's allowed mappings.
+- one distinct perspective, including the supplied player ID, for every eligible player role;
+- one offered mission candidate, reunion mission title/text, and one objective description; and
+- compact references identifying which supplied facts and mission capabilities support each
+  authored section.
 
-Evidence references accompany each factual clause or tightly constrained factual field. Player IDs,
-event IDs, assignments, consent state, media mappings, and machine-verification rules remain
-deterministic controls. A single bounded correction call may use validator issue codes; if the
-corrected proposal still fails, v2 rejects it and exposes no generated prose.
+The compact draft intentionally omits authoritative match/event ID lists, complete
+`GroundedClaim` objects, media objects, mission recipe, objective IDs, assignments, required flags,
+source event IDs, verification rules, roster records, delivery state, and Studio trace. The
+deterministic backend resolves the selected window and compact references, supplements only literal
+player/action/location/match-value terms with conservative candidate evidence from the selected
+window, then derives those fields from normalized telemetry, consent state, media mappings, and the
+mission capability catalogue. This lexical enrichment is not a unique semantic mapping: expanded
+claims and prose still pass the complete deterministic validators. Categorical and ordinary numeric
+detail claims require lexical detection of the typed value plus an associated field/action cue;
+survival wording may use positive squad-alive telemetry without restating its numeric count.
+Expansion keeps lexically selected candidate event evidence for each section, or one
+explicitly cited fallback event when no event evidence is inferred, so a model cannot inflate the
+final claim set by citing every event. The backend orders the
+provider-supplied perspectives by the trusted roster and validates that their IDs equal the exact
+eligible set; it does not restore or synthesize missing perspectives. The full proposal is validated
+before the backend creates a delivery record, safe trace, and unchanged public
+`InterpretDeliveryResultV2`.
+
+The provider payload makes perspective permissions explicit. Each eligible player receives their
+direct actor/target event IDs. A collective event is also offered for that perspective only when its
+`event_scope` is `squad` and an allowlisted membership count proves that the entire submitted roster
+participated. The model may describe such an event as "we" or "the squad", never as the narrator's
+personal action. Match-scoped facts support match language, not individual action claims.
+Privacy-safe aliases remain first-class grounding labels; hiding an original identity does not let
+the model attach unsupported actions or observations to its replacement label.
+
+Each mission candidate is paired with a deterministic `authoring_scope`: permitted intent,
+permitted player IDs, and permitted count. The provider can select one candidate and phrase one
+objective within that scope; recipe, assignment, source events, and verification rule remain
+backend-owned. Conservative lexical validation compares mission action language,
+metric-associated target counts, operator language, named players, and known unoffered gameplay
+condition terms with that selected capability. It is a bounded guardrail rather than a universal
+semantic proof for unrestricted prose.
+Both mission text and objective text must express the selected deterministic requirement. The
+delivered memory type is also checked against the selected episode and squad history, including the
+rule that a `first` memory cannot coexist with prior session history.
+Numbers attached to other nouns, such as a squadmate count, are not treated as the mission metric's
+target. Optional media is selected only when `media.event_ids` is a subset of the chosen
+episode's event IDs; a media reference need not cover the whole episode. Collective- or
+match-scoped media requires media consent from the full submitted roster because its actor/target
+fields do not enumerate everyone potentially visible.
+
+The consent-safe provider context includes previous session timestamps, days since the full squad,
+recent rematch count, active players, available modes, and reunion eligibility. Secret-like input is
+rejected and unsafe/instruction-like social context is filtered before the provider boundary.
+
+Compact references are not a shortcut around grounding. A reference that is unknown, incompatible
+with the selected window, attached to the wrong section or player, or insufficient for an authored
+fact fails enrichment or validation. Full claims and all player-facing prose still pass the same
+role, chronology, value, context, privacy, media, and mission checks. Validation also checks direct
+player-action-target wording against one supported telemetry tuple, preventing literal enrichment or
+separate cited events from being used to recombine a false role assignment. A single bounded correction
+call may use stable issue codes plus allowlisted section IDs; rejected generated prose and validator
+messages are never returned to the model. If correction still fails, v2 rejects it and exposes no
+generated prose.
+
+Reducing duplicated IDs and backend-owned controls in the provider schema should make structured
+output easier for a live model to produce consistently. It does not weaken validation because the
+removed fields are derived from deterministic sources rather than trusted from the model. Automated
+compact-draft/enrichment checks and one configured 120B live smoke run now pass. The expected
+reliability improvement relative to the former schema still requires a larger controlled sample.
 
 ## V1.1 compatibility: historical discovery
 
@@ -168,8 +232,10 @@ for operations. Neither decision edits trusted telemetry or triggers automatic p
 |---|---:|---|
 | Raw ingestion and normalization | No | Types, external-to-canonical mappings, provenance, and rejection |
 | Consent and eligibility | No | Current consent, source quality, deduplication, and event-window construction |
-| Memory proposal | Yes | Choose one offered window and author the complete player-facing interpretation |
-| Proposal validation | No | Chronology, claim references, roles, privacy, context, media, and mission controls |
+| Compact memory draft | Yes | Choose one offered window; author player-facing interpretation, perspectives, mission wording, and bounded fact/capability references |
+| Authoritative enrichment | No | Resolve the window and references; derive proposal match/event IDs, full claims, media, roster, recipe, objectives, assignments, and rules |
+| Proposal validation | No | Chronology, derived claim references, roles, privacy, context, media, prose support, and mission controls |
+| Delivery construction | No | After validation, create the delivery record, safe Studio trace, and public result |
 | Delivery and feedback | No | Final status, exact-delivery suppression, and structured decision semantics |
 
 “Agent” means a bounded typed stage, not an autonomous multi-agent runtime. Stages have no authority
@@ -193,16 +259,20 @@ passes deterministic privacy, evidence, action, objective-alignment, and conserv
 checks before it can be returned. These checks deliberately fail closed but remain prototype
 guardrails rather than a proof of every implication in natural language.
 
-V2 replaces the three narrative scaffolds with one proposal schema plus structural controls. The
+V2 replaces the three narrative scaffolds with one compact draft schema, deterministic enrichment,
+and structural controls. The
 legacy scaffold path stays available for regression tests and explicitly labelled offline Studio
 demonstrations, but it is not presented as a live v2 AI delivery.
 
 ## Provider boundary
 
 The provider-neutral structured-generation interface remains reusable. The preferred v2 live
-provider is the existing Groq GPT-OSS integration; the provider returns one `MemoryProposal` under a
-strict schema. Provider refusal, timeout, malformed output, or failed deterministic validation fails
-closed. V2 never substitutes deterministic narrative text into a response labelled as live AI.
+provider is the existing Groq GPT-OSS integration; the provider returns one compact internal draft
+under a strict schema. The backend, not the provider, expands it into an authoritative proposal;
+only a proposal that passes deterministic validation becomes a public delivery and safe trace.
+Provider refusal, timeout, malformed output, unresolved compact references, failed enrichment, or
+failed deterministic validation fails closed. V2 never substitutes deterministic narrative text
+into a response labelled as live AI.
 
 Deterministic mode remains the credential-free regression baseline and may power explicitly labelled
 offline Studio demonstrations. The current v1.1 compatibility path still uses three semantic stages
@@ -211,14 +281,18 @@ with the same sanitized ledger plus the previous typed output.
 ```text
 sanitized evidence
     |-- deterministic stage implementation --|
-    `-- structured live-provider stage call --|--> typed output --> deterministic validator
+    `-- structured live-provider stage call --|--> compact typed draft
+                                                --> deterministic proposal expansion
+                                                --> deterministic validator
+                                                --> public delivery + safe trace
 ```
 
 The OpenAI adapter uses the Responses API with Pydantic Structured Outputs and `store=False`. The
 Groq adapter uses Chat Completions with an explicit strict JSON Schema and validates the returned
 JSON through the same Pydantic response model. Both use low reasoning effort, a 30-second timeout,
-at most two SDK transport retries, a 2,000-token legacy-stage ceiling, and a 4,000-token v2 proposal
-ceiling. On a direct JSON route, a provider failure is reported as a structured HTTP `503`; the
+at most two SDK transport retries, and explicit output ceilings. Compact v2 interpretation is
+capped at 2,000 output tokens on Groq and 4,000 on OpenAI. On a
+direct JSON route, a provider failure is reported as a structured HTTP `503`; the
 service never silently changes a live request to deterministic prose. Once an NDJSON response has
 begun, the equivalent failure is a typed `error` event under HTTP `200`.
 
@@ -277,8 +351,9 @@ The player frontend now has one canonical consumer flow split by responsibility:
   sanitized metadata from eligible past packs; it does not prepare deliveries or record decisions.
 
 The current-memory route uses the v2 interpretation contract through same-origin server proxies.
-The server normalizes synthetic raw telemetry, asks one live model for a complete proposal, validates
-its claims and mission controls, and returns `pending_player_decision`. A player can accept or decline;
+The server normalizes synthetic raw telemetry, asks one live model for a compact draft, enriches it
+with authoritative claims and mission controls, validates the complete result, and returns
+`pending_player_decision`. A player can accept or decline;
 `details_wrong` is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the
 browser rewrite telemetry. Generated types, runtime guards, and a backend snapshot test keep
 FastAPI as the contract source of truth. The older discovery and split-review contracts remain only
@@ -291,7 +366,8 @@ read-only and does not prepare a delivery or record a decision.
 Developer Studio may display raw **synthetic** telemetry, deterministic normalization and window
 metadata, provider/model/prompt version, evidence links from a validated proposal, validator issue
 codes, final delivery status, and recorded prototype feedback. It must never display raw prompts,
-chain-of-thought, credentials, opted-out identities, or rejected/unvalidated proposal prose.
+the raw compact provider draft, chain-of-thought, credentials, opted-out identities, or
+rejected/unvalidated proposal prose.
 
 ## Phase 3 reunion prototype
 

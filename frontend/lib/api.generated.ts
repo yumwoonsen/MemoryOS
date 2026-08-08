@@ -235,7 +235,7 @@ export interface components {
          * ClaimPredicate
          * @enum {string}
          */
-        ClaimPredicate: "participated_match" | "played_mode" | "played_map" | "placed" | "match_result" | "landed" | "knocked" | "was_knocked" | "eliminated" | "was_eliminated" | "revived" | "assisted" | "healed" | "entered_vehicle" | "exited_vehicle" | "escaped" | "moved_zone" | "looted" | "signalled" | "completed_match" | "connected_episode" | "current_reunion_opportunity" | "mission_rule";
+        ClaimPredicate: "participated_match" | "played_game" | "played_mode" | "played_map" | "placed" | "match_result" | "landed" | "knocked" | "was_knocked" | "eliminated" | "was_eliminated" | "revived" | "assisted" | "healed" | "entered_vehicle" | "exited_vehicle" | "escaped" | "moved_zone" | "looted" | "signalled" | "completed_match" | "connected_episode" | "current_reunion_opportunity" | "mission_rule";
         /** ConsentPermissionsV2 */
         ConsentPermissionsV2: {
             /** Identity Display */

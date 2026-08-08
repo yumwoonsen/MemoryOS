@@ -3,8 +3,9 @@
 MemoryOS is the AI memory engine behind **Garena Next Chapter**. The current v1.1 compatibility
 prototype turns synthetic historical Memory Packs into reviewable squad memories, distinct
 teammate perspectives, and a grounded quest. The implemented v2 contract instead starts from raw
-telemetry, asks AI for one complete Memory Proposal, and accepts it only after deterministic
-privacy, evidence, and mission validation.
+telemetry, asks AI for one compact memory draft, deterministically enriches that draft into the
+complete public delivery contract, and accepts it only after privacy, evidence, and mission
+validation.
 
 The project answers two questions:
 
@@ -24,8 +25,8 @@ that benefits from AI:
 | Deterministic code owns | AI proposes |
 |---|---|
 | Raw-input normalization, source-quality gates, consent, and eligible event windows | Selection of one offered chronological event window |
-| Allowed identities, facts, current-context signals, and media mappings | One typed `MemoryProposal`: title, summary, relevance, perspectives, and mission prose |
-| Evidence references, exact perspective roster, assignments, required flags, and verification rules | Narrative framing within the supplied facts and controls |
+| Allowed identities, facts, current-context signals, media mappings, and mission capabilities | Title, summary, current relevance, perspectives, mission wording, and compact fact references |
+| Selected match/event IDs, complete `GroundedClaim` records, ordering and exact-roster validation of provider-supplied perspective IDs, media, recipe, objective ID, assignment, required flag, source events, and verification rule | Narrative framing within the supplied facts and capabilities |
 | Proposal validation, correction eligibility, delivery status, suppression, and final decision state | No telemetry, consent, source-quality, or final-status authority |
 
 Source quality is resolved upstream. The player decides whether a validated delivery is relevant;
@@ -36,10 +37,64 @@ Source quality is resolved upstream. The player decides whether a validated deli
 ```text
 raw telemetry
     -> deterministic normalization, consent filtering, and eligible windows
-    -> one typed AI MemoryProposal
+    -> one compact typed AI draft
+    -> deterministic proposal/control enrichment
     -> deterministic grounding, privacy, media, and mission validation
-    -> pending player decision or a closed rejection
+    -> delivery/trace construction and pending player decision, or a closed rejection
 ```
+
+The compact draft is an internal provider contract, not a weaker public contract. AI chooses one
+offered window and writes player-facing language plus small fact/capability references. The backend
+resolves those references and derives the authoritative match and event IDs, complete grounded
+claims, the ordered and validated perspective list, media mapping, one mission objective and its
+controls. The backend does not create a missing perspective: the provider must return every eligible
+player ID exactly once. After the full proposal validates, the pipeline creates the delivery record,
+safe Studio trace, and public result. Unresolvable or unsupported references fail closed. The public
+v2 response remains the
+fully enriched `InterpretDeliveryResultV2`.
+
+The provider receives the consent-safe `previous_session_at`, `days_since_full_squad`,
+`recent_rematch_count`, active-player, available-mode, and reunion-eligibility signals. Secret-like
+or instruction-unsafe social text is removed or rejected before provider use. Privacy-safe display
+labels such as `Player 3` remain groundable identities even though the original identity is hidden.
+
+Normalized event facts carry an explicit `event_scope`: `player` events retain actor/target roles,
+`squad` events describe the squad collectively, and `match` events describe match-level facts.
+Provider perspective permissions list each eligible player's direct-role events and only those
+squad events whose allowlisted membership count proves that the full submitted roster participated.
+Categorical telemetry details pass deterministic value allowlists. Categorical and ordinary numeric
+detail claims require lexical detection of both the value and an associated field/action cue;
+survival wording may instead use a positive squad-alive detail without restating its numeric count.
+Literal player, action, location,
+or match terms may add conservative candidate evidence from the selected episode; they do not create
+a unique semantic proof and the complete tuple, prose, and claim validators still run. To keep the
+claim set bounded, expansion retains lexically selected candidate events for a section, or at most
+one cited fallback event when no event evidence is inferred.
+
+Each mission capability includes a deterministic `authoring_scope` containing only its permitted
+intent, player IDs, and count. The provider selects one candidate and writes one objective
+description; the backend supplies the recipe, assignment, source events, and verification rule.
+Conservative lexical mission checks reject tested conflicting actions, operators,
+metric-associated target counts, player names, and known unoffered gameplay conditions; unrelated
+participant counts are not mistaken for the mission target. These bounded checks are not a universal
+semantic proof for unrestricted prose.
+Optional media remains backend-selected only when every event represented by that media reference
+is inside the selected episode (`media.event_ids` is a subset of the selected event IDs). Media for
+collective or match-scoped events requires media consent from the complete submitted roster because
+actor/target fields cannot identify everyone potentially visible.
+
+Validation also requires the mission and objective to state the selected backend-owned requirement,
+and checks delivered memory categories against episode/history signals (for example, `first` cannot
+be used when prior sessions exist). Secret-like, unsafe, or unsupported observation language fails
+closed before delivery.
+
+This smaller structured output is intended to reduce malformed or internally inconsistent model
+responses without moving authority from deterministic code to AI. The automated safety/build suites
+and one telemetry-only live smoke run passed on 8 August 2026 with Groq
+`openai/gpt-oss-120b`, prompt `memory-interpreter-v2.4-grounded-controls`, no correction, and a fully
+validated `pending_player_decision` result. That proves the path can complete end to end; a broader
+evaluation sample is still required before claiming a statistical reliability improvement or the
+same result for the default 20B model.
 
 The v2 API boundary is `POST /v2/memories/interpret-delivery`, followed by
 `POST /v2/deliveries/{delivery_id}/decision`. A live provider failure, refusal, malformed output,
@@ -159,10 +214,11 @@ data-bearing routes, including Studio trace retrieval, through the `X-MemoryOS-P
 header. Leave it unset for local development, and never expose it in client-side JavaScript.
 
 In the implemented v1.1 live mode, three bounded model stages write player-facing narrative onto
-deterministic scaffolds. The v2 route replaces those stages with one complete typed
-proposal, while deterministic code still owns eligibility, consent, evidence constraints,
-assignments, verification rules, and final status. A failed v2 live call will fail closed instead
-of silently substituting deterministic narrative.
+deterministic scaffolds. The v2 route replaces those stages with one compact typed draft followed by
+deterministic enrichment, while deterministic code still owns eligibility, consent, evidence
+constraints, match/event IDs, complete claims, media, roster, assignments, verification rules,
+delivery/trace construction, and final status. A failed v2 live call will fail closed instead of
+silently substituting deterministic narrative.
 
 See [the API guide](docs/api.md) for configuration and request shapes.
 

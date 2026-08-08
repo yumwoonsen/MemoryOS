@@ -26,8 +26,21 @@ dedicated MemoryOS Studio remains intentionally separate from this player protot
 
 The canonical `/` route uses the AI-first v2 adapter and proxies:
 
-- `POST /v2/memories/interpret-delivery` for raw telemetry to one validated Memory Proposal; and
+- `POST /v2/memories/interpret-delivery` for raw telemetry to one fully enriched, validated public
+  delivery; and
 - `POST /v2/deliveries/{delivery_id}/decision` for acceptance or one structured decline reason.
+
+The live provider's compact draft is internal to the backend. AI selects one offered window and
+authors memory and perspective language, selects one mission candidate, and writes one objective
+description with bounded fact/capability references. The backend derives the selected match/event
+IDs, complete grounded claims, eligible media, mission recipe, objective ID/assignment/rule,
+and the ordered proposal perspectives before validation. It validates that the provider-supplied
+perspective IDs equal the exact eligible set; it does not restore a missing perspective. Only after
+the complete proposal passes does the pipeline create the delivery record, safe Studio trace, and
+public result. The same-origin player proxy receives that complete public result,
+validates it, and
+returns only the existing `PlayerPendingDeliveryV2` projection. No compact draft or Studio internals
+cross into the player UI.
 
 This preserves the compact player sequence: one memory, its grounded explanation,
 the current player's perspective, a clear reunion mission, and one decision. `/history` remains a
@@ -41,7 +54,8 @@ personal perspectives, a continuation quest, and deterministic validation.
 
 The Studio deliberately separates three runtime states:
 
-- **Live AI** — the configured Groq or OpenAI provider generated one complete typed proposal.
+- **Live AI** — the configured Groq or OpenAI provider generated one compact typed draft that the
+  backend enriched and validated into the public delivery.
 - **Deterministic run** — the rules provider completed the pipeline without model calls.
 - **Sample replay** — the hosted frontend replayed the bundled canonical result because no backend
   is configured or reachable.
@@ -52,7 +66,26 @@ counts, latency, and configured retry limits. For v2, the safe trace may additio
 synthetic raw telemetry, normalization and eligibility outcomes, offered window IDs, validated
 evidence links, provider/model/prompt version, validator issue codes, final status, and structured
 feedback. It never displays raw prompts, chain-of-thought, API keys, server environment values,
-opted-out identities, raw provider exceptions, or rejected and unvalidated proposal prose.
+the raw compact provider draft, opted-out identities, raw provider exceptions, or rejected and
+unvalidated proposal prose.
+
+The backend's normalized evidence distinguishes `player`, `squad`, and `match` event scopes. A
+perspective may use its player's direct actor/target events and only those collective squad events
+whose allowlisted membership telemetry proves full-roster participation. Categorical detail values
+are allowlisted. Categorical and ordinary numeric detail claims require the typed value plus an
+associated field/action cue; survival wording may use positive squad-alive telemetry without
+restating its numeric count. Conservative lexical enrichment adds candidate evidence rather than claiming a unique semantic
+mapping; the complete tuple and prose validators still run. Mission wording is bounded by the
+selected candidate's deterministic `authoring_scope` plus conservative checks for tested conflicting
+actions, quantities, operators, names, and known extra-condition terms; this is not unrestricted
+semantic proof.
+
+The smaller provider schema is expected to improve structured-output reliability because the model
+no longer repeats identifiers and control values already owned by the backend. This does not weaken
+the player boundary or validation. The updated backend/frontend suites and one telemetry-only live
+interpretation passed on 8 August 2026 with Groq `openai/gpt-oss-120b`, no correction, and a
+validated pending delivery. The saved Studio sample remains an offline demonstration, and one live
+run is not a comparative reliability benchmark for other models.
 
 ## Run locally
 
@@ -115,7 +148,9 @@ mission. It sends no real invitation, reads no live Garena match result, and doe
 chapter feedback while authentication, retention, consent, and privacy policy are unresolved.
 
 Any moment clip, thumbnail, or keyframe shown by this prototype is a curated synthetic asset with a
-deterministic event mapping. MemoryOS does not currently inspect or understand gameplay video.
+deterministic event mapping. It is eligible only when all events represented by the media reference
+belong to the selected episode; it need not represent every selected event. MemoryOS does not
+currently inspect or understand gameplay video.
 
 To run the backend for the offline Studio demonstration, start it from the repository root in
 deterministic mode:

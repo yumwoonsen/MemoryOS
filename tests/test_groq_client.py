@@ -22,7 +22,7 @@ from backend.models.schemas import (
     PerspectiveSet,
     PipelineStatusV11,
 )
-from backend.models.v2_schemas import MemoryProposalV2
+from backend.models.v2_schemas import CompactMemoryProposalV2, MemoryProposalV2
 from backend.pipeline import MemoryPipeline
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "backend" / "data"
@@ -354,7 +354,7 @@ def test_groq_chat_output_failures_are_safe_and_fail_closed(
     assert raised.value.__context__ is None
 
 
-def test_v2_interpretation_uses_larger_but_bounded_chat_output_budget(
+def test_v2_interpretation_uses_compact_bounded_chat_output_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GROQ_API_KEY", "groq-test-only-key")
@@ -369,11 +369,11 @@ def test_v2_interpretation_uses_larger_but_bounded_chat_output_budget(
         stage="memory_interpretation",
     )
 
-    assert responses.calls[0]["max_completion_tokens"] == 4_000
+    assert responses.calls[0]["max_completion_tokens"] == 2_000
 
 
 @pytest.mark.parametrize(
-    "response_model", [MemoryRecord, PerspectiveSet, NextChapter, MemoryProposalV2]
+    "response_model", [MemoryRecord, PerspectiveSet, NextChapter, CompactMemoryProposalV2]
 )
 def test_all_agent_contracts_convert_to_groq_compatible_strict_schema(
     response_model: type[BaseModel],
@@ -404,12 +404,39 @@ def test_quest_target_schema_does_not_overlap_integer_and_number() -> None:
     assert target_types == {"string", "integer", "boolean", "array"}
 
 
-def test_v2_claim_value_schema_does_not_overlap_integer_and_number() -> None:
+def test_backend_derived_claim_schema_supports_integer_and_decimal_values() -> None:
     schema = to_strict_json_schema(MemoryProposalV2)
     options = schema["$defs"]["GroundedClaim"]["properties"]["value"]["anyOf"]
     value_types = {option["type"] for option in options}
 
-    assert value_types == {"string", "integer", "boolean", "array", "null"}
+    assert value_types == {"string", "integer", "number", "boolean", "array", "null"}
+
+
+def test_compact_ai_schema_omits_backend_authoritative_fields() -> None:
+    schema = to_strict_json_schema(CompactMemoryProposalV2)
+    properties = schema["properties"]
+
+    assert "selected_window_id" in properties
+    assert {
+        "selected_match_id",
+        "selected_event_ids",
+        "recipe",
+        "verification",
+        "assigned_player_id",
+        "media_id",
+    }.isdisjoint(properties)
+    assert set(schema["$defs"]["CompactPerspectiveV2"]["properties"]) == {
+        "player_id",
+        "message",
+        "evidence_ids",
+    }
+    assert set(schema["$defs"]["CompactSectionDraftV2"]["properties"]) == {
+        "text",
+        "evidence_ids",
+    }
+    assert "CompactClaimV2" not in schema["$defs"]
+    assert "GroundedClaim" not in schema["$defs"]
+    assert len(json.dumps(schema, separators=(",", ":")).encode("utf-8")) < 3_000
 
 
 @pytest.mark.skipif(

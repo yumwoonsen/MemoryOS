@@ -40,19 +40,41 @@ The v2 route is implemented in this branch. Its release and regression gates mus
 complete raw-input-to-decision contract, not only the quality of generated prose:
 
 - A telemetry-only fixture with no authored caption or precomposed memory produces one valid live
-  `MemoryProposal` from `POST /v2/memories/interpret-delivery`.
+  compact draft that deterministically enriches into the unchanged public delivery returned by
+  `POST /v2/memories/interpret-delivery`.
 - Unknown event types, unsupported event/detail combinations, invalid cross-references, and
   unstructured current-context claims are rejected before any provider call.
 - Raw opted-out identities and opted-out-authored social prose are absent from provider payloads,
   player output, logs, and Studio views. Important shared events may remain only with a
   request-scoped anonymous role for factual continuity; that role receives no perspective, media
   identity, invitation, or mission ownership.
-- The provider selects exactly one deterministically offered chronological window and references
-  only that window's allowed events, identities, context signals, and curated media mappings.
-- Every factual clause has valid evidence references; perspectives cover exactly the opted-in
-  roster; roles and current relevance are supported by structured inputs.
-- Mission assignments, required flags, source event IDs, objective constraints, and verification
-  rules exactly match deterministic controls.
+- The provider selects exactly one deterministically offered chronological window and emits only
+  supplied compact fact/capability references for its authored sections.
+- The backend resolves the selected window and compact references into authoritative match/event
+  IDs and complete `GroundedClaim` records. Every factual clause is covered; perspectives are
+  ordered and validated so the provider-supplied player IDs equal exactly the eligible consent-safe
+  roster; a missing perspective is never restored or synthesized. Roles and current relevance are
+  supported by structured inputs.
+- Normalized facts expose explicit `player`, `squad`, and `match` event scopes. A full-squad event
+  may support collective perspective wording only when allowlisted membership telemetry proves the
+  entire submitted roster participated. Provider perspective permissions reflect those direct-role
+  and proven collective events.
+- Categorical details pass deterministic key/value allowlists. Categorical and ordinary numeric
+  detail claims require lexical detection of the typed value plus an associated field/action cue;
+  survival wording may use positive squad-alive telemetry without restating its numeric count.
+  Conservative literal enrichment may add candidate evidence but never counts as a unique semantic
+  proof or skips final validation. Redundant broad citations are pruned to lexically selected
+  candidates or one explicit fallback event when no event evidence is inferred.
+- Media, mission recipe, objective IDs, assignments, required flags, source event IDs, objective
+  constraints, and verification rules are backend-derived and exactly match deterministic controls.
+- The provider selects one offered mission candidate and authors one objective description within
+  its deterministic `authoring_scope` of permitted intent, player IDs, and count. Tests cover action,
+  operator, metric-associated target, participant-number separation, required rule expression, and
+  known unoffered-condition checks.
+- Memory type and explicit first-session framing are checked against the episode and squad history.
+  Privacy-safe replacement labels remain subject to player-role and observation-language grounding.
+- Secret-like input never enters the provider payload. Secret-like or unsafe generated text fails
+  closed. Collective/match media requires complete-roster media consent.
 - Refusal, timeout, malformed output, unsupported claims, and failed correction produce no
   proposal, teaser, perspective, mission, media selection, or rejected proposal prose in the
   player response or Studio.
@@ -68,6 +90,10 @@ The typed v2 offline evaluator reports:
 
 | Metric | Definition | Release expectation |
 |---|---|---:|
+| Compact-draft schema reliability | Live responses that parse the smaller provider schema without repair | Report baseline and compare with the former complete schema |
+| Reference-resolution success | Explicit compact references are recognized inside the selected window/capability catalogue, and any conservatively added literal candidate evidence survives complete validation | 100% for delivered results |
+| Deterministic enrichment completeness | Required public IDs, claims, roster, media, mission controls, delivery fields, and trace fields produced from trusted state | 100% for delivered results |
+| Public-contract stability | Enriched public delivery and generated OpenAPI remain compatible with existing player/Studio consumers | 100%; no unreviewed breaking diff |
 | Proposal validity | Live responses that pass schema and all deterministic validators | Report baseline; no invalid delivery |
 | Episode-selection accuracy | Selected window matches an optional expected-window label | Report baseline |
 | Factual-claim grounding | Offline-labeled factual claims that are grounded; unsupported claims are reported separately | 100% grounded; 0 unsupported |
@@ -77,7 +103,7 @@ The typed v2 offline evaluator reports:
 | Consent leak count | Supplied forbidden raw identity terms found in the serialized safe result | 0 |
 | Mission feasibility and story connection | Mission validation passes and every objective source ID belongs to the selected episode | 100% |
 | Fail-closed artifact count | Generated artifact fields returned after provider or validation failure | 0 |
-| Media mapping validity | Selected media IDs whose deterministic mapping covers all required selected events | 100% |
+| Media mapping validity | Selected media IDs whose represented `media.event_ids` are all contained in the selected episode | 100% |
 | Deliverability and abstention correctness | Delivered/rejected outcome matches an optional expected-deliverability label | 100% |
 | Correction outcome | Attempted correction and successful corrected delivery are counted separately | Report baseline |
 | Provider usage | Safe observability totals for request count, latency, and input/output tokens | Report baseline |
@@ -88,9 +114,44 @@ delivery decisions are optional, and evaluation never changes telemetry, prompts
 configuration, or model selection. `summarize_v2_results` remains available as the compatibility
 smoke summary for callers that only provide interpretation results.
 
-The complete proposal schema is tested against the v2 4,000-token output ceiling. Worst-case
-opted-in rosters, references, and mission controls must still fail closed rather than return a
-partial delivery.
+The compact provider schema must be tested against an evidence-based output ceiling. Worst-case
+eligible rosters, authored sections, and compact references must still fail closed rather than
+return a partial delivery. Backend-derived IDs, complete claims, media, mission controls, delivery,
+and trace do not consume provider output tokens, but they remain part of final validation. The
+implemented compact ceiling is 2,000 output tokens for Groq and 4,000 for OpenAI.
+
+## Compact-draft verification gate
+
+The automated checks below and one configured live smoke request now pass. The live result used the
+telemetry-only fixture, Groq `openai/gpt-oss-120b`, prompt
+`memory-interpreter-v2.4-grounded-controls`, no correction, and ended as a fully validated
+`pending_player_decision` delivery. This is an end-to-end acceptance result, not enough evidence to
+claim a comparative reliability rate or coverage of the default 20B model.
+
+Automated verification must cover:
+
+- strict compact-draft parsing and rejection of extra authoritative control fields;
+- exact selection of one offered window, recognition of supplied fact/capability references, and
+  fail-closed validation of conservatively added literal candidate evidence;
+- deterministic derivation of selected match/event IDs, complete claims, media, recipe, objective
+  ID/assignment/rule, ordered and exact-set-validated perspectives, public delivery, and Studio
+  trace;
+- `event_scope` semantics, full-squad collective membership proof, provider perspective
+  permissions, categorical detail allowlists, cue-bound detail claims, and mission
+  `authoring_scope` enforcement;
+- rejection of unknown, cross-window, wrong-player, and unsupported references, with scored
+  candidate selection for non-unique literal matches still subject to complete validation;
+- parity of public `InterpretDeliveryResultV2`, generated OpenAPI types, player projection, and
+  Studio rendering;
+- privacy and secret-leak checks, one bounded correction, and zero generated artifacts after any
+  terminal failure, including absence of the raw compact draft from Studio; and
+- continued green v1.0/v1.1 compatibility, backend, frontend, evaluator, and production-build tests.
+
+For subsequent releases, repeat the telemetry-only fixture across the configured provider/model
+matrix and record provider/model/prompt version, draft parse outcome, correction use,
+reference-resolution result, final validator result, latency, and token usage. A release sample must
+enrich into valid deliveries with no deterministic narrative fallback before comparative reliability
+or performance claims are made.
 
 ## Historical ranking evaluation
 

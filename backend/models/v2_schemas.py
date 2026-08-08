@@ -22,7 +22,7 @@ from backend.models.schemas import (
 )
 
 TelemetryValue = str | int | float | bool | list[str]
-ClaimValue = str | int | bool | list[str]
+ClaimValue = str | int | float | bool | list[str]
 
 
 class ConsentPermissionsV2(StrictModel):
@@ -235,6 +235,7 @@ class NormalizedEventV2(StrictModel):
     event_id: str
     match_id: str
     event_type: CanonicalEventType
+    event_scope: Literal["player", "squad", "match"] = "player"
     actor_id: str | None = None
     target_id: str | None = None
     timestamp_seconds: int
@@ -271,6 +272,7 @@ class EvidenceFactV2(StrictModel):
     kind: Literal["event", "match", "context", "social"]
     match_id: str | None = None
     event_type: CanonicalEventType | None = None
+    event_scope: Literal["player", "squad", "match"] | None = None
     actor_id: str | None = None
     target_id: str | None = None
     timestamp_seconds: int | None = None
@@ -307,6 +309,7 @@ class MissionCapabilityCandidate(StrictModel):
 
 class ClaimPredicate(StrEnum):
     PARTICIPATED_MATCH = "participated_match"
+    PLAYED_GAME = "played_game"
     PLAYED_MODE = "played_mode"
     PLAYED_MAP = "played_map"
     PLACED = "placed"
@@ -387,6 +390,84 @@ class MemoryProposalV2(StrictModel):
     mission: ProposedMissionV2
     claims: list[GroundedClaim] = Field(min_length=1, max_length=50)
     media_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class CompactSectionDraftV2(StrictModel):
+    """One fixed authored section plus the evidence IDs supporting its text."""
+
+    text: str = Field(min_length=1, max_length=500)
+    evidence_ids: list[str] = Field(
+        min_length=1,
+        max_length=20,
+        description=(
+            "Every event, match, or context ID needed by each factual term in this section; "
+            "omit unrelated IDs."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def unique_evidence(self) -> CompactSectionDraftV2:
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("section evidence_ids must be unique")
+        return self
+
+
+class CompactPerspectiveV2(StrictModel):
+    player_id: str = Field(min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=400)
+    evidence_ids: list[str] = Field(
+        min_length=1,
+        max_length=20,
+        description=(
+            "Every selected-window event ID needed by each action, player, location, and typed "
+            "detail in this message."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def unique_evidence(self) -> CompactPerspectiveV2:
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("perspective evidence_ids must be unique")
+        return self
+
+
+class CompactMissionChoiceV2(StrictModel):
+    candidate_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=120)
+    mission: str = Field(
+        min_length=1,
+        max_length=500,
+        description="Player-facing wording limited exactly to the selected candidate capability.",
+    )
+    objective_description: str = Field(
+        min_length=1,
+        max_length=400,
+        description=(
+            "One objective describing only the selected candidate metric, target, and permitted "
+            "participants."
+        ),
+    )
+
+
+class CompactMemoryProposalV2(StrictModel):
+    """Small provider-facing proposal; authoritative delivery fields are not model-authored."""
+
+    selected_window_id: str = Field(min_length=1, max_length=128)
+    memory_type: MemoryType
+    narrative_angle: str = Field(min_length=1, max_length=160)
+    title: CompactSectionDraftV2
+    notification_teaser: CompactSectionDraftV2
+    summary: CompactSectionDraftV2
+    why_this_matters_now: CompactSectionDraftV2
+    perspectives: list[CompactPerspectiveV2] = Field(min_length=1, max_length=4)
+    mission: CompactMissionChoiceV2
+
+    @model_validator(mode="after")
+    def unique_perspective_ids(self) -> CompactMemoryProposalV2:
+        perspective_ids = [item.player_id for item in self.perspectives]
+        if len(perspective_ids) != len(set(perspective_ids)):
+            raise ValueError("perspective player_id values must be unique")
+        return self
 
 
 class V2ValidationIssue(StrictModel):

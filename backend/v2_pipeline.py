@@ -31,6 +31,7 @@ from backend.services.v2_delivery_repository import (
 )
 from backend.services.v2_interpreter import MemoryInterpreterV2, ProviderInputLimitError
 from backend.services.v2_preparation import PreparedInterpretationV2, TelemetryPreparerV2
+from backend.services.v2_proposal_expander import CompactProposalExpansionError
 from backend.services.v2_validator import FATAL_VALIDATION_CODES, ProposalValidatorV2
 
 
@@ -81,22 +82,56 @@ class MemoryInterpretationPipelineV2:
                 prepared,
                 preparation_failed=True,
             )
-        except OpenAIProviderError as error:
-            if self.execution_mode != "live_ai" or error.code != "provider_invalid_response":
-                raise
+        except CompactProposalExpansionError as error:
+            if self.execution_mode != "live_ai" or error.code in FATAL_VALIDATION_CODES:
+                return self._expansion_rejection(batch, prepared, error)
             correction_attempted = True
-            # The correction request contains only consent-safe evidence and a
-            # stable validator code.  Rejected provider prose is never retained
-            # or sent back to the model.
             try:
                 proposal = self.interpreter.propose(
                     prepared,
-                    validation_feedback_codes=["provider_schema_invalid"],
+                    validation_feedback=self._safe_correction_feedback(
+                        prepared,
+                        [error.issue()],
+                    ),
                 )
             except ProviderInputLimitError:
                 return self._provider_input_limit_rejection(
                     batch,
                     prepared,
+                    correction_attempted=True,
+                )
+            except CompactProposalExpansionError as correction_error:
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    correction_error,
+                    correction_attempted=True,
+                )
+        except OpenAIProviderError as error:
+            if self.execution_mode != "live_ai" or error.code != "provider_invalid_response":
+                raise
+            correction_attempted = True
+            # The correction request contains only consent-safe evidence plus a
+            # stable code and deterministic message. Rejected provider prose is
+            # never retained or sent back to the model.
+            try:
+                proposal = self.interpreter.propose(
+                    prepared,
+                    validation_feedback=[
+                        {"code": "provider_schema_invalid"},
+                    ],
+                )
+            except ProviderInputLimitError:
+                return self._provider_input_limit_rejection(
+                    batch,
+                    prepared,
+                    correction_attempted=True,
+                )
+            except CompactProposalExpansionError as correction_error:
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    correction_error,
                     correction_attempted=True,
                 )
         validation = self.validator.validate(
@@ -114,12 +149,22 @@ class MemoryInterpretationPipelineV2:
             try:
                 proposal = self.interpreter.propose(
                     prepared,
-                    validation_feedback_codes=[issue.code for issue in validation.issues],
+                    validation_feedback=self._safe_correction_feedback(
+                        prepared,
+                        validation.issues,
+                    ),
                 )
             except ProviderInputLimitError:
                 return self._provider_input_limit_rejection(
                     batch,
                     prepared,
+                    correction_attempted=True,
+                )
+            except CompactProposalExpansionError as correction_error:
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    correction_error,
                     correction_attempted=True,
                 )
             validation = self.validator.validate(
@@ -230,6 +275,75 @@ class MemoryInterpretationPipelineV2:
             prepared,
             validation,
             preparation_failed=preparation_failed,
+        )
+
+    @staticmethod
+    def _safe_correction_feedback(
+        prepared: PreparedInterpretationV2,
+        issues: list[V2ValidationIssue],
+    ) -> list[dict[str, str]]:
+        """Reduce internal issues to bounded codes and consent-safe section identifiers."""
+
+        allowed_sections = {
+            "title",
+            "notification_teaser",
+            "summary",
+            "why_this_matters_now",
+            "mission",
+        }
+        if prepared.normalized is not None:
+            allowed_sections.update(
+                f"perspective:{player.player_id}"
+                for player in prepared.normalized.players
+                if player.memory_eligible
+            )
+        allowed_sections.update(
+            f"objective:{candidate.candidate_id}" for candidate in prepared.mission_candidates
+        )
+        static_sections = {
+            "why_now_evidence_mismatch": "why_this_matters_now",
+        }
+        feedback: list[dict[str, str]] = []
+        seen: set[tuple[str, str | None]] = set()
+        for issue in issues:
+            section = static_sections.get(issue.code)
+            if section is None:
+                section = next(
+                    (
+                        candidate
+                        for candidate in allowed_sections
+                        if issue.message.startswith(f"Section {candidate} ")
+                    ),
+                    None,
+                )
+            key = (issue.code, section)
+            if key in seen:
+                continue
+            seen.add(key)
+            hint = {"code": issue.code}
+            if section is not None:
+                hint["section"] = section
+            feedback.append(hint)
+            if len(feedback) == 16:
+                break
+        return feedback
+
+    def _expansion_rejection(
+        self,
+        batch: RawTelemetryBatchV2,
+        prepared: PreparedInterpretationV2,
+        error: CompactProposalExpansionError,
+        *,
+        correction_attempted: bool = False,
+    ) -> InterpretDeliveryResultV2:
+        return self._rejected(
+            batch,
+            prepared,
+            ProposalValidationReportV2(
+                passed=False,
+                correction_attempted=correction_attempted,
+                issues=[error.issue()],
+            ),
         )
 
     def _rejected(
