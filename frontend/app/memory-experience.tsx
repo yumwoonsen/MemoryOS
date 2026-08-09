@@ -98,7 +98,7 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
     const minimumDelay = new Promise<void>((resolve) => window.setTimeout(resolve, 650));
     activeRequest.current = controller;
     setView({ kind: "loading" });
-    setAnnouncement("Preparing one grounded squad memory.");
+    setAnnouncement("AI preparation is in progress; evidence and consent validation are pending.");
 
     try {
       const response = await fetch("/api/delivery/prepare", {
@@ -241,14 +241,14 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
 
       {view.kind === "loading" && (
         <ProcessingCard
-          kicker="Current memory"
-          title="Bringing a squad moment back."
-          message="Preparing one grounded memory, your perspective, and one reunion idea."
+          kicker="AI preparation"
+          title="Interpreting one squad moment."
+          message="AI preparation is in progress. Evidence, consent, and mission validation are still pending before display."
         />
       )}
 
       {view.kind === "no_memory" && (
-        <NoMemoryCard onRetry={() => void prepare()} />
+        <NoMemoryCard />
       )}
 
       {view.kind === "error" && (
@@ -489,13 +489,14 @@ function DecisionErrorCard({
   );
 }
 
-function NoMemoryCard({ onRetry }: { onRetry: () => void }) {
+function NoMemoryCard() {
   return (
     <section className="player-state-card" role="status">
       <span>No memory generated</span>
       <h1>Nothing meaningful surfaced this time.</h1>
       <p>MemoryOS reviewed the available squad activity and chose not to force a story from ordinary evidence.</p>
-      <button type="button" onClick={onRetry}>Check again</button>
+      <p>A different result needs new match activity or updated eligible context, so the same telemetry will not be rerun from this screen.</p>
+      <Link className="reveal-memory-button history-home-action" href="/history">View squad history</Link>
     </section>
   );
 }

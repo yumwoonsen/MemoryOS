@@ -80,8 +80,10 @@ complete raw-input-to-decision-to-projection contract, not only generated-prose 
   prose and free-form validator messages are not recycled. A second failure, fatal issue, provider
   refusal/timeout, or unsupported claim fails closed with no generated player artifacts.
 - Live results are labelled with provider, model, mode, prompt version, and
-  `content_origin: "live_ai_validated"`. Deterministic prose is limited to clearly labelled
-  Studio/test samples and is never a live player fallback.
+  `content_origin: "live_ai_validated"`. Deterministic prose is limited to offline/test output and
+  is never a live player fallback; the registered Studio preparation checkpoint generates no prose.
+- The player projection accepts only `live_ai_validated` pending deliveries and renders
+  **AI-prepared · evidence-checked**. A top-level `saved_live_replay` is Studio-only.
 - The browser receives a minimal projection with request-scoped `recipient_ref` and `objective_ref`
   values, one current-player perspective, and one selected **Next Chapter**. Raw player/event/objective
   IDs, complete claims, verification rules, source references, and Studio trace do not cross that
@@ -89,9 +91,14 @@ complete raw-input-to-decision-to-projection contract, not only generated-prose 
 - Studio exposes sanitized dynamic affordances, ranked/selected family and reason codes,
   backend-owned controls, validation/correction, active versus invitation-ready counts, and typed
   abstention, without rejected prose or opted-out identities.
+- Studio's registered scenario preparation makes zero provider calls. Offline expected labels are
+  absent from raw telemetry, the Story Brief, and the provider payload; the actual output may
+  disagree with an expectation without being replaced.
 - The post-accept flow is explicitly scripted: invitations, squad joins, game start, game end, then
-  mission complete. Tests must not describe this as new-match telemetry ingestion or real objective
-  verification.
+  mission complete. The local completed-title mapping is reunion → **Together Again**, role
+  reversal → **The Favour Returned**, and redemption → **The Comeback Complete**, with fixed
+  collision-safe alternatives. Tests must not describe this as new-match telemetry ingestion, a
+  second AI generation, or real objective verification.
 - `POST /v2/deliveries/{delivery_id}/decision` accepts only `accepted` or `declined`; a decline
   requires exactly `not_relevant` or `details_wrong`. Both suppress that exact delivery, while
   `details_wrong` records a source-quality signal without editing telemetry.
@@ -142,10 +149,43 @@ Its labelled cases cover rescue → `role_reversal`, the same rescue with the re
 the affordance ranking is unique, contains exactly the offered IDs, puts the selected ID first, and
 matches the selected family, reason codes, and backend objective set.
 
-The deterministic Studio/test interpreter does not decide semantic abstention and currently
+The offline deterministic evaluator/test interpreter does not decide semantic abstention and currently
 generates for the ordinary case, so the default baseline intentionally reports typed-abstention
 accuracy `0`. That failed label is useful: only a labelled V2.11 live run can supply current evidence
 that the model uses `no_meaningful_episode` appropriately.
+
+### Registered Studio scenario checks
+
+Developer Studio exposes three of the manifest cases through backend-owned descriptors:
+
+1. `rescue-role-reversal` — expected pending delivery with `role_reversal`;
+2. `repeated-near-miss` — expected pending delivery with `redemption`; and
+3. `ordinary-sparse-telemetry` — expected `not_generated`.
+
+The no-revive rescue remains an offline counterfactual and is not a fourth Studio selection. The
+expectations are labels, not prompt inputs: contract tests recursively verify that `scenario_id`,
+fixture provenance, expected status/family, and `label_source` are absent from raw telemetry,
+`StoryBriefV2`, and the provider payload.
+
+Studio regression tests must also prove:
+
+- catalog IDs are unique and fixture SHA-256/revision values match the registered files;
+- preparation invokes no provider setup and returns the expected neutral windows and feasible
+  affordance families for each scenario;
+- a named prepare/interpret route rejects a request body, so client telemetry cannot replace the
+  registered fixture;
+- unknown scenario IDs fail before provider setup;
+- expected and actual results remain distinct, including a visible mismatch rather than a forced
+  family or abstention;
+- an HTTP `503` never becomes an incompatible or generic rescue result;
+- a `saved_live_replay` is accepted only under exact scenario and live-run provenance and never
+  enters the player projection; and
+- the UI lock prevents concurrent duplicate clicks, while completed runs are not cached or
+  deduplicated. Every fresh run may use one initial provider call and one correction call.
+
+The committed saved-replay registry is empty, so deterministic preparation is the only
+credential-free Studio path at present. It demonstrates the evidence and capability boundary, not
+AI selection quality.
 
 Live evaluation is deliberately double opt-in. Repeat `--model` for a controlled model matrix and
 use `--repeats` from 1 to 10:
@@ -230,14 +270,17 @@ Automated verification must cover:
 - proof that the player projection replaces raw player and backend-objective IDs with request-scoped
   refs, omits raw event IDs, claims, rules, source references, and Studio trace, and collapses
   overlapping participant-plus-match-completion mechanics into one player-facing step;
-- Studio coverage for sanitized affordances, ranking/selection reasons, active versus
-  invitation-ready counts, the separate backend participant/completion rules,
-  validation/correction, and abstention;
+- Studio coverage for the three exact registered scenarios, zero-provider preparation, fixture
+  version binding, expected-label isolation, sanitized affordances, ranking/selection reasons,
+  active versus invitation-ready counts, the separate backend participant/completion rules,
+  validation/correction, abstention, exact saved-replay provenance, and absence of a generic
+  rescue fallback or completed-result cache;
 - privacy and secret-leak checks, provider-visible correction sections and request-scoped references
   with no canonical candidate ID or rejected prose, one bounded correction, and zero generated artifacts
   after any terminal failure, including absence of the raw compact provider response from Studio;
-- explicit frontend tests for the scripted post-accept sequence, without claiming new-match
-  ingestion or actual objective verification; and
+- explicit frontend tests for the scripted post-accept sequence, family-specific deterministic
+  chapter titles, and **AI-prepared · evidence-checked** live-player badge, without claiming
+  new-match ingestion, a second AI generation, or actual objective verification; and
 - continued green v1.0/v1.1 compatibility, backend, frontend, evaluator, and production-build tests.
 
 For subsequent releases, repeat the telemetry-only fixture across the configured provider/model

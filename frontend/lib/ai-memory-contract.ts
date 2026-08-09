@@ -208,7 +208,7 @@ export type PendingDeliveryV2 = {
     model: string;
     mode: "live_ai";
     prompt_version: string;
-    content_origin: "live_ai_validated" | "deterministic_studio_sample";
+    content_origin: "live_ai_validated";
     grounded_render: boolean;
     narrative_fallback: boolean;
   };
@@ -263,8 +263,9 @@ export type NotGeneratedInterpretationV2 = {
 export type InterpretDeliveryResultV2 = PendingDeliveryV2 | RejectedInterpretationV2 | NotGeneratedInterpretationV2;
 
 export type StudioPendingDeliveryV2 = Omit<PendingDeliveryV2, "metadata"> & {
-  metadata: Omit<PendingDeliveryV2["metadata"], "mode"> & {
+  metadata: Omit<PendingDeliveryV2["metadata"], "mode" | "content_origin"> & {
     mode: "live_ai" | "deterministic";
+    content_origin: "live_ai_validated" | "deterministic_studio_sample" | "saved_live_replay";
   };
 };
 
@@ -523,7 +524,8 @@ export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretD
   if (!hasPendingPlayerContent(value)
     || value.validation.passed !== true
     || !["live_ai", "deterministic"].includes(String(value.metadata.mode))
-    || value.metadata.content_origin == null
+    || !["live_ai_validated", "deterministic_studio_sample", "saved_live_replay"]
+      .includes(String(value.metadata.content_origin))
     || value.metadata.grounded_render !== false
     || value.metadata.narrative_fallback !== false
     || !Array.isArray(value.grounded_claims)

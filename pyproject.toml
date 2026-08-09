@@ -27,6 +27,7 @@ dev = [
 memoryos = "backend.run_memory:main"
 memoryos-evaluate = "backend.evaluate:main"
 memoryos-evaluate-v2 = "backend.evaluate_v2:main"
+memoryos-capture-studio-replay = "backend.capture_studio_replay:main"
 
 [tool.setuptools.packages.find]
 include = ["backend*"]

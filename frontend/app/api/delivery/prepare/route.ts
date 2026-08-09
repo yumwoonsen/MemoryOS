@@ -5,7 +5,11 @@ import {
   parseInterpretDeliveryV2,
   parseRawTelemetryBatchV2,
 } from "@/lib/ai-memory-contract";
-import { isRecord, proxyMemoryOsPayload } from "@/lib/memoryos-server";
+import {
+  isRecord,
+  isTrustedLocalBrowserRequest,
+  proxyMemoryOsPayload,
+} from "@/lib/memoryos-server";
 import {
   projectNotGeneratedForPlayer,
   projectPendingDeliveryForPlayer,
@@ -15,6 +19,17 @@ const prototypeTelemetry = parseRawTelemetryBatchV2(rawTelemetry as unknown);
 const privateHeaders = { "cache-control": "no-store", "x-memoryos-mode": "live" };
 
 export async function POST(request: Request) {
+  if (!isTrustedLocalBrowserRequest(request)) {
+    return Response.json(
+      {
+        stage: "frontend_proxy",
+        code: "local_browser_required",
+        retryable: false,
+        message: "Live AI memory preparation is available only from this local application.",
+      },
+      { status: 403, headers: privateHeaders },
+    );
+  }
   let body: unknown;
   try {
     body = await request.json();

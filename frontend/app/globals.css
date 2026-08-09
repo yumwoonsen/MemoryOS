@@ -1430,6 +1430,48 @@ summary:focus-visible {
   line-height: 1.5;
 }
 
+.chapter-relationship {
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 15px;
+  list-style: none;
+}
+
+.chapter-relationship li {
+  position: relative;
+  min-width: 0;
+  padding: 10px 11px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid #dfe4da;
+  border-radius: 7px;
+  background: rgba(248, 250, 245, .88);
+}
+
+.chapter-relationship li:not(:last-child)::after {
+  content: "\2193";
+  position: absolute;
+  left: 12px;
+  bottom: -15px;
+  color: #718500;
+  font-size: 12px;
+  line-height: 15px;
+}
+
+.chapter-relationship small {
+  color: #66705f;
+  font: 800 7px var(--font-mono);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.chapter-relationship strong {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
 .verification-summary {
   margin-top: 18px;
   padding: 12px;
@@ -1777,6 +1819,7 @@ summary:focus-visible {
 .studio-topbar,
 .studio-hero,
 .studio-runtime-banner,
+.studio-player-session-status,
 .studio-boundary,
 .studio-workspace,
 .studio-footer {
@@ -2040,6 +2083,11 @@ summary:focus-visible {
   background: linear-gradient(100deg, rgba(255, 189, 69, .2), #f9faf5 48%);
 }
 
+.runtime-replay {
+  border-color: #d2ac63;
+  background: linear-gradient(100deg, rgba(255, 189, 69, .24), #f9faf5 52%);
+}
+
 .runtime-deterministic .studio-runtime-copy > span {
   color: #28536a;
   border-color: #91c5dc;
@@ -2050,6 +2098,12 @@ summary:focus-visible {
   color: #805300;
   border-color: #e0b460;
   background: #fff6df;
+}
+
+.runtime-replay .studio-runtime-copy > span {
+  color: #6f4700;
+  border-color: #d7a94f;
+  background: #fff1ce;
 }
 
 .studio-runtime-metrics {
@@ -2089,6 +2143,44 @@ summary:focus-visible {
   color: #2e362a;
   font-size: 9px;
   font-weight: 820;
+}
+
+.studio-player-session-status {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #cbd2c5;
+  border-radius: 10px;
+  background: rgba(255, 254, 249, .78);
+}
+
+.studio-player-session-status div {
+  display: grid;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.studio-player-session-status span {
+  color: #687164;
+  font: 800 7px var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.studio-player-session-status strong {
+  color: #293025;
+  font-size: 11px;
+}
+
+.studio-player-session-status p {
+  margin: 0;
+  color: #687164;
+  font-size: 9px;
+  line-height: 1.45;
+  text-align: right;
 }
 
 .studio-boundary {
@@ -2212,6 +2304,58 @@ summary:focus-visible {
   background: #fff6df;
 }
 
+.source-saved_replay {
+  color: #805300;
+  border-color: #d7a94f;
+  background: #fff1ce;
+}
+
+.studio-scenario-picker {
+  padding: 14px;
+  display: grid;
+  gap: 7px;
+  border-bottom: 1px solid #dfe4da;
+  background: #fbfcf8;
+}
+
+.studio-scenario-picker label {
+  color: #596354;
+  font: 800 8px var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.studio-scenario-picker select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 38px 0 11px;
+  color: #20271d;
+  border: 1px solid #b8c1b2;
+  border-radius: 7px;
+  outline: none;
+  background: #fffef9;
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.studio-scenario-picker select:focus-visible {
+  border-color: #91aa18;
+  box-shadow: 0 0 0 3px rgba(145, 170, 24, .18);
+}
+
+.studio-scenario-picker select:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+}
+
+.studio-scenario-picker p,
+.studio-quota-note {
+  margin: 0;
+  color: #687164;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .studio-input-stats {
   padding: 10px 14px;
   display: grid;
@@ -2301,6 +2445,12 @@ summary:focus-visible {
 .studio-input-actions button:disabled {
   cursor: not-allowed;
   opacity: .5;
+}
+
+.studio-input-actions .studio-quota-note {
+  padding: 2px 3px 0;
+  color: #73500e;
+  font-family: var(--font-mono);
 }
 
 .studio-run-button {
@@ -2502,6 +2652,55 @@ summary:focus-visible {
   font-size: 8px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.studio-expectation {
+  margin: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid #c8d2bd;
+  border-radius: 8px;
+  background: #f6f9f1;
+}
+
+.studio-expectation.differs {
+  border-color: #d7a7af;
+  background: #fff6f7;
+}
+
+.studio-expectation div {
+  min-width: 0;
+  padding: 9px;
+  display: grid;
+  gap: 4px;
+  border-right: 1px solid #d8dfd3;
+}
+
+.studio-expectation div:nth-child(4) {
+  border-right: 0;
+}
+
+.studio-expectation span {
+  color: #727b6f;
+  font: 700 6px var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.studio-expectation strong {
+  overflow-wrap: anywhere;
+  font-size: 8px;
+}
+
+.studio-expectation p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 9px;
+  color: #556050;
+  border-top: 1px solid #d8dfd3;
+  font-size: 8px;
+  line-height: 1.45;
 }
 
 .studio-event-disclosure {
@@ -2933,6 +3132,7 @@ summary:focus-visible {
   .studio-topbar,
   .studio-hero,
   .studio-runtime-banner,
+  .studio-player-session-status,
   .studio-workspace,
   .studio-footer {
     width: min(100%, 640px);
@@ -2998,6 +3198,18 @@ summary:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .studio-expectation {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .studio-expectation div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .studio-expectation div:nth-child(-n + 2) {
+    border-bottom: 1px solid #d8dfd3;
+  }
+
   .studio-footer {
     grid-template-columns: 1fr;
   }
@@ -3030,6 +3242,15 @@ summary:focus-visible {
     padding: 10px;
   }
 
+  .studio-player-session-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .studio-player-session-status p {
+    text-align: left;
+  }
+
   .studio-runtime-metrics {
     grid-template-columns: 1fr;
   }
@@ -3042,6 +3263,16 @@ summary:focus-visible {
 
   .studio-runtime-metrics div:last-child {
     border-bottom: 0;
+  }
+
+  .studio-expectation {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-expectation div,
+  .studio-expectation div:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid #d8dfd3;
   }
 
   .studio-hero-metrics div,

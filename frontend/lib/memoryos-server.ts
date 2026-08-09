@@ -105,6 +105,15 @@ export function isSameOriginRequest(request: Request) {
   return !fetchSite || fetchSite === "same-origin";
 }
 
+export function isTrustedLocalBrowserRequest(request: Request) {
+  const requestUrl = new URL(request.url);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(requestUrl.hostname)) return false;
+  const origin = request.headers.get("origin");
+  if (!origin || origin !== requestUrl.origin) return false;
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return !fetchSite || fetchSite === "same-origin";
+}
+
 export async function proxyMemoryOsGet(path: string): Promise<Response> {
   try {
     const response = await fetch(backendUrl(path), {

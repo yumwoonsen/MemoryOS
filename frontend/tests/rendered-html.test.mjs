@@ -2,6 +2,21 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
+import { createTestLiveDelivery } from "./fixtures/live-delivery-v2.mjs";
+
+function testStudioScenario() {
+  return {
+    scenario_id: "rescue-role-reversal",
+    title: "Rescue sequence",
+    purpose: "Shows role reversal from consent-safe rescue telemetry.",
+    fixture_sha256: "a".repeat(64),
+    fixture_revision: `2.1:${"a".repeat(12)}`,
+    expected_status: "pending_player_decision",
+    expected_mission_family: "role_reversal",
+    label_source: "offline_evaluation_manifest",
+  };
+}
+
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -123,9 +138,17 @@ async function postWithBackendStub(path, body, upstreamPayload, options = {}) {
   };
 
   try {
-    const headers = new Headers({ "content-type": "application/json", ...(options.headers ?? {}) });
+    const requestOrigin = options.requestOrigin ?? "http://localhost";
+    const browserHeaders = options.browserHeaders === false
+      ? {}
+      : { origin: requestOrigin, "sec-fetch-site": "same-origin" };
+    const headers = new Headers({
+      "content-type": "application/json",
+      ...browserHeaders,
+      ...(options.headers ?? {}),
+    });
     const response = await worker.fetch(
-      new Request(`${options.requestOrigin ?? "https://memoryos.example"}${path}`, { method: "POST", headers, body }),
+      new Request(`${requestOrigin}${path}`, { method: "POST", headers, body }),
       {
         ASSETS: {
           fetch: async () => new Response("Not found", { status: 404 }),
@@ -240,15 +263,19 @@ test("does not ship the disposable starter preview", async () => {
   assert.doesNotMatch(html, /Your site is taking shape/);
 });
 
-test("ships one legacy sample and one raw v2 telemetry fixture", async () => {
+test("ships raw fixtures plus an explicitly empty saved-replay registry", async () => {
   const dataFiles = (await readdir(new URL("../data/", import.meta.url))).sort();
-  assert.deepEqual(dataFiles, ["funny_memory.json", "raw_telemetry_v2.json"]);
+  assert.deepEqual(dataFiles, ["funny_memory.json", "raw_telemetry_v2.json", "studio-replays"]);
   const telemetry = JSON.parse(await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"));
   assert.equal(telemetry.schema_version, "2.0");
   assert.ok(Array.isArray(telemetry.matches));
   for (const forbidden of ["title", "summary", "memory_type", "narrative_angle", "mission", "objectives", "resurfacing_reason", "importance"]) {
     assert.equal(JSON.stringify(telemetry).includes(`"${forbidden}"`), false, `${forbidden} must not pre-author the v2 input`);
   }
+  const replayManifest = JSON.parse(
+    await readFile(new URL("../data/studio-replays/manifest.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(replayManifest, { schema_version: "1.0", replays: [] });
 });
 
 test("hosted discovery returns a JSON sample instead of proxying localhost", async () => {
@@ -335,7 +362,7 @@ test("server-renders the dedicated developer Studio", async () => {
   assert.match(html, /<title>MemoryOS Studio/i);
   assert.match(html, /Developer observability/i);
   assert.match(html, /AI-grounded memory trace/i);
-  assert.match(html, /Sanitized telemetry summary/i);
+  assert.match(html, /Deterministic checkpoint/i);
   assert.match(html, /Judge trace/i);
   assert.match(html, /Delivery inspector/i);
   assert.match(html, /Active generation mode/i);
@@ -344,14 +371,15 @@ test("server-renders the dedicated developer Studio", async () => {
   assert.match(html, /AI interpretation/i);
   assert.match(html, /Deterministic validation/i);
   assert.match(html, /Player decision/i);
-  assert.match(html, /Run v2 interpretation audit/i);
+  assert.match(html, /Prepare scenario â€” no AI call|Prepare scenario — no AI call/i);
+  assert.match(html, /Run new live interpretation â€” uses provider quota|Run new live interpretation — uses provider quota/i);
   assert.match(html, /Open player view/i);
   assert.match(html, /active \/ invite-ready/i);
-  assert.match(html, /2(?:<!-- -->)?\s*\/(?:<!-- -->)?\s*4/i);
+  assert.match(html, /Latest player app decision/i);
   assert.match(html, /noindex/i);
 });
 
-test("hosted Studio labels its health state as a sample replay", async () => {
+test("hosted Studio reports an unconfigured backend without promising a replay", async () => {
   const response = await studioHealth();
 
   assert.equal(response.status, 200);
@@ -360,11 +388,11 @@ test("hosted Studio labels its health state as a sample replay", async () => {
   assert.deepEqual(await response.json(), {
     status: "sample",
     mode: "sample",
-    inference_mode: "sample_replay",
-    provider: "sample-replay",
-    model: "precomputed-fixture",
+    inference_mode: "unknown",
+    provider: "not-configured",
+    model: "not-configured",
     message:
-      "No hosted MemoryOS backend is configured. Studio runs are labelled as sample replays.",
+      "No MemoryOS backend is configured for this hosted Studio. Live interpretation is unavailable.",
   });
 });
 
@@ -449,11 +477,11 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.doesNotMatch(browserBundle, /127\.0\.0\.1:8000/);
   assert.doesNotMatch(browserBundle, /MEMORYOS_PROXY_TOKEN|x-memoryos-proxy-token/i);
   assert.match(browserBundle, /\/api\/discover/);
-  assert.match(browserBundle, /\/api\/studio\/interpret/);
+  assert.match(browserBundle, /\/api\/studio\/scenarios\/interpret/);
   assert.match(browserBundle, /\/api\/studio\/delivery-trace/);
   assert.match(browserBundle, /AI-grounded memory trace/i);
-  assert.match(browserBundle, /Deterministic Studio demonstration/i);
-  assert.match(browserBundle, /Run v2 interpretation audit/i);
+  assert.match(browserBundle, /Versioned Studio checkpoint/i);
+  assert.match(browserBundle, /Run new live interpretation/i);
   assert.match(browserBundle, /Generated proposal withheld/i);
   assert.match(browserBundle, /Deterministic preparation/i);
   assert.match(browserBundle, /AI interpretation/i);
@@ -474,7 +502,7 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.match(browserBundle, /Send squad invite/i);
   assert.match(browserBundle, /Simulate squad accepting/i);
   assert.match(browserBundle, /Start game/i);
-  assert.match(browserBundle, /Story Continues/i);
+  assert.match(browserBundle, /Story continued/i);
   assert.match(browserBundle, /prototype objectives completed/i);
   assert.match(browserBundle, /Prototype match simulation/i);
   assert.match(browserBundle, /No memory generated/i);
@@ -542,6 +570,10 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(memoryClient, /source-quality signal/);
   assert.match(memoryClient, /Mission accepted/);
   assert.match(memoryClient, /deliveryModeLabel/);
+  assert.match(deliveryFlow, /AI-prepared · evidence-checked/);
+  assert.match(memoryClient, /AI preparation is in progress; evidence and consent validation are pending/);
+  assert.match(memoryClient, /same telemetry will not be rerun from this screen/);
+  assert.doesNotMatch(memoryClient, /NoMemoryCard[\s\S]*Check again/);
   assert.match(memoryClient, /\/api\/delivery\/prepare/);
   assert.match(memoryClient, /\/api\/delivery\/decision/);
   assert.match(memoryClient, /isDeliveryBoundToSeed/);
@@ -568,7 +600,14 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(missionClient, /scripted successful completion state/);
   assert.match(reunionCore, /role_reversal/);
   assert.match(reunionCore, /redemption/);
-  assert.match(missionClient, /Story Continues/);
+  assert.match(reunionCore, /The Favour Returned/);
+  assert.match(reunionCore, /The Comeback Complete/);
+  assert.match(reunionCore, /Together Again/);
+  assert.match(missionClient, /Story continued/);
+  assert.match(missionClient, /Original memory/);
+  assert.match(missionClient, /Accepted mission/);
+  assert.match(missionClient, /New chapter/);
+  assert.match(missionClient, /filter\(\(objective\) => objective\.completed\)/);
   assert.match(missionClient, /Hide this chapter/);
   assert.match(missionClient, /View squad history/);
   assert.match(missionClient, /simulationSequence/);
@@ -579,7 +618,7 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(flowProvider, /declineReason/);
   assert.doesNotMatch(historyClient, /Accept mission|Details are wrong|buildInvitees|prepare-delivery/);
   assert.doesNotMatch(missionClient, /Not relevant to me|decline_reason/);
-  assert.doesNotMatch(memoryClient, /Deterministic fallback|evidence-checked/);
+  assert.doesNotMatch(memoryClient, /Deterministic fallback/);
   assert.doesNotMatch(memoryClient, /grounded_claims|studio_trace|claim_mappings/);
   assert.doesNotMatch(missionClient, /grounded_claims|studio_trace|claim_mappings/);
   assert.doesNotMatch(`${memoryClient}\n${missionClient}`, /player_perspectives|RawTelemetryBatchV2|provider_event_type/);
@@ -610,131 +649,123 @@ test("Studio deduplicates rejected issue codes and renders only safe issue copy"
   );
 });
 
-test("hosted v2 Studio exposes a grounded, privacy-safe responsibility trace", async () => {
+test("legacy generic Studio interpretation is retired in favour of versioned scenarios", async () => {
   const response = await studioInterpret(JSON.stringify({ request_id: "req-ff-20260808-001" }));
-
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("x-memoryos-mode"), "sample");
-  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
-  const result = await response.json();
-  assert.equal(result.schema_version, "2.1");
-  assert.equal(result.status, "pending_player_decision");
-  assert.equal(result.metadata.mode, "deterministic");
-  assert.deepEqual(
-    result.studio_trace.stages.map((stage) => stage.stage),
-    ["deterministic_preparation", "ai_interpretation", "deterministic_validation", "player_decision"],
-  );
-  assert.equal(result.studio_trace.stages.at(-1).status, "pending");
-  assert.equal(result.studio_trace.source_quality_flag, false);
-  assert.equal(result.studio_trace.normalized_match_count, 2);
-  assert.equal(result.studio_trace.normalized_event_count, 10);
-  assert.equal(result.studio_trace.privacy_redaction_count, 0);
-  assert.equal(result.studio_trace.eligible_windows.length, 1);
-  assert.equal(result.studio_trace.active_player_count, 2);
-  assert.equal(result.studio_trace.invitation_eligible_count, 4);
-  assert.deepEqual(result.studio_trace.mission_affordances.map((item) => item.family), ["reunion", "role_reversal"]);
-  assert.equal(result.studio_trace.mission_selection.selected_family, "role_reversal");
-  assert.equal(result.metadata.content_origin, "deterministic_studio_sample");
-  assert.equal(result.metadata.model, "fixed-synthetic-studio-fixture");
-  assert.match(result.studio_trace.stages[0].summary, /fixed synthetic telemetry.*one neutral event window/i);
-  assert.ok(result.grounded_claims.length > 0);
-  assert.equal(result.studio_trace.claim_mappings.length, result.grounded_claims.length);
-  assert.equal(
-    result.next_chapter.objectives[0].objective_id,
-    "reunion_participants:remix:window_ff-match-01J4Y7M8W2_2",
-  );
-  assert.equal(result.player_perspectives.length, 4);
-
-  const selectedAffordance = result.studio_trace.mission_affordances.find(
-    (item) => item.affordance_id === result.studio_trace.mission_selection.selected_affordance_id,
-  );
-  assert.ok(selectedAffordance);
-  assert.deepEqual(
-    result.next_chapter.objectives.map((objective) => objective.objective_id),
-    selectedAffordance.objective_candidate_ids,
-  );
-  const candidatesById = new Map(
-    result.studio_trace.mission_candidates.map((candidate) => [candidate.candidate_id, candidate]),
-  );
-  for (const candidateId of selectedAffordance.objective_candidate_ids) {
-    assert.equal(candidatesById.get(candidateId)?.recipe, result.next_chapter.recipe);
-  }
-
-  const syntheticFixture = JSON.parse(
-    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
-  );
-  const expectedInvitees = syntheticFixture.squad.players
-    .filter((player) => player.consent.memory_appearance && player.consent.mission_invitation)
-    .map((player) => player.player_id);
-  assert.deepEqual(result.next_chapter.invitation_player_ids, expectedInvitees);
-  assert.deepEqual(
-    result.next_chapter.objectives[0].verification.target,
-    expectedInvitees,
-  );
-
-  const v21Telemetry = JSON.parse(
-    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
-  );
-  v21Telemetry.schema_version = "2.1";
-  const v21Response = await studioInterpret(JSON.stringify(v21Telemetry));
-  assert.equal(v21Response.status, 200);
-
-  const invalid = await studioInterpret("{}");
-  assert.equal(invalid.status, 422);
-  assert.equal((await invalid.json()).code, "invalid_raw_telemetry_v2");
+  assert.equal(response.status, 410);
+  assert.deepEqual(await response.json(), {
+    stage: "studio_scenario",
+    code: "studio_scenario_required",
+    retryable: false,
+    message: "Select and prepare a versioned Studio scenario before starting a live interpretation.",
+  });
 });
 
-test("hosted Studio replay never derives identities from an opted-out submitted batch", async () => {
-  const submitted = JSON.parse(
+test("Studio prepares an exact catalog scenario without sending a provider payload", async () => {
+  const scenario = testStudioScenario();
+  const preparation = {
+    schema_version: "2.1",
+    scenario,
+    status: "ready",
+    telemetry_summary: {
+      request_id: "req-studio-test",
+      target_player_id: "player-1",
+      match_count: 1,
+      raw_event_count: 1,
+      consent_safe_player_count: 2,
+      invitation_eligible_count: 2,
+      active_player_count: 1,
+      matches: [{
+        match_id: "match-1",
+        game: "free_fire",
+        mode: "battle_royale_squad",
+        map_name: "Bermuda",
+        started_at: "2026-08-09T10:00:00Z",
+        placement: 5,
+        event_count: 1,
+      }],
+    },
+    normalization: { normalized_match_count: 1, normalized_event_count: 1, issue_codes: [] },
+    privacy: { redaction_count: 0, anonymous_player_count: 0 },
+    eligible_windows: [],
+    mission_candidates: [],
+    mission_affordances: [],
+  };
+  const prepared = await postWithBackendStub(
+    "/api/studio/scenarios/prepare",
+    JSON.stringify({ scenario }),
+    preparation,
+    { requestOrigin: "https://memoryos.example" },
+  );
+  assert.equal(prepared.response.status, 200);
+  assert.deepEqual(await prepared.response.json(), preparation);
+  assert.match(prepared.upstreamRequest.input, /\/v2\/studio\/scenarios\/rescue-role-reversal\/prepare$/);
+  assert.equal(prepared.upstreamRequest.init.method, "POST");
+  assert.equal(prepared.upstreamRequest.init.body, undefined);
+  assert.equal(prepared.response.headers.get("cache-control"), "no-store");
+});
+
+test("provider-consuming routes require a strict local browser request", async () => {
+  const telemetry = JSON.parse(
     await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
   );
-  submitted.request_id = "req-private-submission-must-not-replay";
-  submitted.squad.squad_id = "submitted-private-squad";
+  const scenario = testStudioScenario();
+  const routeCases = [
+    {
+      path: "/api/delivery/prepare",
+      body: JSON.stringify({ request_id: telemetry.request_id }),
+      upstream: createTestLiveDelivery(telemetry),
+    },
+    {
+      path: "/api/studio/scenarios/interpret",
+      body: JSON.stringify({ scenario }),
+      upstream: {
+        schema_version: "2.1",
+        scenario,
+        result: createTestLiveDelivery(telemetry),
+      },
+    },
+  ];
+  const rejectedBrowserShapes = [
+    { label: "missing Origin", options: { requestOrigin: "http://localhost", browserHeaders: false } },
+    { label: "forged hosted same-origin headers", options: { requestOrigin: "https://memoryos.example" } },
+    {
+      label: "cross-site fetch",
+      options: {
+        requestOrigin: "http://localhost",
+        headers: { origin: "http://localhost", "sec-fetch-site": "cross-site" },
+      },
+    },
+  ];
 
-  const replacementIds = new Map(
-    submitted.squad.players.map((player, index) => [player.player_id, `submitted-private-player-${index + 1}`]),
-  );
-  submitted.target_player_id = replacementIds.get(submitted.target_player_id);
-  submitted.squad.players.forEach((player, index) => {
-    player.player_id = replacementIds.get(player.player_id);
-    player.display_name = `DO_NOT_REPLAY_PLAYER_${index + 1}`;
-    player.consent = {
-      memory_appearance: false,
-      identity_display: false,
-      media_use: false,
-      mission_invitation: false,
-    };
-  });
-  submitted.matches.forEach((match) => {
-    match.events.forEach((event) => {
-      if (event.actor_id) event.actor_id = replacementIds.get(event.actor_id);
-      if (event.target_id) event.target_id = replacementIds.get(event.target_id);
-    });
-  });
-  submitted.current_context.active_player_ids = submitted.current_context.active_player_ids.map(
-    (playerId) => replacementIds.get(playerId),
-  );
-  submitted.media_references.forEach((media) => {
-    media.consented_player_ids = media.consented_player_ids.map((playerId) => replacementIds.get(playerId));
-  });
+  for (const routeCase of routeCases) {
+    for (const rejected of rejectedBrowserShapes) {
+      const blocked = await postWithBackendStub(
+        routeCase.path,
+        routeCase.body,
+        routeCase.upstream,
+        rejected.options,
+      );
+      assert.equal(blocked.response.status, 403, `${routeCase.path}: ${rejected.label}`);
+      assert.equal((await blocked.response.json()).code, "local_browser_required");
+      assert.equal(blocked.upstreamRequest, null, `${routeCase.path}: ${rejected.label} must not fetch`);
+    }
 
-  const response = await studioInterpret(JSON.stringify(submitted));
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("x-memoryos-mode"), "sample");
-  assert.equal(response.headers.get("x-memoryos-fallback"), "hosted-sample");
-  const result = await response.json();
-  const resultJson = JSON.stringify(result);
-
-  assert.equal(result.request_id, "req-ff-20260808-001");
-  assert.equal(result.metadata.content_origin, "deterministic_studio_sample");
-  assert.equal(result.metadata.model, "fixed-synthetic-studio-fixture");
-  assert.match(result.studio_trace.stages[0].summary, /fixed synthetic telemetry/i);
-  assert.doesNotMatch(resultJson, /req-private-submission|submitted-private|DO_NOT_REPLAY/i);
+    const allowed = await postWithBackendStub(
+      routeCase.path,
+      routeCase.body,
+      routeCase.upstream,
+      { requestOrigin: "http://localhost" },
+    );
+    assert.equal(allowed.response.status, 200, `${routeCase.path}: valid localhost browser request`);
+    assert.ok(allowed.upstreamRequest, `${routeCase.path}: valid localhost request should reach the backend`);
+  }
 });
 
 test("player delivery boundary strips judge internals and refuses deterministic or rejected prose", async () => {
-  const studioResponse = await studioInterpret(JSON.stringify({ request_id: "req-ff-20260808-001" }));
-  const deterministicResult = await studioResponse.json();
+  const telemetry = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  const deterministicResult = createTestLiveDelivery(telemetry, { studioOrigin: true });
 
   const deterministic = await postWithBackendStub(
     "/api/delivery/prepare",
@@ -746,16 +777,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.equal(deterministicBody.code, "memory_withheld");
   assert.doesNotMatch(JSON.stringify(deterministicBody), /A Squad Moment|grounded_claims|studio_trace/i);
 
-  const liveResult = structuredClone(deterministicResult);
-  liveResult.metadata = {
-    provider: "groq",
-    model: "openai/gpt-oss-120b",
-    mode: "live_ai",
-    prompt_version: "memory-interpreter-v2.11-backend-mission-copy",
-    content_origin: "live_ai_validated",
-    grounded_render: false,
-    narrative_fallback: false,
-  };
+  const liveResult = createTestLiveDelivery(telemetry);
   const live = await postWithBackendStub(
     "/api/delivery/prepare",
     JSON.stringify({ request_id: "req-ff-20260808-001" }),
@@ -831,6 +853,16 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.equal(fallback.response.status, 422);
   assert.equal((await fallback.response.json()).code, "memory_withheld");
 
+  const savedReplay = structuredClone(liveResult);
+  savedReplay.metadata.content_origin = "saved_live_replay";
+  const replayAtPlayerBoundary = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    savedReplay,
+  );
+  assert.equal(replayAtPlayerBoundary.response.status, 422);
+  assert.equal((await replayAtPlayerBoundary.response.json()).code, "memory_withheld");
+
   const abstentionResult = {
     schema_version: "2.1",
     request_id: "req-ff-20260808-001",
@@ -886,24 +918,7 @@ test("player route safely projects an identity-hidden target and invitee through
   telemetry.squad.players.find((player) => player.player_id === "ff-player-lee").consent.identity_display = false;
   telemetry.squad.players.find((player) => player.player_id === "ff-player-amir").consent.identity_display = false;
 
-  const sampleResponse = await studioInterpret(JSON.stringify({ request_id: telemetry.request_id }));
-  const visibleSample = await sampleResponse.json();
-  const aliasedJson = JSON.stringify(visibleSample)
-    .replaceAll("ff-player-lee", "anonymous:squadmate:1")
-    .replaceAll("ff-player-amir", "anonymous:squadmate:3")
-    .replaceAll("Lee", "Player 1")
-    .replaceAll("Amir", "Player 3");
-  const hiddenDelivery = JSON.parse(aliasedJson);
-  hiddenDelivery.metadata = {
-    ...hiddenDelivery.metadata,
-    provider: "groq",
-    model: "openai/gpt-oss-20b",
-    mode: "live_ai",
-    prompt_version: "memory-interpreter-v2.11-backend-mission-copy",
-    content_origin: "live_ai_validated",
-    grounded_render: false,
-    narrative_fallback: false,
-  };
+  const hiddenDelivery = createTestLiveDelivery(telemetry);
 
   const projected = await postWithBackendStub(
     "/api/delivery/prepare",
@@ -941,26 +956,87 @@ test("player route safely projects an identity-hidden target and invitee through
   assert.doesNotMatch(blockedBody, /ff-player-lee|anonymous:squadmate|"Lee"/i);
 });
 
-test("Studio turns a canonical live-provider 503 into an explicitly offline audit sample", async () => {
+test("Studio fails closed when a live run has no exact registered replay", async () => {
+  const scenario = testStudioScenario();
+  const providerMessageSentinel = "PRIVATE_PROVIDER_BODY_MUST_NOT_CROSS";
+  const rateLimited = await postWithBackendStub(
+    "/api/studio/scenarios/interpret",
+    JSON.stringify({ scenario }),
+    {
+      stage: "memory_interpretation",
+      code: "provider_rate_limited",
+      retryable: true,
+      message: providerMessageSentinel,
+      raw_provider_body: providerMessageSentinel,
+    },
+    { upstreamStatus: 503, requestOrigin: "http://localhost" },
+  );
+  assert.equal(rateLimited.response.status, 503);
+  const safeRateLimit = await rateLimited.response.json();
+  assert.deepEqual(
+    { stage: safeRateLimit.stage, code: safeRateLimit.code, retryable: safeRateLimit.retryable },
+    { stage: "memory_interpretation", code: "provider_rate_limited", retryable: true },
+  );
+  assert.match(safeRateLimit.message, /rate limit was reached/i);
+  assert.doesNotMatch(JSON.stringify(safeRateLimit), new RegExp(providerMessageSentinel));
+
   const offline = await postWithBackendStub(
-    "/api/studio/interpret",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    "/api/studio/scenarios/interpret",
+    JSON.stringify({ scenario }),
     { stage: "ai_interpretation", code: "live_ai_required", retryable: true, message: "Live AI is unavailable." },
     { upstreamStatus: 503, requestOrigin: "http://localhost" },
   );
-  assert.equal(offline.response.status, 200);
-  assert.equal(offline.response.headers.get("x-memoryos-mode"), "sample");
-  assert.equal(offline.response.headers.get("x-memoryos-fallback"), "offline-studio-sample");
+  assert.equal(offline.response.status, 503);
   assert.equal(offline.response.headers.get("cache-control"), "no-store");
-  const result = await offline.response.json();
-  assert.equal(result.metadata.mode, "deterministic");
-  assert.match(result.studio_trace.stages[1].summary, /saved demonstration proposal/i);
+  assert.equal((await offline.response.json()).code, "studio_live_run_withheld");
+  assert.match(offline.upstreamRequest.input, /\/v2\/studio\/scenarios\/rescue-role-reversal\/interpret$/);
+
+  const malformed = await postWithBackendStub(
+    "/api/studio/scenarios/interpret",
+    JSON.stringify({ scenario }),
+    providerMessageSentinel,
+    { upstreamStatus: 503, requestOrigin: "http://localhost" },
+  );
+  assert.equal(malformed.response.status, 503);
+  const malformedBody = await malformed.response.json();
+  assert.equal(malformedBody.code, "studio_live_run_withheld");
+  assert.doesNotMatch(JSON.stringify(malformedBody), new RegExp(providerMessageSentinel));
+
+  const forgedRetryability = await postWithBackendStub(
+    "/api/studio/scenarios/interpret",
+    JSON.stringify({ scenario }),
+    {
+      stage: "memory_interpretation",
+      code: "provider_rate_limited",
+      retryable: false,
+      message: providerMessageSentinel,
+    },
+    { upstreamStatus: 503, requestOrigin: "http://localhost" },
+  );
+  assert.equal((await forgedRetryability.response.json()).code, "studio_live_run_withheld");
+
+  const telemetry = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  const noncanonical = await postWithBackendStub(
+    "/api/studio/scenarios/interpret",
+    JSON.stringify({ scenario }),
+    {
+      schema_version: "2.1",
+      scenario,
+      result: createTestLiveDelivery(telemetry, { studioOrigin: true }),
+    },
+    { requestOrigin: "http://localhost" },
+  );
+  assert.equal(noncanonical.response.status, 502);
+  assert.equal((await noncanonical.response.json()).code, "noncanonical_live_result");
 });
 
 test("Studio trace lookup is same-origin, private, and carries source-quality state", async () => {
-  const studioResponse = await studioInterpret(JSON.stringify({ request_id: "req-ff-20260808-001" }));
-  const result = await studioResponse.json();
-  const qualityTrace = structuredClone(result.studio_trace);
+  const telemetry = JSON.parse(
+    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
+  );
+  const qualityTrace = structuredClone(createTestLiveDelivery(telemetry).studio_trace);
   qualityTrace.source_quality_flag = true;
   qualityTrace.stages.at(-1).status = "complete";
   qualityTrace.stages.at(-1).summary = "Details-wrong feedback was recorded for source-quality review.";
@@ -979,7 +1055,7 @@ test("Studio trace lookup is same-origin, private, and carries source-quality st
     "/api/studio/delivery-trace",
     JSON.stringify({ delivery_id: "studio-demo-delivery-001" }),
     qualityTrace,
-    { headers: { origin: "https://memoryos.example", "sec-fetch-site": "same-origin" } },
+    { requestOrigin: "https://memoryos.example" },
   );
   assert.equal(allowed.response.status, 200);
   assert.equal(allowed.response.headers.get("cache-control"), "no-store");

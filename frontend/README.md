@@ -12,9 +12,10 @@ The experience is split into four focused routes:
 - `/studio` — developer-facing pipeline observability.
 
 The player story never exposes internal validation scores, rule IDs, prompts, or credentials. It
-does show a compact provenance label so a live AI result, explicitly offline deterministic run,
-and saved sample replay cannot be confused. A navigation link opens the separate Developer Studio
-without mixing its controls into the story itself. The
+accepts only `live_ai_validated` delivery content and labels it
+**AI-prepared · evidence-checked**. Deterministic runs and `saved_live_replay` artifacts are
+Studio-only and cannot be projected into the player flow. A navigation link opens the separate
+Developer Studio without mixing its controls into the story itself. The
 checks still run behind the interface: results are bound to the consent-safe telemetry view,
 evidence must reference real match events, and every opted-in player must receive exactly one
 grounded perspective. Review, rejected, malformed, or unavailable results do not reveal a story.
@@ -65,18 +66,37 @@ read-only timeline rather than a second delivery or feedback surface.
 
 ## Developer Studio
 
-Open `/studio` for the developer-facing observability workspace. It accepts synthetic raw telemetry
-and shows how the pipeline moves from normalized match evidence into a shared memory,
-personal perspectives, dynamically offered mission affordances, one selected continuation, and
-deterministic validation.
+Open `/studio` for the developer-facing observability workspace. Its selector is backed by exactly
+three versioned backend scenarios:
 
-The Studio deliberately separates three runtime states:
+- rescue evidence, expected to test `role_reversal`;
+- repeated near misses, expected to test `redemption`; and
+- ordinary sparse telemetry, expected to test `not_generated` abstention.
 
-- **Live AI** — the configured Gemini, Groq, or OpenAI provider generated one compact typed draft
-  that the backend enriched and validated into the public delivery.
-- **Deterministic run** — the rules provider completed the pipeline without model calls.
-- **Sample replay** — the hosted frontend replayed the bundled canonical result because no backend
-  is configured or reachable.
+The browser first loads `GET /v2/studio/scenarios`. **Prepare scenario — no AI call** invokes
+`POST /v2/studio/scenarios/{scenario_id}/prepare`, which normalizes and privacy-filters the exact
+registered fixture, forms neutral event windows, and compiles feasible affordances without
+initializing a provider. **Run new live interpretation — uses provider quota** invokes
+`POST /v2/studio/scenarios/{scenario_id}/interpret`, which sends only that registered raw fixture
+through the existing V2 pipeline. The manifest's expected status and mission-family labels remain
+outside raw telemetry, the Story Brief, and provider input; Studio compares them with the actual
+result only after a run.
+
+The Studio distinguishes these result origins:
+
+- **Live AI** — a configured Gemini, Groq, or OpenAI provider produced a result that passed the
+  existing enrichment and validation path;
+- **No player content** — the live interpreter validly abstained or the result was otherwise
+  withheld; and
+- **Saved live replay** — Studio displayed a reviewed live capture whose scenario ID, fixture
+  SHA-256, fixture revision, provider, model, prompt version, result schema, and capture time match
+  the selected scenario exactly.
+
+`saved_live_replay` is Studio-only. Its registry is currently empty until a reviewed capture is
+committed, and it cannot enter the player decision or continuation flow. A failed live run never
+falls back to a generic rescue result or deterministic prose. Studio also has no completed-result
+cache or request deduplication: the UI blocks concurrent duplicate clicks, but every later live-run
+click starts a new pipeline execution and may use a second provider call if correction is needed.
 
 Pipeline events are labelled as completed snapshots rather than a live token trace. When the
 backend supplies them, the Studio displays safe aggregate and per-stage request counts, token
@@ -103,8 +123,8 @@ no longer repeats identifiers and control values already owned by the backend. T
 the player boundary or validation. The updated backend/frontend suites and one telemetry-only live
 interpretation passed historically on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
 v2.4 prompt. The current v2.1 mission-affordance path uses
-`memory-interpreter-v2.11-backend-mission-copy` from `memory_interpreter_v2_11.txt`; the saved Studio
-sample remains an offline demonstration, and historical V2.4 and V2.10 runs are not comparative
+`memory-interpreter-v2.11-backend-mission-copy` from `memory_interpreter_v2_11.txt`; historical
+V2.4 and V2.10 runs are not comparative
 reliability results for the active prompt.
 
 ## Run locally
@@ -119,14 +139,22 @@ npm run dev
 Open the local URL printed by the development server. The canonical `/` player route calls the
 same-origin `/api/delivery/prepare` and `/api/delivery/decision` proxies and requires the local
 MemoryOS backend. It fails closed when the backend is unavailable or returns an invalid delivery.
+Because authentication is deferred, the provider-consuming `/api/delivery/prepare` route accepts
+only a real local-browser request: the request URL must use `localhost`, `127.0.0.1`, or `[::1]`,
+its `Origin` must exactly match that URL's origin, and `Sec-Fetch-Site` must be absent or
+`same-origin`. Missing-origin, hosted, and cross-site requests receive `403` before any backend or
+provider call.
 `/api/discover` and its exact-fixture sample fallback remain compatibility infrastructure and are
 not used by the canonical player flow.
 
-The Studio uses `/api/studio/health`, `/api/studio/interpret`, and
-`/api/studio/delivery-trace`. During local development, those routes connect to
-`http://127.0.0.1:8000`. In a hosted environment, set `MEMORYOS_API_URL` on
-the server to enable live runs; otherwise the Studio remains usable as an explicitly labelled
-sample replay. If the public backend is protected with the optional proxy boundary, set
+The Studio uses `/api/studio/health`, `/api/studio/scenarios`,
+`/api/studio/scenarios/prepare`, and `/api/studio/scenarios/interpret`. During local development,
+those routes connect to `http://127.0.0.1:8000`. Catalog and deterministic preparation remain
+available without provider quota, including in a configured hosted Studio. Fresh
+`/api/studio/scenarios/interpret` runs use the same strict local-browser gate as player delivery;
+hosted live interpretation remains disabled until authentication and rate limiting are implemented.
+In a hosted environment, `MEMORYOS_API_URL` can connect the zero-provider inspection routes. If the public backend is
+protected with the optional proxy boundary, set
 `MEMORYOS_PROXY_TOKEN` only in the frontend server environment. It is attached to server-to-server
 requests and is never serialized into the browser bundle.
 
@@ -134,7 +162,8 @@ requests and is never serialized into the browser bundle.
 
 `/` is the local AI Memory Inbox. It submits the server-held synthetic raw telemetry fixture through
 the `/api/delivery/prepare` proxy, receives one evidence-validated live-AI delivery with explicit
-provenance, then records only an accept decision or one of two decline reasons through
+`live_ai_validated` provenance, displays **AI-prepared · evidence-checked**, then records only an
+accept decision or one of two decline reasons through
 `/api/delivery/decision`.
 The v2 proxy preserves those semantics while binding the decision to the opaque delivery ID.
 `/history` is a separate read-only view built from verified, confirmed, deduplicated safe-list data.
@@ -160,7 +189,10 @@ After an accepted `/` delivery, layout-scoped in-memory state hands the validate
 Inactive but consented original squadmates remain eligible and move from Invited to Joined during
 the simulation. Once the complete roster joins, the app runs a short, clearly labelled static
 prototype game and shows a successful outcome matching the selected reunion, role-reversal, or
-redemption family. “Story Continues” and optional chapter feedback unlock afterward.
+redemption family. The deterministic completed-chapter titles are **Together Again**,
+**The Favour Returned**, and **The Comeback Complete**, respectively; a collision-safe alternative
+is used when a title would repeat the accepted mission. **Story Continues** and optional chapter
+feedback unlock afterward.
 
 This Phase 3 slice remains intentionally ephemeral. The accepted handoff is not placed in a URL,
 browser storage, or durable store, so a refresh or direct `/mission` visit correctly shows no active
@@ -172,13 +204,17 @@ deterministic event mapping. It is eligible only when all events represented by 
 belong to the selected episode; it need not represent every selected event. MemoryOS does not
 currently inspect or understand gameplay video.
 
-To run the backend for the offline Studio demonstration, start it from the repository root in
-deterministic mode:
+To inspect deterministic Studio preparation without spending provider quota, start the backend
+from the repository root in deterministic mode:
 
 ```powershell
 $env:MEMORYOS_PROVIDER = "deterministic"
 python -m uvicorn backend.main:app --reload
 ```
+
+This mode supports the scenario catalog and **Prepare scenario — no AI call**. A fresh Studio
+interpretation, like the canonical player route, requires a configured live provider; deterministic
+mode does not generate replacement Studio prose.
 
 The canonical player route intentionally refuses deterministic narrative. To test the player flow
 through the preferred hosted prototype provider, start the backend with

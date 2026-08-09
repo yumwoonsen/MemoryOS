@@ -184,8 +184,9 @@ it does not edit telemetry or trigger live prompt rewriting.
 Groq GPT-OSS is the preferred live v2 provider behind the existing provider-neutral structured
 generation boundary. Refusal, timeout, malformed output, unavailable credentials, or failed
 deterministic validation returns rejected/provider-error information with no generated artifacts.
-Deterministic narrative is reserved for tests and explicitly labelled offline Studio demonstrations;
-it must never be presented as a live AI result.
+Deterministic narrative is reserved for tests. The registered Studio preparation checkpoint is
+deterministic but generates no prose; neither boundary may be presented as a live AI result. ADR-022
+defines the separate exact-provenance saved-live-replay path.
 
 Provider, model, prompt version, latency, and token counts may appear in a safe trace. Raw prompts,
 chain-of-thought, credentials, request payloads containing private data, and rejected proposal prose
@@ -340,3 +341,40 @@ mission completion. It does not ingest an authenticated result or claim real obj
 
 Historical V2.4 and V2.10 provider results remain labelled historical and are not evidence for the
 active V2.11 prompt.
+
+## ADR-022 — Backend-owned Studio scenarios and separated provenance
+
+**Status:** accepted and implemented for the prototype
+
+Developer Studio uses three backend-owned, versioned synthetic scenarios:
+`rescue-role-reversal`, `repeated-near-miss`, and `ordinary-sparse-telemetry`. The backend catalog
+loads their expected status/family labels from the offline evaluation manifest and publishes a safe
+descriptor containing the scenario ID, purpose, fixture SHA-256, and fixture revision. Those labels
+are evaluation metadata only. They never enter `RawTelemetryBatchV2`, `StoryBriefV2`, or the
+provider payload and therefore cannot force the advertised result.
+
+`GET /v2/studio/scenarios` lists the registry.
+`POST /v2/studio/scenarios/{scenario_id}/prepare` accepts no body and performs deterministic
+normalization, privacy filtering, neutral-window construction, and mission-affordance compilation
+with zero provider calls. `POST /v2/studio/scenarios/{scenario_id}/interpret` also accepts no body
+and runs only the exact registered fixture through the existing live V2 pipeline. This prevents a
+named demonstration from silently accepting different client telemetry.
+
+The Studio may display a reviewed live capture under the separate top-level origin
+`saved_live_replay` only when the scenario ID, fixture hash/revision, provider, model, prompt
+version, result schema, and capture timestamp match exactly. The committed replay registry is
+currently empty. Saved replay is Studio inspection content, not player authorization, a generic
+rescue fallback, deterministic prose, or a completed-result cache. The player projection accepts
+only `live_ai_validated` pending deliveries and labels them
+**AI-prepared · evidence-checked**.
+
+The prototype intentionally has no backend result cache, request idempotency, completed-request
+deduplication, or singleflight coordination. The browser disables scenario switching and duplicate
+clicks only while one run is active. Each later **Run new live interpretation** click starts a fresh
+pipeline and can use one initial provider call plus the one permitted correction call, for at most
+two MemoryOS-owned semantic calls.
+
+The post-accept sequence remains local and scripted. Its completed chapter title is selected
+deterministically from the mission family: **Together Again**, **The Favour Returned**, or
+**The Comeback Complete**, with a fixed collision-safe alternative when necessary. This is not a
+second AI generation or telemetry-backed completion claim.

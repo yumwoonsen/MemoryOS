@@ -89,6 +89,11 @@ match-result feed. The completion screen is labelled **Prototype match simulatio
 post-match verification and durable mission-result storage are deferred until an authenticated
 game telemetry integration exists.
 
+The completed chapter is constructed locally from the mission family: **Together Again** for
+reunion, **The Favour Returned** for role reversal, and **The Comeback Complete** for redemption.
+Fixed alternatives avoid repeating the accepted mission title. This is deterministic presentation
+copy, not another provider call or a claim that new match telemetry was interpreted.
+
 The player projection combines the roster-participation rule and the completed-match rule into one
 clear step when they describe the same action, such as **Complete one match with the invited
 squad**. This is a presentation simplification only. Developer Studio retains and displays the
@@ -101,14 +106,26 @@ feedback uses provider-visible authored-section and request references without r
 candidate IDs. The unchanged `W#`/`A#`/`O#` catalogue keeps any corrected selection or story bridge
 inside the original capability boundary.
 Rejected prose and free-form validator messages are not returned. If the corrected proposal still
-fails, MemoryOS withholds all generated artifacts.
-Deterministic prose is available only in explicitly labelled Studio demonstrations and is never
-substituted into the live player path.
+fails, MemoryOS withholds all generated artifacts. One live run therefore uses one initial provider
+call and may use one correction call.
 
 V2.1 adds an explicit content origin:
 
-- `live_ai_validated` for player-deliverable AI output;
-- `deterministic_studio_sample` for offline or saved Studio demonstrations.
+- backend result `live_ai_validated` for player-deliverable pending output;
+- backend result `no_player_content` for an abstention or withheld result;
+- backend result `deterministic_studio_sample` for offline/test output only; and
+- top-level Studio `saved_live_replay` for a reviewed exact-version live capture used only for
+  inspection.
+
+The player accepts only `live_ai_validated` and shows
+**AI-prepared · evidence-checked**. A replay requires matching scenario ID, fixture hash/revision,
+provider, model, prompt, result schema, and capture time; no replay is currently committed. It never
+acts as a generic rescue or deterministic fallback.
+
+Studio registers Rescue, Repeated near miss, and Ordinary scenarios. Their expected labels remain
+outside telemetry and model input. Preparation constructs windows and affordances with zero
+provider calls. Studio does not cache or deduplicate completed live results: every later run may use
+the initial call plus the bounded correction, while the UI only locks concurrent clicks.
 
 Studio displays offered affordances, the ranked and selected IDs, concise allowlisted selection
 reason codes, backend-owned objective rules, and validation status. It does not expose prompts,

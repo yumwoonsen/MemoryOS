@@ -35,10 +35,16 @@ from backend.models.v2_schemas import (
     RecordDeliveryDecisionRequestV2,
     StudioInterpretationTraceV2,
 )
+from backend.models.v2_studio_schemas import (
+    StudioScenarioCatalogV2,
+    StudioScenarioInterpretationV2,
+    StudioScenarioPreparationV2,
+)
 from backend.pipeline import MemoryPipeline, build_pipeline
 from backend.services.delivery_store import delivery_decision_store
 from backend.services.openai_client import OpenAIProviderError
 from backend.services.v2_delivery_repository import v2_delivery_repository
+from backend.services.v2_studio_scenarios import studio_scenario_registry_v2
 from backend.v2_pipeline import MemoryInterpretationPipelineV2, build_v2_pipeline
 
 logger = logging.getLogger(__name__)
@@ -128,6 +134,8 @@ async def protect_sensitive_routes(request: Request, call_next):
 def _is_protected_post_path(path: str) -> bool:
     if path in PROTECTED_POST_PATHS:
         return True
+    if path.startswith("/v2/studio/scenarios/"):
+        return path.endswith("/prepare") or path.endswith("/interpret")
     return path.startswith("/v2/deliveries/") and path.endswith("/decision")
 
 
@@ -241,6 +249,91 @@ def interpret_delivery_v2(
         return result
     except OpenAIProviderError as error:
         return _provider_error_response(error)
+
+
+@app.get(
+    "/v2/studio/scenarios",
+    response_model=StudioScenarioCatalogV2,
+    tags=["developer-studio-v2"],
+)
+def list_studio_scenarios_v2(response: Response) -> StudioScenarioCatalogV2:
+    """List the exact synthetic fixtures available to Developer Studio."""
+
+    response.headers["Cache-Control"] = "no-store"
+    return studio_scenario_registry_v2.catalog()
+
+
+@app.post(
+    "/v2/studio/scenarios/{scenario_id}/prepare",
+    response_model=StudioScenarioPreparationV2,
+    responses={
+        404: {"model": ProviderErrorBody},
+        422: {"model": ProviderErrorBody},
+    },
+    tags=["developer-studio-v2"],
+)
+async def prepare_studio_scenario_v2(
+    scenario_id: str,
+    request: Request,
+    response: Response,
+) -> StudioScenarioPreparationV2 | JSONResponse:
+    """Inspect normalization, privacy, windows, and affordances without a model call."""
+
+    body_error = await _reject_studio_scenario_body(request)
+    if body_error is not None:
+        return body_error
+    try:
+        result = studio_scenario_registry_v2.prepare(scenario_id)
+    except KeyError:
+        return _studio_scenario_error(
+            status_code=404,
+            code="unknown_studio_scenario",
+            message="The requested Developer Studio scenario is not registered.",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return result
+
+
+@app.post(
+    "/v2/studio/scenarios/{scenario_id}/interpret",
+    response_model=StudioScenarioInterpretationV2,
+    responses={
+        404: {"model": ProviderErrorBody},
+        422: {"model": ProviderErrorBody},
+        503: {"model": ProviderErrorBody},
+    },
+    tags=["developer-studio-v2"],
+)
+async def interpret_studio_scenario_v2(
+    scenario_id: str,
+    request: Request,
+    response: Response,
+) -> StudioScenarioInterpretationV2 | JSONResponse:
+    """Run one registered fixture through the unchanged live v2 interpretation pipeline."""
+
+    body_error = await _reject_studio_scenario_body(request)
+    if body_error is not None:
+        return body_error
+    try:
+        registered = studio_scenario_registry_v2.get(scenario_id)
+    except KeyError:
+        return _studio_scenario_error(
+            status_code=404,
+            code="unknown_studio_scenario",
+            message="The requested Developer Studio scenario is not registered.",
+        )
+    try:
+        # Evaluation expectations remain on `registered.descriptor`; only the strict
+        # raw telemetry fixture crosses the existing player-pipeline boundary.
+        pipeline = _build_configured_v2_pipeline()
+        result = await asyncio.to_thread(pipeline.interpret_delivery, registered.telemetry)
+    except OpenAIProviderError as error:
+        return _provider_error_response(error)
+    response.headers["Cache-Control"] = "no-store"
+    return StudioScenarioInterpretationV2(
+        scenario=registered.descriptor,
+        result=result,
+    )
 
 
 @app.post(
@@ -461,6 +554,31 @@ def _provider_error_response(error: OpenAIProviderError) -> JSONResponse:
         content={
             **error.as_dict(),
             "message": "The live AI provider could not complete this generation stage.",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _reject_studio_scenario_body(request: Request) -> JSONResponse | None:
+    """Named Studio routes select server fixtures and never accept telemetry overrides."""
+
+    if await request.body():
+        return _studio_scenario_error(
+            status_code=422,
+            code="studio_request_body_not_allowed",
+            message="Registered Developer Studio scenarios do not accept a request body.",
+        )
+    return None
+
+
+def _studio_scenario_error(*, status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "stage": "studio_scenario",
+            "code": code,
+            "retryable": False,
+            "message": message,
         },
         headers={"Cache-Control": "no-store"},
     )

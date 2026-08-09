@@ -14,6 +14,12 @@ The implemented consumer API is additive:
   suppresses the exact delivery when declined.
 - `GET /v2/deliveries/{delivery_id}/trace` returns the sanitized Studio trace for a process-local
   delivery.
+- `GET /v2/studio/scenarios` lists three backend-owned synthetic evaluation scenarios with an
+  exact fixture SHA-256/revision and offline expected label.
+- `POST /v2/studio/scenarios/{scenario_id}/prepare` returns deterministic normalization, privacy,
+  neutral-window, candidate, and affordance summaries with zero provider calls.
+- `POST /v2/studio/scenarios/{scenario_id}/interpret` runs only the exact registered fixture
+  through the existing live V2 interpretation pipeline.
 
 Their Pydantic models, normalizer, validators, OpenAPI snapshot, and integration tests are
 implemented. They remain prototype routes without player authentication or durable storage.
@@ -360,9 +366,9 @@ returns `rejected` with no memory, perspectives, mission, claims, or media selec
 proposal prose must not be returned to the player or Developer Studio.
 
 Gemini `gemini-3.6-flash` is the preferred hosted prototype v2 provider. Groq GPT-OSS and OpenAI
-remain available as alternatives. Deterministic mode remains available for tests and explicitly
-labelled offline Studio demonstrations; deterministic narrative must never be labelled as a live AI
-delivery.
+remain available as alternatives. Deterministic mode remains available for tests and the
+zero-provider Studio preparation checkpoint; that checkpoint generates no narrative. Deterministic
+narrative must never be labelled as a live AI delivery.
 
 ## `POST /v2/deliveries/{delivery_id}/decision`
 
@@ -411,8 +417,52 @@ affordance/family IDs under `mission_selection` (`ranked_affordance_ids`,
 `active_player_count` versus `invitation_eligible_count`, correction/validation state, typed
 abstention, provider/model/prompt version, safe usage metrics, and structured feedback. It never
 shows raw prompts, the raw compact provider draft, chain-of-thought, API keys, opted-out identities,
-provider exception text, or rejected and unvalidated proposal prose. A deterministic result is a
-clearly labelled `deterministic_studio_sample` for Studio/tests, never a player-facing live fallback.
+provider exception text, or rejected and unvalidated proposal prose. The registered Studio
+checkpoint is deterministic but returns structural preparation only; it does not generate
+replacement narrative.
+
+## V2 Developer Studio scenarios
+
+The Studio scenario API is backend-owned. Clients choose one registered ID and cannot submit a
+telemetry body to either POST route:
+
+| Endpoint | Provider use | Result |
+|---|---:|---|
+| `GET /v2/studio/scenarios` | None | Three safe descriptors: `rescue-role-reversal`, `repeated-near-miss`, and `ordinary-sparse-telemetry` |
+| `POST /v2/studio/scenarios/{scenario_id}/prepare` | Zero calls | Sanitized telemetry summary, normalization/redaction counts, neutral windows, mission candidates, and offered affordances |
+| `POST /v2/studio/scenarios/{scenario_id}/interpret` | One call, or two when correction is attempted | The exact registered fixture passed through the unchanged live interpretation pipeline, wrapped with its descriptor |
+
+Each descriptor contains a scenario ID, title, purpose, fixture SHA-256, fixture revision, expected
+status, optional expected mission family, and
+`label_source: "offline_evaluation_manifest"`. Those expectations exist only for offline/Studio
+comparison. They are never fields in `RawTelemetryBatchV2`, `StoryBriefV2`, or the provider payload.
+The rescue scenario tests a possible `role_reversal`, repeated near misses test `redemption`, and
+ordinary sparse telemetry tests whether AI abstains. The expected label never forces the actual
+output.
+
+Unknown scenario IDs return safe `404 unknown_studio_scenario`. A non-empty POST body returns
+`422 studio_request_body_not_allowed`, preventing a named scenario from being replaced with client
+telemetry. When `MEMORYOS_PROXY_TOKEN` is configured, both POST routes require it; the synthetic
+catalog remains readable.
+
+There is no backend result cache or completed-request deduplication. Browser controls lock scenario
+switching and duplicate clicks only while one request is active. Every later click on **Run new live
+interpretation** starts a fresh pipeline and may consume an initial provider call plus one bounded
+correction call.
+
+When a live Studio run receives a typed provider `503` and no exact replay is available, the
+same-origin proxy exposes only an allowlisted `stage`, stable `code`, and verified `retryable`
+value. Studio renders its own human-readable explanation beside that safe code. Provider-authored
+messages, raw response bodies, unknown stages or codes, and inconsistent retryability values are
+discarded; malformed failures collapse to the generic `studio_live_run_withheld` boundary.
+
+The local-only Studio proxy may return `content_origin: "saved_live_replay"` after a live HTTP
+`503` only when a reviewed artifact exactly matches the selected scenario ID, fixture SHA-256,
+fixture revision, provider, model, prompt version, result schema, and capture timestamp. The saved
+replay registry is currently empty. A replay is Studio-only and is not a cache entry or a player
+delivery. There is no generic rescue/deterministic fallback. The canonical player projection
+accepts only `metadata.content_origin: "live_ai_validated"` and displays the badge
+**AI-prepared · evidence-checked**.
 
 ## Current v1.0/v1.1 compatibility API
 
@@ -670,6 +720,8 @@ because those identifiers are preserved for traceability.
 ```
 
 The service does not silently switch a failed live-provider request to deterministic content.
+Developer Studio applies an additional allowlist before showing these fields and never forwards the
+provider's own message or raw response body to the browser.
 
 Final validation checks exact schemas, IDs, evidence types, perspective ownership, and quest-rule
 shapes, plus conservative lexical checks for selected unsupported names, locations, numbers,
@@ -751,8 +803,9 @@ still owns evidence, consent, eligibility, review state, and final validation.
 
 For a deployed server-to-server frontend proxy, optionally set `MEMORYOS_PROXY_TOKEN`. When it is
 non-empty, protected data-bearing routes require the same value in the
-`X-MemoryOS-Proxy-Token` header, including the v2 Studio trace lookup; `/health` remains public.
-Keep this value in server environment variables only—never bundle it into browser JavaScript.
+`X-MemoryOS-Proxy-Token` header, including the v2 Studio trace lookup and both Studio scenario POST
+routes; `/health` and the synthetic scenario catalog remain public. Keep this value in server
+environment variables only—never bundle it into browser JavaScript.
 Local development remains unchanged while the variable is unset.
 
 Gemini uses Google's official OpenAI-compatible endpoint. It requests low reasoning, omits an
@@ -795,6 +848,22 @@ raw telemetry fixture and accepts only fully validated live-AI delivery output o
 `not_generated` projection. The decision route
 accepts `accepted` or `declined`; a decline must be either `not_relevant` or `details_wrong`.
 Decisions are process-local prototype data only.
+
+Until browser authentication, ownership checks, and rate limiting are implemented, both
+provider-consuming frontend routes are deliberately local-only:
+`/api/delivery/prepare` and `/api/studio/scenarios/interpret`. Each requires a loopback request URL
+(`localhost`, `127.0.0.1`, or `[::1]`), an `Origin` header exactly equal to that URL's origin, and
+an absent or `same-origin` `Sec-Fetch-Site` header. Missing-origin, hosted, forged, or cross-site
+requests fail with `403 local_browser_required` before the frontend contacts the backend. Studio
+catalog and deterministic scenario preparation remain available because they consume no provider
+quota. A compatible saved replay remains an inspection-only Studio artifact and can never pass the
+player delivery parser.
+
+A pending player delivery must carry `metadata.content_origin: "live_ai_validated"`; deterministic
+results and top-level Studio `saved_live_replay` envelopes fail the player projection. The player
+renders the accepted origin as **AI-prepared · evidence-checked**. This is deliberately stricter
+than Studio, which can inspect exact-version saved live captures without authorizing a player
+decision.
 
 The authoritative `InterpretDeliveryResultV2` remains server-side. The browser receives
 `PlayerPendingDeliveryProjectionV2`, which contains display-safe memory text, source display data,

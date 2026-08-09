@@ -57,15 +57,40 @@ export function createPrototypeMatchOutcome(family, invitees, objectives) {
   };
 }
 
+const completedChapterTitles = {
+  reunion: ["Together Again", "The Squad Reunited"],
+  role_reversal: ["The Favour Returned", "Roles Reversed"],
+  redemption: ["The Comeback Complete", "The Final Push Landed"],
+};
+
+function shortChapterTitle(title) {
+  return title.split(":").at(-1)?.trim() || title.trim();
+}
+
+function titleKey(title) {
+  return shortChapterTitle(title)
+    .toLocaleLowerCase("en")
+    .replaceAll(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function completedChapterTitle(family, acceptedMissionTitle) {
+  const candidates = completedChapterTitles[family] ?? ["A New Chapter", "The Story Continued"];
+  const acceptedKey = titleKey(acceptedMissionTitle);
+  return candidates.find((candidate) => titleKey(candidate) !== acceptedKey)
+    ?? `${candidates[0]} Complete`;
+}
+
 export function createContinuationChapter(memory, nextChapter, outcome) {
   if (!outcome.complete) return null;
-  const title = nextChapter.title.split(":").at(-1)?.trim() || nextChapter.title;
+  const acceptedMissionTitle = shortChapterTitle(nextChapter.title);
+  const title = completedChapterTitle(outcome.family, acceptedMissionTitle);
   const highlights = outcome.objective_results
     .filter((objective) => objective.completed)
     .map((objective) => objective.description);
   return {
     title,
-    summary: `${outcome.completion_copy} In this prototype, the original memory now has a successful sequel.`,
+    summary: `${outcome.completion_copy} The squad turned "${memory.title}" into a completed sequel through "${acceptedMissionTitle}".`,
     highlights,
     original_memory_title: memory.title,
   };

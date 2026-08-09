@@ -85,7 +85,9 @@ export function isDecisionConfirmation(
 }
 
 export function deliveryModeLabel(delivery: PendingDelivery) {
-  return delivery.metadata.content_origin === "live_ai_validated" ? "Live AI" : undefined;
+  return delivery.metadata.content_origin === "live_ai_validated"
+    ? "AI-prepared · evidence-checked"
+    : undefined;
 }
 
 export function challengeTitle(title: string) {

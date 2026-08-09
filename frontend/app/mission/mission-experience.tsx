@@ -145,6 +145,7 @@ export function MissionExperience() {
         <ContinuationCard
           outcome={continuation.outcome}
           chapter={continuation.chapter}
+          acceptedMissionTitle={challengeTitle(delivery.next_chapter.title)}
           feedback={continuation.feedback}
           onHide={hideChapter}
         />
@@ -255,28 +256,36 @@ function InvitationCard({
 function ContinuationCard({
   outcome,
   chapter,
+  acceptedMissionTitle,
   feedback,
   onHide,
 }: {
   outcome: PrototypeMatchOutcome;
   chapter: ContinuationChapter;
+  acceptedMissionTitle: string;
   feedback: "hidden" | null;
   onHide: () => void;
 }) {
+  const completedObjectives = outcome.objective_results.filter((objective) => objective.completed);
   return (
     <>
       <section className="story-continues-card" aria-labelledby="story-continues-title">
-        <p className="demo-kicker">Mission complete / {formatWords(outcome.family)}</p>
-        <h1 id="story-continues-title">Story Continues: {chapter.title}</h1>
+        <p className="demo-kicker">Story continued / {formatWords(outcome.family)}</p>
+        <h1 id="story-continues-title">{chapter.title}</h1>
         <p>{chapter.summary}</p>
+        <ol className="chapter-relationship" aria-label="How the memory became a new chapter">
+          <li><small>Original memory</small><strong>{chapter.original_memory_title}</strong></li>
+          <li><small>Accepted mission</small><strong>{acceptedMissionTitle}</strong></li>
+          <li><small>New chapter</small><strong>{chapter.title}</strong></li>
+        </ol>
         <div className="verification-summary">
-          <strong>{outcome.objective_results.length}/{outcome.objective_results.length}</strong>
+          <strong>{completedObjectives.length}/{outcome.objective_results.length}</strong>
           <span>prototype objectives completed</span>
         </div>
         <ul className="verification-list">
           {outcome.objective_results.map((objective) => (
-            <li className="passed" key={objective.objective_ref}>
-              <span aria-hidden="true">✓</span>
+            <li className={objective.completed ? "passed" : undefined} key={objective.objective_ref}>
+              <span aria-hidden="true">{objective.completed ? "✓" : "–"}</span>
               <p>{objective.description}</p>
             </li>
           ))}

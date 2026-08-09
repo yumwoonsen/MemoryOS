@@ -3429,6 +3429,360 @@
         "title": "StudioInterpretationTraceV2",
         "type": "object"
       },
+      "StudioScenarioCatalogV2": {
+        "additionalProperties": false,
+        "properties": {
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/StudioScenarioDescriptorV2"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Scenarios",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "2.1",
+            "default": "2.1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenarios"
+        ],
+        "title": "StudioScenarioCatalogV2",
+        "type": "object"
+      },
+      "StudioScenarioDescriptorV2": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_mission_family": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MissionFamilyV2"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_status": {
+            "$ref": "#/components/schemas/InterpretDeliveryStatusV2"
+          },
+          "fixture_revision": {
+            "pattern": "^2\\.1:[0-9a-f]{12}$",
+            "title": "Fixture Revision",
+            "type": "string"
+          },
+          "fixture_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Fixture Sha256",
+            "type": "string"
+          },
+          "label_source": {
+            "const": "offline_evaluation_manifest",
+            "default": "offline_evaluation_manifest",
+            "title": "Label Source",
+            "type": "string"
+          },
+          "purpose": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Purpose",
+            "type": "string"
+          },
+          "scenario_id": {
+            "$ref": "#/components/schemas/StudioScenarioIdV2"
+          },
+          "title": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "title",
+          "purpose",
+          "fixture_sha256",
+          "fixture_revision",
+          "expected_status"
+        ],
+        "title": "StudioScenarioDescriptorV2",
+        "type": "object"
+      },
+      "StudioScenarioIdV2": {
+        "enum": [
+          "rescue-role-reversal",
+          "repeated-near-miss",
+          "ordinary-sparse-telemetry"
+        ],
+        "title": "StudioScenarioIdV2",
+        "type": "string"
+      },
+      "StudioScenarioInterpretationV2": {
+        "additionalProperties": false,
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/InterpretDeliveryResultV2"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/StudioScenarioDescriptorV2"
+          },
+          "schema_version": {
+            "const": "2.1",
+            "default": "2.1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario",
+          "result"
+        ],
+        "title": "StudioScenarioInterpretationV2",
+        "type": "object"
+      },
+      "StudioScenarioMatchSummaryV2": {
+        "additionalProperties": false,
+        "properties": {
+          "event_count": {
+            "minimum": 0.0,
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "game": {
+            "title": "Game",
+            "type": "string"
+          },
+          "map_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map Name"
+          },
+          "match_id": {
+            "title": "Match Id",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "placement": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placement"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "match_id",
+          "game",
+          "mode",
+          "started_at",
+          "event_count"
+        ],
+        "title": "StudioScenarioMatchSummaryV2",
+        "type": "object"
+      },
+      "StudioScenarioNormalizationSummaryV2": {
+        "additionalProperties": false,
+        "properties": {
+          "issue_codes": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Issue Codes",
+            "type": "array"
+          },
+          "normalized_event_count": {
+            "minimum": 0.0,
+            "title": "Normalized Event Count",
+            "type": "integer"
+          },
+          "normalized_match_count": {
+            "minimum": 0.0,
+            "title": "Normalized Match Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "normalized_match_count",
+          "normalized_event_count"
+        ],
+        "title": "StudioScenarioNormalizationSummaryV2",
+        "type": "object"
+      },
+      "StudioScenarioPreparationStatusV2": {
+        "enum": [
+          "ready",
+          "rejected"
+        ],
+        "title": "StudioScenarioPreparationStatusV2",
+        "type": "string"
+      },
+      "StudioScenarioPreparationV2": {
+        "additionalProperties": false,
+        "properties": {
+          "eligible_windows": {
+            "items": {
+              "$ref": "#/components/schemas/EligibleEventWindow"
+            },
+            "maxItems": 6,
+            "title": "Eligible Windows",
+            "type": "array"
+          },
+          "mission_affordances": {
+            "items": {
+              "$ref": "#/components/schemas/MissionAffordanceV2"
+            },
+            "maxItems": 32,
+            "title": "Mission Affordances",
+            "type": "array"
+          },
+          "mission_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/MissionCapabilityCandidate"
+            },
+            "maxItems": 80,
+            "title": "Mission Candidates",
+            "type": "array"
+          },
+          "normalization": {
+            "$ref": "#/components/schemas/StudioScenarioNormalizationSummaryV2"
+          },
+          "privacy": {
+            "$ref": "#/components/schemas/StudioScenarioPrivacySummaryV2"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/StudioScenarioDescriptorV2"
+          },
+          "schema_version": {
+            "const": "2.1",
+            "default": "2.1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StudioScenarioPreparationStatusV2"
+          },
+          "telemetry_summary": {
+            "$ref": "#/components/schemas/StudioScenarioTelemetrySummaryV2"
+          }
+        },
+        "required": [
+          "scenario",
+          "status",
+          "telemetry_summary",
+          "normalization",
+          "privacy"
+        ],
+        "title": "StudioScenarioPreparationV2",
+        "type": "object"
+      },
+      "StudioScenarioPrivacySummaryV2": {
+        "additionalProperties": false,
+        "properties": {
+          "anonymous_player_count": {
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Anonymous Player Count",
+            "type": "integer"
+          },
+          "redaction_count": {
+            "minimum": 0.0,
+            "title": "Redaction Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "redaction_count",
+          "anonymous_player_count"
+        ],
+        "title": "StudioScenarioPrivacySummaryV2",
+        "type": "object"
+      },
+      "StudioScenarioTelemetrySummaryV2": {
+        "additionalProperties": false,
+        "properties": {
+          "active_player_count": {
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Active Player Count",
+            "type": "integer"
+          },
+          "consent_safe_player_count": {
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Consent Safe Player Count",
+            "type": "integer"
+          },
+          "invitation_eligible_count": {
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Invitation Eligible Count",
+            "type": "integer"
+          },
+          "match_count": {
+            "minimum": 0.0,
+            "title": "Match Count",
+            "type": "integer"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/StudioScenarioMatchSummaryV2"
+            },
+            "maxItems": 50,
+            "title": "Matches",
+            "type": "array"
+          },
+          "raw_event_count": {
+            "minimum": 0.0,
+            "title": "Raw Event Count",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "target_player_id": {
+            "title": "Target Player Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "target_player_id",
+          "match_count",
+          "raw_event_count",
+          "consent_safe_player_count",
+          "invitation_eligible_count",
+          "active_player_count"
+        ],
+        "title": "StudioScenarioTelemetrySummaryV2",
+        "type": "object"
+      },
       "StudioTraceStageV2": {
         "additionalProperties": false,
         "properties": {
@@ -4153,6 +4507,144 @@
         "summary": "Interpret Delivery V2",
         "tags": [
           "memory-interpretation-v2"
+        ]
+      }
+    },
+    "/v2/studio/scenarios": {
+      "get": {
+        "description": "List the exact synthetic fixtures available to Developer Studio.",
+        "operationId": "list_studio_scenarios_v2_v2_studio_scenarios_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioScenarioCatalogV2"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Studio Scenarios V2",
+        "tags": [
+          "developer-studio-v2"
+        ]
+      }
+    },
+    "/v2/studio/scenarios/{scenario_id}/interpret": {
+      "post": {
+        "description": "Run one registered fixture through the unchanged live v2 interpretation pipeline.",
+        "operationId": "interpret_studio_scenario_v2_v2_studio_scenarios__scenario_id__interpret_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioScenarioInterpretationV2"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Interpret Studio Scenario V2",
+        "tags": [
+          "developer-studio-v2"
+        ]
+      }
+    },
+    "/v2/studio/scenarios/{scenario_id}/prepare": {
+      "post": {
+        "description": "Inspect normalization, privacy, windows, and affordances without a model call.",
+        "operationId": "prepare_studio_scenario_v2_v2_studio_scenarios__scenario_id__prepare_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "scenario_id",
+            "required": true,
+            "schema": {
+              "title": "Scenario Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioScenarioPreparationV2"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Prepare Studio Scenario V2",
+        "tags": [
+          "developer-studio-v2"
         ]
       }
     }

@@ -62,16 +62,16 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
           <ol className="memory-timeline history-route-timeline">
             <li>
               <span>1</span>
-              <div><small>Current memory</small><strong>{flow.delivery.memory.title}</strong></div>
+              <div><small>Original memory</small><strong>{flow.delivery.memory.title}</strong></div>
             </li>
             <li>
               <span>2</span>
-              <div><small>Reunion mission accepted</small><strong>{challengeTitle(flow.delivery.next_chapter.title)}</strong></div>
+              <div><small>Accepted mission</small><strong>{challengeTitle(flow.delivery.next_chapter.title)}</strong></div>
             </li>
             {visibleContinuation ? (
               <li>
                 <span>3</span>
-                <div><small>Story continued</small><strong>{visibleContinuation.chapter.title}</strong></div>
+                <div><small>New chapter</small><strong>{visibleContinuation.chapter.title}</strong></div>
               </li>
             ) : null}
           </ol>
@@ -79,7 +79,7 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
           {flow.continuation?.feedback === "hidden" ? (
             <p className="history-session-note">The completed sequel is hidden from this timeline. The original memory was not disputed.</p>
           ) : visibleContinuation ? (
-            <p className="history-session-note">{visibleContinuation.outcome.objective_results.length} prototype objective{visibleContinuation.outcome.objective_results.length === 1 ? "" : "s"} completed in the scripted match simulation.</p>
+            <p className="history-session-note">{visibleContinuation.outcome.objective_results.filter((objective) => objective.completed).length} of {visibleContinuation.outcome.objective_results.length} prototype objectives completed in the scripted match simulation.</p>
           ) : (
             <Link className="reveal-memory-button history-home-action" href="/mission">Continue reunion mission</Link>
           )}

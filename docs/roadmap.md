@@ -21,7 +21,8 @@ Completed in the integrated teammate slice and Phase 2B delivery flow:
 
 - Mobile-first reveal flow for one grounded current memory
 - Evidence-first story, current-player perspective, and quest preview
-- Server-side backend proxy with an exact-fixture hosted fallback
+- Server-side backend proxy; the old exact-fixture fallback remains legacy `/api/discover`
+  infrastructure and is not used by the canonical V2 player or registered Studio flow
 - Runtime result guards and rendered HTML regression tests
 - Consumer-facing AI Memory Inbox that prepares one source-verified moment
 - Accept-mission and structured-decline decisions, without asking players to audit telemetry
@@ -54,12 +55,18 @@ evidence, or validation ownership.
 ### 3.2 — Collaborator dashboard and backend visibility
 
 **Prototype status: complete in Developer Studio.** The Studio uses same-origin server routes and
-the versioned OpenAPI contract to show sanitized telemetry preparation, eligible event windows, AI
-provider metadata, validated claim mappings, backend-owned mission rules, correction status,
-delivery status, and source-quality feedback. Player responses remain minimal, and neither Studio
-nor the player UI exposes raw prompts, secrets, opted-out identities, or rejected prose. Integration
-checks cover loading, provider failures, malformed responses, offline demonstration labels, and
-empty states.
+the versioned OpenAPI contract to select three backend-owned scenarios: rescue/role reversal,
+repeated-near-miss/redemption, and ordinary/abstention. It separately shows zero-provider
+deterministic preparation and a fresh live interpretation, including sanitized telemetry, eligible
+event windows, AI provider metadata, validated claim mappings, backend-owned mission rules,
+correction status, delivery status, and source-quality feedback. Offline expected labels remain
+outside model input. Player responses remain minimal, and neither Studio nor the player UI exposes
+raw prompts, secrets, opted-out identities, or rejected prose.
+
+The Studio has no completed-result cache or deduplication; a fresh live click may use an initial
+provider call plus one correction. Exact-provenance `saved_live_replay` support is Studio-only, and
+no artifact is currently committed. Provider failure never becomes a generic rescue or
+deterministic narrative fallback.
 
 ### 3.3 — Complete the consumer decision path
 
@@ -81,7 +88,7 @@ accepted delivery to the dedicated `/mission` route through an ephemeral in-memo
 
 **Prototype status: complete as a labelled static simulation.** The `/mission` slice includes a
 privacy-safe invitation roster, inactive-but-consented squad reactivation, a scripted lobby/game
-success sequence, a family-specific “Story Continues” chapter, and session-only relevance
+success sequence, a family-specific **Story Continues** chapter, and session-only relevance
 feedback. `/history` reflects the resulting milestones in a compact read-only timeline. Real
 notifications, clips, Garena match-result ingestion and verification, authentication, and durable
 feedback remain deferred production work.
@@ -90,7 +97,8 @@ feedback remain deferred production work.
 - Squad invitation and acceptance simulation
 - Static, clearly labelled family-specific mission completion for the prototype
 - Deterministic mission verification from authenticated new-match results in a future integration
-- “Story Continues” chapter generation
+- Local deterministic construction of the family-specific continuation card: **Together Again**,
+  **The Favour Returned**, or **The Comeback Complete**, with fixed collision-safe alternatives
 - Memory timeline and feedback capture
 - Optional dismissal feedback, kept separate from factual source disputes
 
@@ -138,11 +146,11 @@ authentication, persistence, and rollout telemetry are ready.
   unoffered mechanics, unsupported facts, privacy violations, and unsafe content without requiring
   the bridge to repeat every rule. Assignments, required flags, source event IDs, media eligibility,
   and machine-verification rules remain deterministic.
-- Permits at most one correction call using stable validator issue codes and allowlisted section
-  IDs, never rejected provider prose or validator messages. Provider failure,
+- Permits one initial provider call plus at most one correction call using stable validator issue
+  codes and allowlisted section IDs, never rejected provider prose or validator messages. Provider failure,
   refusal, malformed output, or a second validation failure returns no generated artifacts.
-- Keeps deterministic narrative generation only for tests and explicitly labelled offline Studio
-  demonstrations; never present it as a live-AI fallback.
+- Keeps deterministic narrative generation only for tests. Registered Studio preparation is
+  deterministic but generates no prose; never present either boundary as a live-AI fallback.
 
 ### 4.3 — Dynamic mission affordances and reactivation — complete
 
@@ -154,16 +162,22 @@ authentication, persistence, and rollout telemetry are ready.
 - Treats current activity as context rather than invitation authority, allowing inactive original
   squadmates with valid consent to join the scripted reunion lobby.
 - Returns `not_generated` with no player artifacts when AI makes a valid abstention.
-- Uses `live_ai_validated` provenance for player delivery and reserves
-  `deterministic_studio_sample` for explicitly labelled Studio demonstrations.
+- Uses `live_ai_validated` provenance for player delivery. Offline/test deterministic results remain
+  `deterministic_studio_sample`; a reviewed exact-version live capture uses the separate top-level
+  `saved_live_replay` origin in Studio only.
 
 ### 4.4 — V2 API, player adapter, and safe Studio trace — complete
 
 - Implements `POST /v2/memories/interpret-delivery` and
   `POST /v2/deliveries/{delivery_id}/decision`, with generated OpenAPI client types and contract
   tests.
+- Implements `GET /v2/studio/scenarios`, zero-provider
+  `POST /v2/studio/scenarios/{scenario_id}/prepare`, and exact-fixture live
+  `POST /v2/studio/scenarios/{scenario_id}/interpret`. Scenario labels are manifest-backed
+  evaluation metadata and never enter provider input.
 - Moves the canonical `/` player route to same-origin v2 proxies while keeping `/history` read-only
-  and preserving the completed Phase 3.3/3.4 interaction sequence.
+  and preserving the completed Phase 3.3/3.4 interaction sequence. The player accepts only
+  `live_ai_validated` content and labels it **AI-prepared · evidence-checked**.
 - Shows synthetic normalization, offered window IDs, validated evidence links, safe provider
   metadata, issue codes, final status, and structured feedback in Studio.
 - Excludes raw prompts, chain-of-thought, secrets, opted-out identities, provider exception text,
@@ -173,7 +187,7 @@ authentication, persistence, and rollout telemetry are ready.
   a media reference eligible only when `media.event_ids` is a subset of the selected episode; it
   makes no automated video-understanding claim.
 
-### 4.4 — Authenticated durable decisions and operations feedback
+### 4.5 — Authenticated durable decisions and operations feedback
 
 - Bind decisions and exact-delivery suppression to an authenticated player with idempotency and
   ownership checks.

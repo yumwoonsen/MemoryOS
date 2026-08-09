@@ -137,8 +137,25 @@ The v2 API boundary is `POST /v2/memories/interpret-delivery`, followed by
 or failed correction returns no player-facing proposal. A validated AI abstention instead returns
 `not_generated` with no artifacts. Gemini `gemini-3.6-flash` is the preferred hosted prototype v2
 provider. Groq GPT-OSS and OpenAI remain available as alternatives. Deterministic narrative
-generation remains useful for tests and explicitly labelled offline Studio demonstrations, but it
-is not a live-AI fallback.
+generation remains useful for tests, but the current Studio checkpoint produces no deterministic
+narrative and is not a live-AI fallback.
+
+Developer Studio now compares three backend-owned, versioned scenarios: rescue to role reversal,
+repeated near misses to redemption, and ordinary sparse telemetry to a possible abstention. It
+loads their safe descriptors through `GET /v2/studio/scenarios`, inspects deterministic preparation
+through `POST /v2/studio/scenarios/{scenario_id}/prepare`, and starts a live interpretation through
+`POST /v2/studio/scenarios/{scenario_id}/interpret`. Preparation performs normalization, privacy
+filtering, neutral-window construction, and affordance compilation with **zero provider calls**.
+The expected status/family labels come from the offline evaluation manifest and never enter raw
+telemetry, the Story Brief, or provider input.
+
+Studio does not cache or deduplicate completed interpretations. Its browser lock prevents a second
+concurrent click, but every new live-run click starts a fresh pipeline execution and may use two
+provider calls when the one permitted correction is needed. A reviewed `saved_live_replay` may be
+shown only in Studio when its scenario ID, fixture SHA-256, fixture revision, provider, model,
+prompt, result schema, and capture time all match. The committed replay registry is currently
+empty. There is no generic rescue or deterministic narrative fallback. The player path accepts
+only `live_ai_validated` content.
 
 The implemented v1.0/v1.1 endpoints remain available as compatibility surfaces alongside the
 separate v2 raw-telemetry DTO, proposal validator, API routes, and frontend adapter. V2 does not
@@ -292,10 +309,10 @@ npm run dev
 ```
 
 Run the backend from the repository root before opening the frontend. The player route requires a
-configured live provider and fails closed when it is unavailable. Deterministic interpretation is
-limited to tests and the clearly labelled offline Studio sample. That sample always uses the fixed
-synthetic fixture and never derives identities or narrative from submitted telemetry; invalid inputs
-are rejected, and no sample can enter the player delivery route.
+configured live provider and fails closed when it is unavailable. A delivered player memory is
+labelled **AI-prepared · evidence-checked** and is accepted only when its provenance is
+`live_ai_validated`. Studio preparation remains available without a provider, while a compatible
+saved live replay is Studio-only and cannot enter the player delivery route.
 
 The hosted Vinext/Cloudflare site does not run the Python service. Live hosted AI therefore needs a
 separately deployed HTTPS FastAPI backend. For the preferred prototype path, store `GEMINI_API_KEY`,
@@ -382,7 +399,15 @@ memoryos-build/
 - Delivery decisions are process-local, there is no player authentication or notification delivery,
   and observability is reported as completed stage snapshots rather than a live token trace.
 - The invitation, lobby, game, and successful completion sequence is a labelled static simulation.
-  Live post-match telemetry ingestion and objective verification are deferred.
+  Live post-match telemetry ingestion and objective verification are deferred. Its completion
+  chapter title is selected deterministically by mission family—**Together Again**,
+  **The Favour Returned**, or **The Comeback Complete**—with a collision-safe alternative when it
+  would repeat the accepted mission title.
+- Developer Studio does not cache or deduplicate completed live interpretations. Every explicit
+  live-run click may use an initial provider call plus one correction call. The UI only blocks
+  duplicate concurrent clicks.
+- The saved-replay mechanism is Studio-only, requires exact scenario and live-run provenance, and
+  currently has no committed replay artifacts. It is not a generic rescue fallback.
 - Deterministic ranking weights are prototype hypotheses and need calibration against player labels.
 - The validator checks typed references and selected lexical patterns; it cannot prove that every
   possible natural-language implication is supported by telemetry.

@@ -6,8 +6,8 @@ The runnable Phase 3 prototype selects a source-bounded, evidence-backed squad m
 personal memory and mission, then lets the player accept or decline it. Match facts stay inside the
 source/evidence boundary and are grounding-checked; production source authentication is deferred.
 A player decline records relevance feedback, not an edit to match history. A result is described as
-AI-prepared only when its provenance identifies an actual live provider. The credential-free
-deterministic run is an explicitly labelled offline demonstration.
+AI-prepared only when its provenance identifies an actual live provider. Credential-free
+deterministic preparation is a structural Studio checkpoint, not generated player content.
 
 The Phase 3 continuation extends that trust loop with an explicitly synthetic moment preview,
 consent-safe invitation simulation, a scripted successful game, a **Story Continues** chapter, and
@@ -24,7 +24,7 @@ V1.1 routes remain available as compatibility APIs.
 
 ## Run the local demo
 
-For Studio-only deterministic inspection, start the credential-free backend:
+For the Studio's zero-provider preparation checkpoint, start the credential-free backend:
 
 ```powershell
 $env:MEMORYOS_PROVIDER = "deterministic"
@@ -38,27 +38,55 @@ cd frontend
 npm run dev
 ```
 
-Open the printed local URL at `/studio`. Deterministic output is clearly labelled and cannot enter
-the player route. To demonstrate `/` with the preferred hosted prototype provider, configure
+Open the printed local URL at `/studio`, select one registered scenario, and choose
+**Prepare scenario — no AI call**. This shows normalization, privacy decisions, neutral windows,
+and feasible mission affordances without generating narrative or spending provider quota.
+Deterministic mode does not run fresh Studio interpretation and cannot enter the player route.
+
+To demonstrate a fresh Studio interpretation or `/` with the preferred hosted prototype provider,
+configure
 `MEMORYOS_PROVIDER=gemini`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.6-flash`, and
 `GEMINI_V2_MAX_OUTPUT_TOKENS=4000` before starting the backend. Gemini uses the official
 OpenAI-compatible endpoint with low reasoning, no explicit temperature, a 60-second per-attempt
 timeout, no hidden SDK transport retries, and a strict schema with unsupported hints removed.
-MemoryOS may make one explicit semantic correction, so the same-origin proxy waits up to 130
-seconds. Returned JSON still must pass the original Pydantic
+Each click on **Run new live interpretation — uses provider quota** starts a new pipeline execution.
+MemoryOS may make one explicit semantic correction, so one click can use an initial provider call
+plus one correction call and the same-origin proxy waits up to 130 seconds. Completed results are
+not cached or deduplicated; the UI only blocks another click while the current run is active.
+Returned JSON still must pass the original Pydantic
 model and deterministic validation. Use only synthetic, non-sensitive telemetry for free-tier
-testing. Groq and OpenAI remain available through their documented provider settings. Browser calls
-use relative delivery API routes, never hard-coded browser-to-localhost calls. `/mission`
+testing. No saved live replay is currently committed, so a provider failure cannot fall back to a
+generic rescue result. Groq and OpenAI remain available through their documented provider settings.
+Browser calls use relative delivery API routes, never hard-coded browser-to-localhost calls. `/mission`
 becomes available only after the player accepts in the same client-navigation session; direct
 visits and refreshes intentionally show the unavailable-session state. `/history` is the separate,
 compact privacy-safe squad timeline.
+
+### Capture one reviewed Studio replay
+
+Only after reviewing a successful live Studio result, capture exactly one registered scenario with:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.capture_studio_replay --scenario rescue-role-reversal
+```
+
+Valid scenario IDs are `rescue-role-reversal`, `repeated-near-miss`, and
+`ordinary-sparse-telemetry`; use one invocation per scenario. The utility contacts only a local
+backend by default, performs one catalog request and one bodyless interpretation request, and never
+retries. It refuses a result whose status, mission family, fixture version, or live provenance does
+not match the registered descriptor. A pending replay receives a non-authorizing replay-only
+delivery ID, and arbitrary runtime metadata is removed before the selected manifest entry is
+replaced atomically. The console prints only scenario, status, and manifest path; it never prints
+generated prose or response payloads. The committed registry remains empty until a reviewed capture
+is deliberately run and committed.
 
 ## Presenter walkthrough
 
 1. Open `/` and explain that source-bounded synthetic telemetry and deterministic checks prepared
    the eligible evidence before the player saw it.
-2. Show the prepared memory, its provenance label, personal perspective, and one selected **Next
-   Chapter** from the `reunion`, `role_reversal`, or `redemption` family. Explain that the backend
+2. Show the prepared memory, its **AI-prepared · evidence-checked** label, personal perspective,
+   and one selected **Next Chapter** from the `reunion`, `role_reversal`, or `redemption` family.
+   Explain that the backend
    offered only feasible, verifiable mechanics while AI selected and naturally wrote the most
    coherent evidence-linked continuation.
 3. Accept the mission, follow the handoff to `/mission`, and show that only opted-in players are
@@ -66,7 +94,9 @@ compact privacy-safe squad timeline.
    as **Away**; Online/Away is display state, not invitation authority.
 4. Follow the explicit script: send invitations, simulate the squad joining, start the game, wait
    for the game to end, then show mission complete and **Story Continues**. State that the successful
-   outcome is scripted and no new telemetry or actual objective verification occurs.
+   outcome is scripted and no new telemetry or actual objective verification occurs. The completed
+   chapter title is selected locally by family: **Together Again**, **The Favour Returned**, or
+   **The Comeback Complete**, with a fixed alternative if it would repeat the accepted mission.
 5. Show the mission continuation timeline and record optional chapter relevance feedback.
 6. Return to `/`, start a new session, and demonstrate both **Not relevant to me** and **Details are
    wrong** feedback, including their different completion copy.
@@ -79,12 +109,19 @@ or understand gameplay video.
 
 ## V2 judge walkthrough
 
-1. Submit the telemetry-only fixture to `POST /v2/memories/interpret-delivery`; point out that it
-   contains no authored caption, memory summary, mission, importance label, or player review gate.
-2. In Developer Studio, show only the safe structural trace: normalization and source-quality
-   outcome, consent filtering, no more than four neutral chronological windows, sanitized dynamic
-   affordances, active versus invitation-ready counts, and allowed evidence/context/media references.
-3. Use the provider/model/prompt metadata and validated result to explain
+1. Open Developer Studio and show the backend-owned catalog of three exact fixtures:
+   **Rescue becomes role reversal**, **Near misses become redemption**, and
+   **Ordinary telemetry invites abstention**. Explain that their expected status/family labels are
+   offline evaluation metadata and never enter telemetry, the Story Brief, or model input.
+2. Select Rescue and choose **Prepare scenario — no AI call**. Show the fixture revision,
+   normalization and source-quality outcome, consent filtering, no more than four neutral
+   chronological windows, sanitized dynamic affordances, active versus invitation-ready counts,
+   and allowed evidence/context/media references. This checkpoint uses zero provider calls.
+3. Choose **Run new live interpretation — uses provider quota**. State that this is a fresh run,
+   is not cached, and can use one initial call plus one correction call. Compare the actual outcome
+   with the offline expectation; a mismatch remains visible and is never overwritten with a
+   hard-coded result.
+4. Use the provider/model/prompt metadata and validated result to explain
    `ProviderInterpretationDecisionV2`: AI either generates or abstains with
    `no_meaningful_episode`. A generated proposal ranks request-scoped `A#` affordances, uses the
    first choice's linked `W#` episode and allowlisted reason codes, and authors the memory,
@@ -95,7 +132,7 @@ or understand gameplay video.
    may support role reversal, a repeated near miss may support redemption, and reunion is the
    general fallback when no more coherent specific continuation exists. This is AI selection
    guidance; deterministic validation does not impose a mission-family priority.
-4. Show deterministic expansion deriving selected match/event IDs, complete `GroundedClaim`
+5. Show deterministic expansion deriving selected match/event IDs, complete `GroundedClaim`
    records, eligible media, mission recipe, exact objective descriptions, objective IDs,
    assignments, metrics, operators, targets, and source references, plus ordered/exact-set
    consent-safe perspectives. Then show validation,
@@ -105,10 +142,14 @@ or understand gameplay video.
    clear step. In Studio, show that both underlying rules remain separately inspectable.
    If generation fails, show stable issue codes and a closed status—never the rejected proposal
    prose.
-5. Accept through `POST /v2/deliveries/{delivery_id}/decision` and continue through the existing
+6. Repeat preparation and, when quota permits, live interpretation for Repeated near miss and
+   Ordinary. The intended tests are `redemption` and typed abstention respectively; the model must
+   still make the decision. The no-revive rescue is an offline counterfactual, not a fourth Studio
+   scenario.
+7. Accept through `POST /v2/deliveries/{delivery_id}/decision` and continue through the existing
    scripted invitation, squad-join, game-start, game-end, mission-complete, and **Story Continues**
    flow. Explicitly state that this is not post-match telemetry ingestion or real rule verification.
-6. Repeat with a decline. Demonstrate that **Not relevant to me** and **Details are wrong** both
+8. Repeat with a decline. Demonstrate that **Not relevant to me** and **Details are wrong** both
    suppress the exact delivery, while only **Details are wrong** creates an operations
    source-quality signal. Neither path edits telemetry or automatically changes the model.
 
@@ -128,8 +169,9 @@ or understand gameplay video.
 - `/history` never prepares a delivery or records an accept/decline decision.
 - Directly opening or refreshing `/mission` does not invent durable authorization; without the
   current in-memory handoff it shows a safe no-active-mission state.
-- Any saved deterministic result is a clearly labelled Studio/test sample and cannot enter or stand
-  in for the canonical live `/` delivery flow.
+- A reviewed `saved_live_replay` is accepted only for an exact scenario and live-run provenance,
+  is labelled Studio-only, and cannot enter or stand in for the canonical live `/` delivery flow.
+  No replay artifact is currently committed.
 
 ## V2 acceptance checks
 
@@ -176,9 +218,10 @@ or understand gameplay video.
   player-facing artifacts. A repairable error gets at most one correction guided by stable issue
   codes and allowlisted section IDs; rejected prose and free-form validator messages are never sent
   back to the provider.
-- Live-provider output and deterministic offline output have unambiguous provenance. A live failure
-  never silently becomes deterministic narrative; deterministic prose is only a clearly labelled
-  Studio/test sample.
+- Player and Studio provenance remain separate. The player accepts only `live_ai_validated` and
+  shows **AI-prepared · evidence-checked**. A live failure never silently becomes deterministic
+  narrative or a generic rescue result; an exact `saved_live_replay`, when one is committed, is
+  Studio-only.
 - Unknown or mismatched media mappings fail closed; selected media must represent only events in the
   selected episode (`media.event_ids` is a subset of selected event IDs), and only curated synthetic
   media is claimed.
@@ -187,6 +230,10 @@ or understand gameplay video.
   or rejected proposal prose. It shows sanitized affordances, ranked/selected family and reason
   codes, validation/correction, active versus invitation-ready counts, separate backend participant
   and match-completion rules, and abstention.
+- The backend owns exactly three Studio scenarios. Catalog hashes/revisions are checked,
+  preparation makes zero provider calls, named POST routes reject client telemetry bodies, and
+  expected labels are absent from the provider payload. Every fresh live click can use up to two
+  provider calls; completed results are not cached or deduplicated.
 - Inactive but consented players remain invitation-ready; `online` and `away` are player-facing
   presentation only.
 - The player browser receives request-scoped `recipient_ref` and `objective_ref` values, one
@@ -194,7 +241,8 @@ or understand gameplay video.
   objective IDs, claims, verification rules, source references, or Studio trace. Overlapping
   participant and completed-match requirements appear as one clear player-facing step.
 - The post-accept demo is explicitly scripted through invitations, squad joins, game start, game
-  end, and mission complete. It performs no new-match ingestion and no real objective verification.
+  end, and mission complete. Family-specific continuation titles are deterministic local UI copy,
+  not a second AI call. It performs no new-match ingestion and no real objective verification.
 - The decision route accepts only `accepted` or a decline with exactly `not_relevant` or
   `details_wrong`; exact-delivery suppression and the operations signal are verified.
 - Authentication, durable persistence, real notifications/invitations, new-match ingestion, and

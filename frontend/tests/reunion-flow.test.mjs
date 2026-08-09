@@ -49,12 +49,12 @@ test("requires every invited recipient to join before the prototype game starts"
 test("uses a scripted successful outcome with mission-family-specific copy", () => {
   const invitees = buildInvitees(roster);
   const expected = {
-    reunion: /full squad completed one match/i,
-    role_reversal: /Lee completed the squad's first revival/i,
-    redemption: /squad reached the top three/i,
+    reunion: { completion: /full squad completed one match/i, chapter: "Together Again" },
+    role_reversal: { completion: /Lee completed the squad's first revival/i, chapter: "The Favour Returned" },
+    redemption: { completion: /squad reached the top three/i, chapter: "The Comeback Complete" },
   };
 
-  for (const [family, pattern] of Object.entries(expected)) {
+  for (const [family, expectedResult] of Object.entries(expected)) {
     const familyObjectives = family === "role_reversal"
       ? [{ ...objectives[0], assigned_recipient_ref: "recipient-1" }, objectives[1]]
       : objectives;
@@ -62,7 +62,7 @@ test("uses a scripted successful outcome with mission-family-specific copy", () 
     assert.equal(outcome.complete, true);
     assert.equal(outcome.objective_results.length, 2);
     assert.ok(outcome.objective_results.every((objective) => objective.completed));
-    assert.match(outcome.completion_copy, pattern);
+    assert.match(outcome.completion_copy, expectedResult.completion);
 
     const chapter = createContinuationChapter(
       { title: "Worst Plan, Best Night" },
@@ -70,7 +70,10 @@ test("uses a scripted successful outcome with mission-family-specific copy", () 
       outcome,
     );
     assert.ok(chapter);
-    assert.match(chapter.summary, /In this prototype/i);
+    assert.equal(chapter.title, expectedResult.chapter);
+    assert.notEqual(chapter.title.toLocaleLowerCase(), "return the favour");
+    assert.match(chapter.summary, /Worst Plan, Best Night/);
+    assert.match(chapter.summary, /Return the Favour/);
     assert.doesNotMatch(chapter.summary, /verified|live telemetry/i);
   }
 
@@ -80,4 +83,31 @@ test("uses a scripted successful outcome with mission-family-specific copy", () 
     [{ ...objectives[0], assigned_recipient_ref: "recipient-4" }],
   );
   assert.match(joReversal.completion_copy, /Jo completed the squad's first revival/i);
+});
+
+test("uses a distinct fallback when AI mission copy matches the completed title", () => {
+  const invitees = buildInvitees(roster);
+  const outcome = createPrototypeMatchOutcome("role_reversal", invitees, objectives);
+  const chapter = createContinuationChapter(
+    { title: "Escape and Recovery" },
+    { title: "Chapter II: The Favour Returned" },
+    outcome,
+  );
+
+  assert.ok(chapter);
+  assert.equal(chapter.title, "Roles Reversed");
+});
+
+test("withholds a continuation chapter for an incomplete outcome", () => {
+  const invitees = buildInvitees(roster);
+  const outcome = createPrototypeMatchOutcome("reunion", invitees, objectives);
+
+  assert.equal(
+    createContinuationChapter(
+      { title: "Escape and Recovery" },
+      { title: "Chapter II: Together Again" },
+      { ...outcome, complete: false },
+    ),
+    null,
+  );
 });

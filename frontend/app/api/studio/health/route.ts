@@ -17,13 +17,13 @@ function sampleHealth(reason: "hosted-sample" | "backend-unavailable") {
     {
       status: "sample",
       mode: "sample",
-      inference_mode: "sample_replay",
-      provider: "sample-replay",
-      model: "precomputed-fixture",
+      inference_mode: "unknown",
+      provider: "not-configured",
+      model: "not-configured",
       message:
         reason === "hosted-sample"
-          ? "No hosted MemoryOS backend is configured. Studio runs are labelled as sample replays."
-          : "The local MemoryOS backend is unavailable. Studio runs will use a labelled sample replay.",
+          ? "No MemoryOS backend is configured for this hosted Studio. Live interpretation is unavailable."
+          : "The configured local MemoryOS backend is unavailable. Live interpretation is unavailable.",
     } satisfies DeveloperHealth,
     {
       headers: {

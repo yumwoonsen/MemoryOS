@@ -206,6 +206,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/studio/scenarios": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Studio Scenarios V2
+         * @description List the exact synthetic fixtures available to Developer Studio.
+         */
+        get: operations["list_studio_scenarios_v2_v2_studio_scenarios_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/studio/scenarios/{scenario_id}/interpret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Interpret Studio Scenario V2
+         * @description Run one registered fixture through the unchanged live v2 interpretation pipeline.
+         */
+        post: operations["interpret_studio_scenario_v2_v2_studio_scenarios__scenario_id__interpret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/studio/scenarios/{scenario_id}/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare Studio Scenario V2
+         * @description Inspect normalization, privacy, windows, and affordances without a model call.
+         */
+        post: operations["prepare_studio_scenario_v2_v2_studio_scenarios__scenario_id__prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1324,6 +1384,133 @@ export interface components {
             /** Trace Id */
             trace_id: string;
         };
+        /** StudioScenarioCatalogV2 */
+        StudioScenarioCatalogV2: {
+            /** Scenarios */
+            scenarios: components["schemas"]["StudioScenarioDescriptorV2"][];
+            /**
+             * Schema Version
+             * @default 2.1
+             * @constant
+             */
+            schema_version: "2.1";
+        };
+        /** StudioScenarioDescriptorV2 */
+        StudioScenarioDescriptorV2: {
+            expected_mission_family?: components["schemas"]["MissionFamilyV2"] | null;
+            expected_status: components["schemas"]["InterpretDeliveryStatusV2"];
+            /** Fixture Revision */
+            fixture_revision: string;
+            /** Fixture Sha256 */
+            fixture_sha256: string;
+            /**
+             * Label Source
+             * @default offline_evaluation_manifest
+             * @constant
+             */
+            label_source: "offline_evaluation_manifest";
+            /** Purpose */
+            purpose: string;
+            scenario_id: components["schemas"]["StudioScenarioIdV2"];
+            /** Title */
+            title: string;
+        };
+        /**
+         * StudioScenarioIdV2
+         * @enum {string}
+         */
+        StudioScenarioIdV2: "rescue-role-reversal" | "repeated-near-miss" | "ordinary-sparse-telemetry";
+        /** StudioScenarioInterpretationV2 */
+        StudioScenarioInterpretationV2: {
+            result: components["schemas"]["InterpretDeliveryResultV2"];
+            scenario: components["schemas"]["StudioScenarioDescriptorV2"];
+            /**
+             * Schema Version
+             * @default 2.1
+             * @constant
+             */
+            schema_version: "2.1";
+        };
+        /** StudioScenarioMatchSummaryV2 */
+        StudioScenarioMatchSummaryV2: {
+            /** Event Count */
+            event_count: number;
+            /** Game */
+            game: string;
+            /** Map Name */
+            map_name?: string | null;
+            /** Match Id */
+            match_id: string;
+            /** Mode */
+            mode: string;
+            /** Placement */
+            placement?: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** StudioScenarioNormalizationSummaryV2 */
+        StudioScenarioNormalizationSummaryV2: {
+            /** Issue Codes */
+            issue_codes?: string[];
+            /** Normalized Event Count */
+            normalized_event_count: number;
+            /** Normalized Match Count */
+            normalized_match_count: number;
+        };
+        /**
+         * StudioScenarioPreparationStatusV2
+         * @enum {string}
+         */
+        StudioScenarioPreparationStatusV2: "ready" | "rejected";
+        /** StudioScenarioPreparationV2 */
+        StudioScenarioPreparationV2: {
+            /** Eligible Windows */
+            eligible_windows?: components["schemas"]["EligibleEventWindow"][];
+            /** Mission Affordances */
+            mission_affordances?: components["schemas"]["MissionAffordanceV2"][];
+            /** Mission Candidates */
+            mission_candidates?: components["schemas"]["MissionCapabilityCandidate"][];
+            normalization: components["schemas"]["StudioScenarioNormalizationSummaryV2"];
+            privacy: components["schemas"]["StudioScenarioPrivacySummaryV2"];
+            scenario: components["schemas"]["StudioScenarioDescriptorV2"];
+            /**
+             * Schema Version
+             * @default 2.1
+             * @constant
+             */
+            schema_version: "2.1";
+            status: components["schemas"]["StudioScenarioPreparationStatusV2"];
+            telemetry_summary: components["schemas"]["StudioScenarioTelemetrySummaryV2"];
+        };
+        /** StudioScenarioPrivacySummaryV2 */
+        StudioScenarioPrivacySummaryV2: {
+            /** Anonymous Player Count */
+            anonymous_player_count: number;
+            /** Redaction Count */
+            redaction_count: number;
+        };
+        /** StudioScenarioTelemetrySummaryV2 */
+        StudioScenarioTelemetrySummaryV2: {
+            /** Active Player Count */
+            active_player_count: number;
+            /** Consent Safe Player Count */
+            consent_safe_player_count: number;
+            /** Invitation Eligible Count */
+            invitation_eligible_count: number;
+            /** Match Count */
+            match_count: number;
+            /** Matches */
+            matches?: components["schemas"]["StudioScenarioMatchSummaryV2"][];
+            /** Raw Event Count */
+            raw_event_count: number;
+            /** Request Id */
+            request_id: string;
+            /** Target Player Id */
+            target_player_id: string;
+        };
         /** StudioTraceStageV2 */
         StudioTraceStageV2: {
             /** Issue Codes */
@@ -1776,6 +1963,115 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+        };
+    };
+    list_studio_scenarios_v2_v2_studio_scenarios_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioScenarioCatalogV2"];
+                };
+            };
+        };
+    };
+    interpret_studio_scenario_v2_v2_studio_scenarios__scenario_id__interpret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scenario_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioScenarioInterpretationV2"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+        };
+    };
+    prepare_studio_scenario_v2_v2_studio_scenarios__scenario_id__prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scenario_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudioScenarioPreparationV2"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderErrorBody"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

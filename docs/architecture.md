@@ -18,7 +18,8 @@ authenticated telemetry adapter and source-quality controls. The player decides 
 memory is relevant; the player is not asked to audit raw telemetry.
 
 > **Implementation status:** the additive V2.1 contract, orchestration, validators, player
-> projection, Studio trace, and acceptance tests exist. `RawTelemetryBatchV2` accepts both `2.0`
+> projection, three-scenario Studio registry, Studio trace, and acceptance tests exist.
+> `RawTelemetryBatchV2` accepts both `2.0`
 > and `2.1` input, while every `InterpretDeliveryResultV2` is `2.1`. The active prompt contract is
 > `memory-interpreter-v2.11-backend-mission-copy`, loaded from `memory_interpreter_v2_11.txt`. A
 > historical 8 August 2026 Groq 120B smoke used the older V2.4 prompt; it is not evidence for the
@@ -56,7 +57,7 @@ validation pipeline.
 | Deterministic backend | Source-quality boundary, consent, filtering, deduplication, neutral event windows, dynamic mission affordances, assignments, exact objective descriptions, metrics, operators, targets, source references, authoritative enrichment, validation, trace construction, and fail-closed delivery |
 | AI Memory Interpreter | Return one provider-only typed decision: either `generate` with a complete ranking of request-scoped affordance references, memory language, perspectives, mission title, and a short story bridge, or `abstain` with `no_meaningful_episode`; the first ranked affordance determines its linked episode |
 | Player frontend | Render one minimal validated memory projection and one player-facing **Next Chapter**, then collect one accept/decline decision |
-| Developer Studio | Render sanitized affordances, selection/reason codes, counts, validation, and abstention without exposing rejected prose or player-private controls |
+| Developer Studio | Select one backend-owned versioned fixture, inspect zero-provider preparation, run the exact fixture through live interpretation, and render sanitized affordances, selection/reason codes, validation, abstention, or an exact-provenance saved live replay without exposing rejected prose or player-private controls |
 | Player | Judge relevance and choose whether to start the selected **Next Chapter** |
 
 The additive v2 raw contract accepts `schema_version` `2.0` or `2.1` and contains match metadata,
@@ -73,6 +74,38 @@ Each normalized event explicitly carries `event_scope`: `player` preserves actor
 `squad` represents a collective squad action, and `match` represents a match-level fact. It is not a
 model stage. The legacy `MemoryPack` models remain unchanged for v1.0 and v1.1 compatibility; v2 uses
 separate composed request models rather than inheriting their review and scaffold semantics.
+
+## Developer Studio scenario checkpoint and provenance
+
+Developer Studio does not accept arbitrary raw telemetry under a named demo. A backend registry
+owns exactly three committed scenarios and their fixture versions:
+
+| Scenario | Offline expected behavior | Deterministic affordance space |
+|---|---|---|
+| `rescue-role-reversal` | `pending_player_decision` / `role_reversal` | Reunion and role reversal |
+| `repeated-near-miss` | `pending_player_decision` / `redemption` | Reunion and redemption |
+| `ordinary-sparse-telemetry` | `not_generated` | Feasible reunion, while AI decides whether the episode merits a memory |
+
+`GET /v2/studio/scenarios` exposes safe descriptors with fixture SHA-256/revision and labels loaded
+from the offline evaluation manifest. `POST /v2/studio/scenarios/{scenario_id}/prepare` performs
+normalization, privacy filtering, neutral-window formation, and affordance compilation with zero
+provider calls. `POST /v2/studio/scenarios/{scenario_id}/interpret` accepts no body and passes only
+the exact registered `RawTelemetryBatchV2` into the existing live pipeline. Expected status/family,
+scenario purpose, and fixture provenance remain outside `RawTelemetryBatchV2`, `StoryBriefV2`, and
+the provider payload, so the labels measure behavior rather than steering it.
+
+The Studio browser verifies the descriptor version at catalog, preparation, and interpretation
+boundaries. It locks scenario switching and duplicate clicks while a request is active, but neither
+the backend nor frontend caches or deduplicates completed live interpretations. Every later live
+click is a new pipeline execution and may use two provider calls when the one permitted correction
+is attempted.
+
+The same-origin Studio layer may replay a reviewed live result only under the top-level
+`saved_live_replay` origin and only when scenario ID, fixture hash/revision, provider, model, prompt,
+result schema, and capture timestamp match exactly. The committed registry currently contains no
+saved artifacts. This replay path is Studio-only and is not a result cache, player authorization,
+generic rescue fallback, or deterministic narrative fallback. The player projection accepts only
+`live_ai_validated` and displays **AI-prepared · evidence-checked**.
 
 ## V2 eligible windows, compact AI decision, and deterministic enrichment
 
@@ -342,9 +375,10 @@ Provider refusal, timeout, malformed output, unresolved compact references, fail
 failed deterministic validation fails closed. V2 never substitutes deterministic narrative text
 into a response labelled as live AI.
 
-Deterministic mode remains the credential-free regression baseline and may power explicitly labelled
-offline Studio demonstrations. The current v1.1 compatibility path still uses three semantic stages
-with the same sanitized ledger plus the previous typed output.
+Deterministic mode remains the credential-free regression baseline. It can serve the registered
+Studio preparation checkpoint because that checkpoint generates no prose; a fresh Studio
+interpretation still requires live AI. The current v1.1 compatibility path uses three semantic
+stages with the same sanitized ledger plus the previous typed output.
 
 ```text
 sanitized evidence
@@ -447,6 +481,11 @@ guards, and a backend snapshot test keep
 FastAPI as the contract source of truth. The older discovery and split-review contracts remain only
 for internal compatibility and quality workflows, not as a second player interface.
 
+The projection accepts a pending delivery only when its backend result provenance is
+`live_ai_validated`; deterministic outputs and top-level Studio `saved_live_replay` envelopes are
+rejected. The compact player badge for an accepted delivery is
+**AI-prepared · evidence-checked**.
+
 When roster participation and one completed match describe the same player action, the player
 projection combines them into one clear step, such as **Complete one match with the invited
 squad**. This does not merge or discard backend controls. Developer Studio retains the underlying
@@ -457,13 +496,15 @@ and how it would be verified.
 `/v2/deliveries/{delivery_id}/decision` without exposing backend credentials. `/history` remains
 read-only and does not prepare a delivery or record a decision.
 
-Developer Studio may display raw **synthetic** telemetry, deterministic normalization and neutral
-window metadata, sanitized dynamic affordances, ranked and selected affordance/family IDs,
-allowlisted reason codes, backend-owned objective controls, active versus invitation-ready counts,
-validation/correction state, typed abstention, provider/model/prompt version, and recorded prototype
-feedback. It must never display raw prompts, the raw compact provider draft, chain-of-thought,
-credentials, opted-out identities, or rejected/unvalidated proposal prose. Deterministic prose is
-limited to clearly labelled Studio/test samples and cannot enter the live player path.
+Developer Studio may display the selected **synthetic** scenario's consent-safe summary,
+deterministic normalization and neutral-window metadata, sanitized dynamic affordances, ranked and
+selected affordance/family IDs, allowlisted reason codes, backend-owned objective controls, active
+versus invitation-ready counts, validation/correction state, typed abstention,
+provider/model/prompt version, and recorded prototype feedback. It must never display raw prompts,
+the raw compact provider draft, chain-of-thought, credentials, opted-out identities, or
+rejected/unvalidated proposal prose. A reviewed exact-version `saved_live_replay` is clearly
+labelled Studio-only and cannot enter the live player path; no replay artifact is currently
+committed.
 
 ## Phase 3 reunion prototype
 
@@ -480,10 +521,15 @@ member joins, the game starts, the game ends, and the selected mission is marked
 the UI constructs **Story Continues**. The prototype creates this successful outcome locally; it
 does not ingest new-match telemetry and does not evaluate backend-owned objective rules against a
 real match result. `/history` then reflects that scripted milestone in its session timeline. This
-proves continuation presentation and state transitions, not real objective verification. Optional
-post-chapter relevance
-feedback is session-only and deliberately excludes the `details_wrong` source-quality reason used
-during the original delivery decision.
+proves continuation presentation and state transitions, not real objective verification.
+
+The completed chapter is constructed deterministically from the selected family:
+**Together Again** for reunion, **The Favour Returned** for role reversal, and
+**The Comeback Complete** for redemption, with fixed collision-safe alternatives when a title would
+repeat the accepted mission. It is not a second AI generation after the simulated match.
+
+Optional post-chapter relevance feedback is session-only and deliberately excludes the
+`details_wrong` source-quality reason used during the original delivery decision.
 
 ## Deferred production boundaries
 

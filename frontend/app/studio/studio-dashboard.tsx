@@ -3,22 +3,32 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  eligibleDisplayPlayers,
-  eligibleInvitationPlayers,
-  parseStudioTraceV2,
-  parseStudioInterpretDeliveryV2,
-} from "@/lib/ai-memory-contract";
 import type {
   GroundedClaimV2,
-  RawTelemetryBatchV2,
   StudioInterpretDeliveryResultV2,
   StudioInterpretationTraceV2,
 } from "@/lib/ai-memory-contract";
+import { parseStudioTraceV2 } from "@/lib/ai-memory-contract";
+import {
+  parseStudioScenarioCatalog,
+  parseStudioScenarioPreparation,
+  parseStudioScenarioRun,
+  sameStudioScenarioVersion,
+  studioScenarioActual,
+} from "@/lib/studio-scenarios";
+import type {
+  StudioScenarioCatalogV2,
+  StudioScenarioPreparationV2,
+  StudioScenarioRunV2,
+} from "@/lib/studio-scenarios";
+import {
+  parseSafeStudioProviderFailure,
+  studioProviderFailureMessage,
+} from "@/lib/studio-provider-error";
 import { usePlayerFlow } from "../player-flow-provider";
 
 type ResultTab = "summary" | "grounding" | "mission";
-type RunSource = "waiting" | "live" | "sample";
+type RunSource = "waiting" | "live" | "saved_replay";
 type HealthState = {
   status: "checking" | "ok" | "sample" | "error";
   provider: string;
@@ -27,6 +37,7 @@ type HealthState = {
 };
 type StudioValidationIssue = { code: string; message?: string };
 type StudioIssueDisplay = { code: string; message: string; sections: string[] };
+type StudioRunFailure = { code: string; message: string; retryable: boolean };
 
 const safeStudioIssueMessages = new Map<string, string>([
   ["action_role_mismatch", "A described player action did not match the consent-safe telemetry role."],
@@ -76,10 +87,6 @@ function formatWords(value: string) {
   return value.replaceAll("_", " ").replaceAll(":", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function formatClock(seconds: number) {
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
 function safeIssueSection(message?: string) {
   const rawSection = message?.match(/^Section ([A-Za-z0-9:_-]{1,128})\s/)?.[1]?.toLowerCase();
   if (!rawSection) return null;
@@ -115,15 +122,20 @@ function studioIssueItems(reasonCodes: string[], validationIssues: StudioValidat
   }));
 }
 
-function safeSubject(subjectId: string, telemetry: RawTelemetryBatchV2) {
+function safeSubject(subjectId: string, result: StudioInterpretDeliveryResultV2) {
   if (subjectId === "squad") return "Eligible squad";
   if (subjectId.startsWith("anonymous:")) return "Anonymous squadmate";
-  return telemetry.squad.players.find((player) => player.player_id === subjectId)?.display_name ?? "Consent-safe player";
+  if (result.status !== "pending_player_decision") return "Consent-safe subject";
+  return result.player_perspectives.find((player) => player.player_id === subjectId)?.display_name
+    ?? "Consent-safe subject";
 }
 
-function safeRuleTarget(target: string | number | boolean | string[], telemetry: RawTelemetryBatchV2) {
+function safeRuleTarget(
+  target: string | number | boolean | string[],
+  result: StudioInterpretDeliveryResultV2,
+) {
   if (!Array.isArray(target)) return String(target);
-  return target.map((item) => safeSubject(item, telemetry) === "Consent-safe player" ? item : safeSubject(item, telemetry)).join(", ");
+  return target.map((item) => safeSubject(item, result)).join(", ");
 }
 
 function claimSupport(claim: GroundedClaimV2) {
@@ -134,7 +146,30 @@ function claimSupport(claim: GroundedClaimV2) {
   ];
 }
 
-export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 }) {
+function safeResponseMessage(value: unknown, fallback: string) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && "message" in value && typeof value.message === "string"
+    ? value.message
+    : fallback;
+}
+
+function safeStudioRunFailure(value: unknown): StudioRunFailure {
+  const providerFailure = parseSafeStudioProviderFailure(value);
+  if (providerFailure) {
+    return {
+      code: providerFailure.code,
+      message: studioProviderFailureMessage(providerFailure.code),
+      retryable: providerFailure.retryable,
+    };
+  }
+  return {
+    code: "studio_live_run_withheld",
+    message: "The live interpretation stopped safely. No generated artifacts were returned.",
+    retryable: false,
+  };
+}
+
+export function StudioDashboard() {
   const { flow } = usePlayerFlow();
   const [health, setHealth] = useState<HealthState>({
     status: "checking",
@@ -142,159 +177,280 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
     model: "Checking",
     message: "Checking the configured MemoryOS backend.",
   });
-  const [result, setResult] = useState<StudioInterpretDeliveryResultV2 | null>(null);
+  const [catalog, setCatalog] = useState<StudioScenarioCatalogV2 | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [selectedScenarioId, setSelectedScenarioId] = useState<string>("");
+  const [preparation, setPreparation] = useState<StudioScenarioPreparationV2 | null>(null);
+  const [preparationError, setPreparationError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [run, setRun] = useState<StudioScenarioRunV2 | null>(null);
   const [runSource, setRunSource] = useState<RunSource>("waiting");
-  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<StudioRunFailure | null>(null);
   const [running, setRunning] = useState(false);
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [resultTab, setResultTab] = useState<ResultTab>("summary");
-  const [latestDecisionTrace, setLatestDecisionTrace] = useState<StudioInterpretationTraceV2 | null>(null);
+  const [playerTraceRecord, setPlayerTraceRecord] = useState<{
+    deliveryId: string;
+    trace: StudioInterpretationTraceV2;
+  } | null>(null);
+  const preparationSequence = useRef(0);
   const runSequence = useRef(0);
-  const activeRequest = useRef<AbortController | null>(null);
+  const preparationRequest = useRef<AbortController | null>(null);
+  const runRequest = useRef<AbortController | null>(null);
+  const runningLock = useRef(false);
 
-  const eligiblePlayers = useMemo(() => eligibleDisplayPlayers(telemetry), [telemetry]);
-  const invitationEligiblePlayers = useMemo(() => eligibleInvitationPlayers(telemetry), [telemetry]);
-  const events = useMemo(() => telemetry.matches.flatMap((match) =>
-    match.events.map((event) => ({ ...event, match_id: match.match_id }))), [telemetry]);
+  const selectedScenario = useMemo(
+    () => catalog?.scenarios.find((scenario) => scenario.scenario_id === selectedScenarioId) ?? null,
+    [catalog, selectedScenarioId],
+  );
+  const result = run?.result ?? null;
   const pending = result?.status === "pending_player_decision" ? result : null;
-  const effectiveTrace = latestDecisionTrace ?? result?.studio_trace ?? null;
-  const missionAffordances = effectiveTrace?.mission_affordances ?? [];
+  const effectiveTrace = result?.studio_trace ?? null;
+  const missionAffordances = effectiveTrace?.mission_affordances
+    ?? preparation?.mission_affordances
+    ?? [];
   const missionSelection = effectiveTrace?.mission_selection ?? null;
-  const activePlayerCount = effectiveTrace?.active_player_count
-    ?? telemetry.current_context.active_player_ids.length;
-  const invitationEligibleCount = effectiveTrace?.invitation_eligible_count
-    ?? invitationEligiblePlayers.length;
   const traceByStage = new Map(effectiveTrace?.stages.map((stage) => [stage.stage, stage]) ?? []);
-  const sessionDecision = flow.declineReason ? "declined" : flow.missionAccepted ? "accepted" : null;
-  const sourceQualityFlag = effectiveTrace?.source_quality_flag === true || flow.declineReason === "details_wrong";
-  const contentOrigin = result?.metadata.content_origin
-    ?? (pending?.metadata.mode === "live_ai"
-      ? "live_ai_validated"
-      : pending
-        ? "deterministic_studio_sample"
-        : null);
+  const activePlayerCount = preparation?.telemetry_summary.active_player_count ?? 0;
+  const invitationEligibleCount = preparation?.telemetry_summary.invitation_eligible_count ?? 0;
   const rejectedIssues = result?.status === "rejected"
     ? studioIssueItems(result.reason_codes, result.validation.issues)
     : [];
   const connectionLabel = health.status === "checking"
     ? "Provider check"
     : health.status === "ok"
-      ? "Backend connected"
+      ? "Backend configured"
       : health.status === "sample"
-        ? "Studio demo available"
+        ? "Backend not configured"
         : "Backend unavailable";
+  const preparationCurrent = Boolean(
+    selectedScenario
+    && preparation
+    && sameStudioScenarioVersion(selectedScenario, preparation.scenario),
+  );
+  const canRun = preparationCurrent && preparation?.status === "ready" && !preparing && !running;
+  const actual = result ? studioScenarioActual(result) : null;
+  const statusMatches = Boolean(selectedScenario && actual
+    && selectedScenario.expected_status === actual.status);
+  const familyMatches = Boolean(selectedScenario && actual
+    && selectedScenario.expected_mission_family === actual.mission_family);
+  const expectationMatches = Boolean(actual && statusMatches && familyMatches);
+  const latestPlayerTrace = playerTraceRecord
+    && playerTraceRecord.deliveryId === flow.delivery?.delivery_id
+    ? playerTraceRecord.trace
+    : null;
+  const playerDecision = flow.declineReason
+    ? "Declined"
+    : flow.missionAccepted
+      ? "Accepted"
+      : flow.delivery
+        ? "Awaiting decision"
+        : "No player delivery this session";
+  const playerSourceQualityFlag = latestPlayerTrace?.source_quality_flag === true
+    || flow.declineReason === "details_wrong";
 
   useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/studio/health", { cache: "no-store", signal: controller.signal })
+    const healthController = new AbortController();
+    const catalogController = new AbortController();
+    void fetch("/api/studio/health", { cache: "no-store", signal: healthController.signal })
       .then(async (response) => {
         const payload = await response.json() as Record<string, unknown>;
         setHealth({
-          status: response.ok
-            ? (payload.mode === "sample" ? "sample" : "ok")
-            : "error",
+          status: response.ok ? (payload.mode === "sample" ? "sample" : "ok") : "error",
           provider: typeof payload.provider === "string" ? payload.provider : "Unavailable",
           model: typeof payload.model === "string" ? payload.model : "Unavailable",
-          message: typeof payload.message === "string" ? payload.message : "The provider state could not be read.",
+          message: typeof payload.message === "string" ? payload.message : "The backend state could not be read.",
         });
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (!healthController.signal.aborted) {
           setHealth({
             status: "error",
             provider: "Unavailable",
             model: "Unavailable",
-            message: "The provider health check could not be completed.",
+            message: "The backend health check could not be completed.",
           });
         }
       });
-    return () => controller.abort();
+    void fetch("/api/studio/scenarios", { cache: "no-store", signal: catalogController.signal })
+      .then(async (response) => {
+        const payload: unknown = await response.json();
+        const parsed = parseStudioScenarioCatalog(payload);
+        if (!response.ok || !parsed) {
+          throw new Error(safeResponseMessage(payload, "The versioned Studio scenario catalog is unavailable."));
+        }
+        setCatalog(parsed);
+        setSelectedScenarioId((current) => current || parsed.scenarios[0].scenario_id);
+        setCatalogError(null);
+      })
+      .catch((error) => {
+        if (!catalogController.signal.aborted) {
+          setCatalogError(error instanceof Error ? error.message : "The Studio scenario catalog is unavailable.");
+        }
+      });
+    return () => {
+      healthController.abort();
+      catalogController.abort();
+    };
   }, []);
 
   useEffect(() => () => {
+    preparationSequence.current += 1;
     runSequence.current += 1;
-    activeRequest.current?.abort();
+    preparationRequest.current?.abort();
+    runRequest.current?.abort();
   }, []);
 
   useEffect(() => {
-    if (!flow.delivery?.delivery_id || (!flow.declineReason && !flow.missionAccepted)) return;
+    if (!flow.delivery?.delivery_id) return;
+    const deliveryId = flow.delivery.delivery_id;
     const controller = new AbortController();
     void fetch("/api/studio/delivery-trace", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ delivery_id: flow.delivery.delivery_id }),
+      body: JSON.stringify({ delivery_id: deliveryId }),
       signal: controller.signal,
     }).then(async (response) => {
       if (!response.ok) return;
       const trace = parseStudioTraceV2(await response.json());
-      if (trace) setLatestDecisionTrace(trace);
+      if (trace) setPlayerTraceRecord({ deliveryId, trace });
     }).catch(() => undefined);
     return () => controller.abort();
-  }, [flow.declineReason, flow.delivery?.delivery_id, flow.missionAccepted]);
+  }, [flow.delivery?.delivery_id, flow.declineReason, flow.missionAccepted]);
 
-  async function runInterpretation() {
-    const requestId = ++runSequence.current;
-    activeRequest.current?.abort();
-    const controller = new AbortController();
-    activeRequest.current = controller;
-    const startedAt = performance.now();
-    setRunning(true);
-    setResult(null);
+  function selectScenario(scenarioId: string) {
+    if (runningLock.current || preparing) return;
+    preparationSequence.current += 1;
+    preparationRequest.current?.abort();
+    setSelectedScenarioId(scenarioId);
+    setPreparation(null);
+    setPreparationError(null);
+    setRun(null);
     setRunError(null);
-    setFallbackReason(null);
     setRunSource("waiting");
+    setDurationMs(null);
+  }
 
+  async function prepareScenario() {
+    if (!selectedScenario || preparationRequest.current || runningLock.current) return;
+    const sequence = ++preparationSequence.current;
+    const controller = new AbortController();
+    preparationRequest.current = controller;
+    setPreparing(true);
+    setPreparationError(null);
+    setPreparation(null);
+    setRun(null);
+    setRunError(null);
+    setRunSource("waiting");
+    setDurationMs(null);
     try {
-      const response = await fetch("/api/studio/interpret", {
+      const response = await fetch("/api/studio/scenarios/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ request_id: telemetry.request_id }),
+        body: JSON.stringify({ scenario: selectedScenario }),
         signal: controller.signal,
       });
       const payload: unknown = await response.json();
-      if (controller.signal.aborted || requestId !== runSequence.current) return;
-      const parsed = parseStudioInterpretDeliveryV2(payload);
-      if (!response.ok || !parsed) {
-        const message = payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string"
-          ? payload.message
-          : "The v2 interpretation run stopped safely.";
-        throw new Error(message);
+      if (controller.signal.aborted || sequence !== preparationSequence.current) return;
+      const parsed = parseStudioScenarioPreparation(payload);
+      if (!response.ok || !parsed || !sameStudioScenarioVersion(selectedScenario, parsed.scenario)) {
+        throw new Error(safeResponseMessage(payload, "Deterministic preparation stopped safely."));
       }
-      setRunSource(response.headers.get("x-memoryos-mode") === "sample" ? "sample" : "live");
-      setFallbackReason(response.headers.get("x-memoryos-fallback"));
-      setResult(parsed);
-      setResultTab("summary");
+      setPreparation(parsed);
     } catch (error) {
-      if (controller.signal.aborted || requestId !== runSequence.current) return;
-      setRunError(error instanceof Error ? error.message : "The v2 interpretation run stopped safely.");
-    } finally {
-      if (!controller.signal.aborted && requestId === runSequence.current) {
-        setDurationMs(performance.now() - startedAt);
-        setRunning(false);
+      if (!controller.signal.aborted && sequence === preparationSequence.current) {
+        setPreparationError(error instanceof Error ? error.message : "Deterministic preparation stopped safely.");
       }
-      if (activeRequest.current === controller) activeRequest.current = null;
+    } finally {
+      if (!controller.signal.aborted && sequence === preparationSequence.current) setPreparing(false);
+      if (preparationRequest.current === controller) preparationRequest.current = null;
     }
   }
 
-  const runtimeTitle = result?.status === "not_generated"
-    ? "AI abstained from forcing a memory"
-    : runSource === "sample"
-    ? "Deterministic Studio demonstration"
-    : pending?.metadata.mode === "live_ai"
-      ? "Live AI memory interpretation"
-      : "Ready for a v2 interpretation audit";
-  const runtimeDetail = result?.status === "not_generated"
-    ? "The supplied evidence did not support a meaningful episode, so no player-facing memory or mission was created."
-    : runSource === "sample"
-    ? "A clearly labelled saved result demonstrates the same privacy, claim, and mission-rule trace. It is never used in the player experience."
-    : "Player delivery is allowed only after one AI proposal passes deterministic evidence and safety validation.";
+  async function runInterpretation() {
+    if (!selectedScenario || !canRun || runningLock.current) return;
+    runningLock.current = true;
+    const sequence = ++runSequence.current;
+    const controller = new AbortController();
+    runRequest.current = controller;
+    const startedAt = performance.now();
+    setRunning(true);
+    setRun(null);
+    setRunError(null);
+    setRunSource("waiting");
+    try {
+      const response = await fetch("/api/studio/scenarios/interpret", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scenario: selectedScenario }),
+        signal: controller.signal,
+      });
+      const payload: unknown = await response.json();
+      if (controller.signal.aborted || sequence !== runSequence.current) return;
+      if (!response.ok) {
+        setRunError(safeStudioRunFailure(payload));
+        return;
+      }
+      const parsed = parseStudioScenarioRun(payload);
+      if (!parsed || !sameStudioScenarioVersion(selectedScenario, parsed.scenario)) {
+        throw new Error("The live interpretation stopped safely. No generated artifacts were returned.");
+      }
+      if (preparation?.telemetry_summary.request_id !== parsed.result.request_id) {
+        throw new Error("The live result did not match the deterministically prepared request.");
+      }
+      setRun(parsed);
+      setRunSource(parsed.content_origin === "saved_live_replay" ? "saved_replay" : "live");
+      setResultTab("summary");
+    } catch (error) {
+      if (!controller.signal.aborted && sequence === runSequence.current) {
+        setRunError({
+          code: "studio_live_run_withheld",
+          message: error instanceof Error
+            ? error.message
+            : "The live interpretation stopped safely. No generated artifacts were returned.",
+          retryable: false,
+        });
+      }
+    } finally {
+      if (!controller.signal.aborted && sequence === runSequence.current) {
+        setDurationMs(performance.now() - startedAt);
+        setRunning(false);
+      }
+      runningLock.current = false;
+      if (runRequest.current === controller) runRequest.current = null;
+    }
+  }
+
+  const runtimeTitle = runSource === "saved_replay"
+    ? "Saved live replay — not a fresh AI run"
+    : result?.status === "not_generated"
+      ? "AI abstained from forcing a memory"
+      : pending
+        ? "Live AI memory interpretation"
+        : preparationCurrent
+          ? "Deterministic checkpoint complete"
+          : "Select and prepare a Studio scenario";
+  const runtimeDetail = runSource === "saved_replay"
+    ? "This reviewed capture matched the exact scenario fixture hash and schema version. It cannot enter the player decision or continuation flow."
+    : result?.status === "not_generated"
+      ? "The supplied evidence did not support a meaningful episode, so no player-facing memory or mission was created."
+      : pending
+        ? "Player delivery is allowed only after the AI proposal passes deterministic evidence and safety validation."
+        : "Preparation is local and deterministic. A live provider is contacted only when you press the quota-labelled run button.";
 
   return (
     <main className="studio-app">
       <a className="skip-link" href="#studio-workspace">Skip to interpretation workspace</a>
       <p className="sr-only" aria-live="polite">
-        {running ? "Memory interpretation audit in progress." : runError ? `Audit error: ${runError}` : result ? `Audit finished with ${result.status}.` : "MemoryOS Studio ready."}
+        {running
+          ? "Live memory interpretation in progress."
+          : preparing
+            ? "Deterministic scenario preparation in progress."
+            : runError
+              ? `Audit error: ${runError.message}. Safe code: ${runError.code}.`
+              : result
+                ? `Audit finished with ${result.status}.`
+                : "MemoryOS Studio ready."}
       </p>
 
       <header className="studio-topbar">
@@ -315,8 +471,8 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
           <p className="studio-kicker">Developer observability</p>
           <h1 id="studio-title">AI-grounded memory trace</h1>
           <p className="studio-intro">
-            Inspect how sparse telemetry becomes one proposed memory, how every material claim is checked,
-            and why only a fully validated delivery may reach the player.
+            Compare three versioned telemetry scenarios, inspect their deterministic preparation,
+            then deliberately start one bounded live interpretation.
           </p>
         </div>
         <dl className="studio-hero-metrics">
@@ -327,27 +483,33 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
         </dl>
       </section>
 
-      <section className={`studio-runtime-banner runtime-${runSource === "sample" ? "sample" : "live"}`} aria-label="Active generation mode" aria-live="polite">
+      <section className={`studio-runtime-banner runtime-${runSource === "saved_replay" ? "replay" : "live-ai"}`} aria-label="Active generation mode" aria-live="polite">
         <div className="studio-runtime-copy">
-          <span>{runSource === "sample" ? "Studio demo only" : "Player-safe v2 path"}</span>
+          <span>{runSource === "saved_replay" ? "Studio replay only" : "Versioned Studio checkpoint"}</span>
           <strong>{runtimeTitle}</strong>
           <p>{runtimeDetail}</p>
-          {fallbackReason ? <small>Demo reason: {formatWords(fallbackReason)}</small> : null}
-          {sessionDecision ? (
+          {run?.replay_provenance ? (
             <small>
-              Latest player decision: {formatWords(sessionDecision)}.
-              {sourceQualityFlag
-                ? " Details-wrong source-quality flag recorded for operations."
-                : " No source-quality dispute was recorded."}
+              Captured {new Date(run.replay_provenance.captured_at).toLocaleString("en-SG")} / {run.replay_provenance.provider} / {run.replay_provenance.model} / {run.replay_provenance.prompt_version}
             </small>
           ) : null}
         </div>
         <dl className="studio-runtime-metrics">
-          <div><dt>Matches</dt><dd>{telemetry.matches.length}</dd></div>
-          <div><dt>Raw events</dt><dd>{events.length}</dd></div>
-          <div><dt>Active / invite-ready</dt><dd>{activePlayerCount} / {invitationEligibleCount}</dd></div>
+          <div><dt>Matches</dt><dd>{preparation?.telemetry_summary.match_count ?? "--"}</dd></div>
+          <div><dt>Raw events</dt><dd>{preparation?.telemetry_summary.raw_event_count ?? "--"}</dd></div>
+          <div><dt>Active / invite-ready</dt><dd>{preparation ? `${activePlayerCount} / ${invitationEligibleCount}` : "--"}</dd></div>
           <div><dt>Validation</dt><dd>{result ? (result.validation.passed ? "Passed" : "Withheld") : "--"}</dd></div>
         </dl>
+      </section>
+
+      <section className="studio-player-session-status" aria-label="Latest player app decision">
+        <div><span>Latest player app decision</span><strong>{playerDecision}</strong></div>
+        <p>
+          {playerSourceQualityFlag
+            ? "Details-wrong source-quality flag recorded for operations."
+            : "No source-quality dispute is recorded for the latest player delivery."}
+          {runSource === "saved_replay" ? " This status is separate from the inspection-only replay." : ""}
+        </p>
       </section>
 
       <section className="studio-boundary" aria-label="MemoryOS responsibility boundary">
@@ -366,58 +528,113 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
       <section className="studio-workspace" id="studio-workspace">
         <section className="studio-panel studio-input-panel" aria-labelledby="studio-input-title">
           <div className="studio-panel-heading">
-            <div><p className="studio-panel-index">Input</p><h2 id="studio-input-title">Sanitized telemetry summary</h2></div>
-            <span className="studio-validity valid">Raw v2</span>
+            <div><p className="studio-panel-index">Scenario</p><h2 id="studio-input-title">Deterministic checkpoint</h2></div>
+            <span className={`studio-validity ${preparationCurrent && preparation?.status === "ready" ? "valid" : ""}`}>
+              {preparing ? "Preparing" : preparationCurrent ? formatWords(preparation!.status) : "Not prepared"}
+            </span>
           </div>
-          <div className="studio-input-stats">
-            <span><strong>{telemetry.matches.length}</strong> matches</span>
-            <span><strong>{events.length}</strong> events</span>
-            <span><strong>{eligiblePlayers.length}</strong> consent-safe</span>
-            <span><strong>{activePlayerCount}/{invitationEligibleCount}</strong> active / invite-ready</span>
-          </div>
-          <p className="studio-panel-note">
-            The browser receives a consent-safe projection. Opted-out stable IDs, raw prompts, and provider secrets are not exposed here.
-          </p>
-          <div className="studio-grounding-list">
-            {telemetry.matches.map((match) => (
-              <article key={match.match_id}>
-                <div><span>{formatWords(match.game)}</span><strong>{match.map_name ?? formatWords(match.mode)}</strong></div>
-                <p>{match.events.length} sparse events / placement {match.placement ? `#${match.placement}` : "not supplied"}</p>
-                <dl>
-                  <div><dt>Mode</dt><dd>{formatWords(match.mode)}</dd></div>
-                  <div><dt>Started</dt><dd>{new Date(match.started_at).toLocaleDateString("en-SG")}</dd></div>
-                </dl>
-              </article>
-            ))}
-          </div>
-          <details className="studio-stage-preview studio-event-disclosure">
-            <summary>Inspect consent-safe event vocabulary</summary>
-            <div className="studio-grounding-list">
-              {events.map((event) => (
-                <article key={event.event_id}>
-                  <div><span>{formatClock(event.timestamp_seconds)}</span><strong>{formatWords(event.provider_event_type)}</strong></div>
-                  <p>{event.location ?? "No location supplied"}</p>
-                </article>
+          <div className="studio-scenario-picker">
+            <label htmlFor="studio-scenario">Evaluation scenario</label>
+            <select
+              id="studio-scenario"
+              value={selectedScenarioId}
+              disabled={running || preparing || !catalog}
+              onChange={(event) => selectScenario(event.target.value)}
+            >
+              {!catalog ? <option value="">Loading scenario catalog...</option> : null}
+              {catalog?.scenarios.map((scenario) => (
+                <option key={scenario.scenario_id} value={scenario.scenario_id}>{scenario.title}</option>
               ))}
-            </div>
-          </details>
+            </select>
+            <p>{selectedScenario?.purpose ?? catalogError ?? "Choose one registered synthetic telemetry scenario."}</p>
+          </div>
+          {catalogError ? <div className="studio-error-card" role="alert"><strong>Scenario catalog unavailable</strong><p>{catalogError}</p></div> : null}
+          {preparation ? (
+            <>
+              <div className="studio-input-stats">
+                <span><strong>{preparation.telemetry_summary.match_count}</strong> matches</span>
+                <span><strong>{preparation.telemetry_summary.raw_event_count}</strong> events</span>
+                <span><strong>{preparation.telemetry_summary.consent_safe_player_count}</strong> consent-safe</span>
+                <span><strong>{activePlayerCount}/{invitationEligibleCount}</strong> active / invite-ready</span>
+              </div>
+              <p className="studio-panel-note">
+                The backend normalized this exact fixture and applied privacy rules without calling the AI provider.
+              </p>
+              <div className="studio-grounding-list">
+                {preparation.telemetry_summary.matches.map((match) => (
+                  <article key={match.match_id}>
+                    <div><span>{formatWords(match.game)}</span><strong>{match.map_name ?? formatWords(match.mode)}</strong></div>
+                    <p>{match.event_count} sparse events / placement {match.placement ? `#${match.placement}` : "not supplied"}</p>
+                    <dl>
+                      <div><dt>Mode</dt><dd>{formatWords(match.mode)}</dd></div>
+                      <div><dt>Started</dt><dd>{new Date(match.started_at).toLocaleDateString("en-SG")}</dd></div>
+                      <div><dt>Fixture</dt><dd>{preparation.scenario.fixture_revision}</dd></div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+              <details className="studio-stage-preview studio-event-disclosure">
+                <summary>Inspect prepared windows and mission affordances</summary>
+                <div className="studio-grounding-list">
+                  {preparation.eligible_windows.map((window) => (
+                    <article key={window.window_id}>
+                      <div><span>Neutral window</span><strong>{window.event_ids.length} connected events</strong></div>
+                      <p>{window.start_seconds}s to {window.end_seconds}s / {window.participant_ids.length} consent-safe participants</p>
+                    </article>
+                  ))}
+                  {preparation.mission_affordances.map((affordance) => (
+                    <article key={affordance.affordance_id}>
+                      <div><span>Feasible continuation</span><strong>{formatWords(affordance.family)}</strong></div>
+                      <p>{affordance.objective_candidate_ids.length} backend-owned requirements</p>
+                    </article>
+                  ))}
+                </div>
+              </details>
+            </>
+          ) : (
+            <p className="studio-panel-note">Prepare the selected fixture to inspect normalization, consent, neutral windows, and feasible missions.</p>
+          )}
+          {preparationError ? <div className="studio-error-card" role="alert"><strong>Preparation withheld</strong><p>{preparationError}</p></div> : null}
           <div className="studio-input-actions">
-            <button className="studio-run-button" type="button" onClick={() => void runInterpretation()} disabled={running}>
-              {running ? "Interpreting telemetry..." : "Run v2 interpretation audit"}
+            <button
+              className="studio-secondary-button"
+              type="button"
+              disabled={!selectedScenario || preparing || running}
+              onClick={() => void prepareScenario()}
+            >
+              {preparing ? "Preparing scenario..." : "Prepare scenario — no AI call"}
             </button>
+            <button
+              className="studio-run-button"
+              type="button"
+              disabled={!canRun}
+              onClick={() => void runInterpretation()}
+            >
+              {running ? "Live interpretation running..." : "Run new live interpretation — uses provider quota"}
+            </button>
+            <p className="studio-quota-note">One correction attempt may use a second provider call. Scenario switching and duplicate clicks are locked while a run is active.</p>
           </div>
         </section>
 
         <section className="studio-panel studio-trace-panel" aria-labelledby="studio-trace-title">
           <div className="studio-panel-heading studio-trace-heading">
             <div><p className="studio-panel-index">Judge trace</p><h2 id="studio-trace-title">Responsibility path</h2></div>
-            <span className={`studio-run-source source-${runSource}`}>{runSource === "waiting" ? "Not run" : runSource === "sample" ? "Demo" : "Live"}</span>
+            <span className={`studio-run-source source-${runSource}`}>
+              {runSource === "waiting" ? "Not run" : runSource === "saved_replay" ? "Replay" : "Live"}
+            </span>
           </div>
           <p className="studio-panel-note">This is an auditable stage record, not hidden model reasoning.</p>
           <ol className="studio-stage-list">
             {stageDefinitions.map((definition) => {
               const trace = traceByStage.get(definition.id);
-              const status = trace?.status ?? (running ? "pending" : "idle");
+              const isPreparedStage = definition.id === "deterministic_preparation" && preparationCurrent;
+              const status = trace?.status ?? (isPreparedStage
+                ? preparation?.status === "ready" ? "complete" : "rejected"
+                : running ? "pending" : "idle");
+              const summary = trace?.summary ?? (isPreparedStage
+                ? `${preparation!.normalization.normalized_event_count} normalized events formed ${preparation!.eligible_windows.length} neutral windows and ${preparation!.mission_affordances.length} feasible mission affordances.`
+                : null);
+              const issueCodes = trace?.issue_codes ?? (isPreparedStage ? preparation!.normalization.issue_codes : []);
               return (
                 <li key={definition.id}>
                   <article className={`studio-stage stage-${status}`}>
@@ -428,12 +645,8 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
                         <span className={`studio-owner owner-${definition.owner === "Memory intelligence" ? "live-ai" : "deterministic"}`}>{definition.owner}</span>
                       </div>
                       <p>{definition.description}</p>
-                      {trace ? <small>{trace.summary}</small> : null}
-                      {trace?.issue_codes.length ? (
-                        <ul className="studio-issue-list">
-                          {trace.issue_codes.map((code) => <li key={code}>{formatWords(code)}</li>)}
-                        </ul>
-                      ) : null}
+                      {summary ? <small>{summary}</small> : null}
+                      {issueCodes.length ? <ul className="studio-issue-list">{issueCodes.map((code) => <li key={code}>{formatWords(code)}</li>)}</ul> : null}
                     </div>
                     <span className="studio-stage-status">{status}</span>
                   </article>
@@ -441,7 +654,18 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
               );
             })}
           </ol>
-          {runError ? <div className="studio-error-card" role="alert"><strong>Run withheld</strong><p>{runError}</p></div> : null}
+          {runError ? (
+            <div className="studio-error-card" role="alert">
+              <strong>Run withheld</strong>
+              <p>{runError.message}</p>
+              <small>
+                Safe code: <code>{runError.code}</code>
+                {runError.retryable
+                  ? " / Retryable after the provider becomes available."
+                  : " / Review the provider configuration before another run."}
+              </small>
+            </div>
+          ) : null}
         </section>
 
         <section className="studio-panel studio-output-panel" aria-labelledby="studio-output-title">
@@ -452,9 +676,18 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
           <div className="studio-output-metrics">
             <div><span>Selected events</span><strong>{pending?.memory.selected_event_ids.length ?? "--"}</strong></div>
             <div><span>Affordances</span><strong>{result ? missionAffordances.length : "--"}</strong></div>
-            <div><span>Content origin</span><strong>{contentOrigin ? formatWords(contentOrigin) : "--"}</strong></div>
+            <div><span>Content origin</span><strong>{run ? formatWords(run.content_origin) : "--"}</strong></div>
             <div><span>Correction used</span><strong>{result ? (result.validation.correction_attempted ? "Yes" : "No") : "--"}</strong></div>
           </div>
+          {result && selectedScenario && actual ? (
+            <section className={`studio-expectation ${expectationMatches ? "matches" : "differs"}`} aria-label="Offline expectation comparison">
+              <div><span>Expected status</span><strong>{formatWords(selectedScenario.expected_status)}</strong></div>
+              <div><span>Actual status</span><strong>{formatWords(actual.status)}</strong></div>
+              <div><span>Expected mission</span><strong>{selectedScenario.expected_mission_family ? formatWords(selectedScenario.expected_mission_family) : "None"}</strong></div>
+              <div><span>Actual mission</span><strong>{actual.mission_family ? formatWords(actual.mission_family) : "None"}</strong></div>
+              <p>{expectationMatches ? "Actual behavior matched the offline evaluation label." : "Actual behavior differed from the offline evaluation label; review it rather than hiding the mismatch."}</p>
+            </section>
+          ) : null}
           <div className="studio-tabs" role="tablist" aria-label="Delivery inspector views">
             {(["summary", "grounding", "mission"] as ResultTab[]).map((tab) => (
               <button key={tab} type="button" role="tab" aria-selected={resultTab === tab} onClick={() => setResultTab(tab)}>{formatWords(tab)}</button>
@@ -462,7 +695,7 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
           </div>
 
           {!result ? (
-            <div className="studio-empty-output"><span aria-hidden="true">M</span><h3>Run the telemetry audit.</h3><p>Only a validated proposal will appear. Rejected prose is always withheld.</p></div>
+            <div className="studio-empty-output"><span aria-hidden="true">M</span><h3>Prepare, then run one scenario.</h3><p>Expected labels remain hidden until an actual result exists. Rejected prose is always withheld.</p></div>
           ) : result.status === "rejected" ? (
             <div className="studio-result-stack">
               <article className="studio-result-card result-validation">
@@ -470,10 +703,7 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
                 <span>No title, summary, perspective, or mission is available to this interface.</span>
                 <ul className="studio-issue-list">
                   {rejectedIssues.map((issue) => (
-                    <li key={issue.code}>
-                      {issue.sections.length ? `${issue.sections.join(", ")} · ` : ""}
-                      {issue.message} ({formatWords(issue.code)})
-                    </li>
+                    <li key={issue.code}>{issue.sections.length ? `${issue.sections.join(", ")} / ` : ""}{issue.message} ({formatWords(issue.code)})</li>
                   ))}
                 </ul>
               </article>
@@ -483,24 +713,28 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
               <article className="studio-result-card result-validation">
                 <p>Valid AI abstention</p><h3>No memory generated</h3>
                 <span>The evidence did not support a meaningful squad episode. No player-facing title, perspective, or mission was created.</span>
-                <ul className="studio-issue-list">
-                  {result.reason_codes.map((code) => <li key={code}>{formatWords(code)}</li>)}
-                </ul>
+                <ul className="studio-issue-list">{result.reason_codes.map((code) => <li key={code}>{formatWords(code)}</li>)}</ul>
               </article>
             </div>
           ) : resultTab === "summary" ? (
             <div className="studio-result-stack">
               <article className="studio-result-card result-memory"><p>AI-prepared memory</p><h3>{result.memory.title}</h3><span>{formatWords(result.memory.memory_type)} / {result.memory.selected_event_ids.length} evidence events</span><blockquote>{result.memory.summary}</blockquote></article>
               <article className="studio-result-card"><p>Player perspectives</p><h3>{result.player_perspectives.length} consent-safe views</h3><ul className="studio-perspective-list">{result.player_perspectives.map((perspective) => <li key={perspective.player_id}><strong>{perspective.display_name}</strong><span>{perspective.message}</span></li>)}</ul></article>
-              <article className="studio-result-card result-validation"><p>Player decision</p><h3>{sessionDecision ? formatWords(sessionDecision) : "Awaiting player"}</h3><span>{sourceQualityFlag ? "Details-wrong source-quality flag recorded for operations." : "Relevance feedback remains separate from factual source disputes."}</span></article>
+              <article className="studio-result-card result-validation">
+                <p>{runSource === "saved_replay" ? "Replay boundary" : "Delivery state"}</p>
+                <h3>{runSource === "saved_replay" ? "Inspection only" : "Awaiting player app"}</h3>
+                <span>{runSource === "saved_replay"
+                  ? "Player decisions, invitations, and continuation are disabled for saved replays."
+                  : "Relevance feedback remains separate from factual source disputes."}</span>
+              </article>
             </div>
           ) : resultTab === "grounding" ? (
             <div className="studio-grounding-list">
               {result.grounded_claims.map((claim) => (
                 <article key={claim.claim_id}>
-                  <div><span>{formatWords(claim.output_section)}</span><strong>{safeSubject(claim.subject_id, telemetry)} / {formatWords(claim.predicate)}</strong></div>
+                  <div><span>{formatWords(claim.output_section)}</span><strong>{safeSubject(claim.subject_id, result)} / {formatWords(claim.predicate)}</strong></div>
                   <p>{claimSupport(claim).join(" / ")}</p>
-                  <dl><div><dt>Target</dt><dd>{claim.target_id ? safeSubject(claim.target_id, telemetry) : "--"}</dd></div><div><dt>Location</dt><dd>{claim.location ?? "--"}</dd></div></dl>
+                  <dl><div><dt>Target</dt><dd>{claim.target_id ? safeSubject(claim.target_id, result) : "--"}</dd></div><div><dt>Location</dt><dd>{claim.location ?? "--"}</dd></div></dl>
                 </article>
               ))}
             </div>
@@ -508,10 +742,10 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
             <div className="studio-result-stack">
               <article className="studio-result-card result-validation">
                 <p>AI mission selection</p>
-                <h3>{missionSelection ? formatWords(missionSelection.selected_family) : formatWords(result.next_chapter.family ?? "reunion")}</h3>
+                <h3>{missionSelection ? formatWords(missionSelection.selected_family) : formatWords(result.next_chapter.family)}</h3>
                 <span>{missionSelection
                   ? `${missionSelection.ranked_affordance_ids.length} ranked / ${formatWords(missionSelection.reason_codes.join(", "))}`
-                  : "Legacy v2 delivery: mission selection metadata was not supplied."}</span>
+                  : "Mission selection metadata was not supplied."}</span>
               </article>
               {missionAffordances.map((affordance) => (
                 <article className="studio-result-card" key={affordance.affordance_id}>
@@ -520,31 +754,26 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
                   <span>{affordance.objective_candidate_ids.length} compiled rules / {affordance.source_event_ids.length + affordance.source_match_ids.length + affordance.source_context_ids.length} source references</span>
                 </article>
               ))}
-              <article className="studio-result-card result-quest">
-                <p>AI-authored mission framing</p>
-                <h3>{result.next_chapter.title}</h3>
-                <span>{result.next_chapter.mission}</span>
-              </article>
+              <article className="studio-result-card result-quest"><p>AI-authored mission framing</p><h3>{result.next_chapter.title}</h3><span>{result.next_chapter.mission}</span></article>
               {result.next_chapter.objectives.map((objective) => (
                 <article className="studio-result-card" key={objective.objective_id}>
-                  <p>Backend-compiled requirement</p>
-                  <h3>{objective.description}</h3>
-                  <span>{formatWords(objective.verification.metric)} / {formatWords(objective.verification.operator)} / {safeRuleTarget(objective.verification.target, telemetry)}</span>
+                  <p>Backend-compiled requirement</p><h3>{objective.description}</h3>
+                  <span>{formatWords(objective.verification.metric)} / {formatWords(objective.verification.operator)} / {safeRuleTarget(objective.verification.target, result)}</span>
                 </article>
               ))}
-              <article className="studio-result-card">
-                <p>Post-accept demonstration</p>
-                <h3>Scripted prototype sequence</h3>
-                <span>Invites sent → squad joins → game starts → selected mission completes. No live post-match telemetry is claimed.</span>
-              </article>
+              {runSource === "saved_replay" ? (
+                <article className="studio-result-card result-validation"><p>Replay boundary</p><h3>No player handoff</h3><span>Saved results cannot start invitations, decisions, or continuation.</span></article>
+              ) : (
+                <article className="studio-result-card"><p>Post-accept demonstration</p><h3>Scripted prototype sequence</h3><span>Invites sent -&gt; squad joins -&gt; game starts -&gt; selected mission completes. No live post-match telemetry is claimed.</span></article>
+              )}
             </div>
           )}
         </section>
       </section>
 
       <footer className="studio-footer">
-        <div><strong>Safe inspection boundary</strong><p>Studio shows sanitized input summaries, structured claims, issue codes, and verification rules. It never shows opted-out identities, prompts, secrets, or rejected prose.</p></div>
-        <div><strong>{health.message}</strong><p>Feedback is reviewed offline. It never rewrites prompts, models, or trusted telemetry automatically.</p></div>
+        <div><strong>Safe inspection boundary</strong><p>Studio shows sanitized summaries, structured claims, issue codes, and verification rules. It never shows opted-out identities, prompts, secrets, or rejected prose.</p></div>
+        <div><strong>{health.message}</strong><p>A configured backend does not prove available provider quota. Feedback never rewrites prompts, models, or trusted telemetry automatically.</p></div>
       </footer>
     </main>
   );
