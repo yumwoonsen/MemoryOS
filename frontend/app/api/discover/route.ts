@@ -1,5 +1,5 @@
 import { getDemoResult } from "@/lib/demo-results";
-import { backendRequestHeaders } from "@/lib/memoryos-server";
+import { backendRequestHeaders, isTrustedLocalBrowserRequest } from "@/lib/memoryos-server";
 import type { MemoryApiError, MemoryPack } from "@/lib/types";
 
 const normalizedConfiguredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
@@ -90,6 +90,20 @@ function normalizeBackendError(payload: unknown, status: number): MemoryApiError
 }
 
 export async function POST(request: Request) {
+  const callsBackend = shouldCallBackend(request);
+  if (callsBackend && !isTrustedLocalBrowserRequest(request)) {
+    return Response.json(
+      {
+        code: "local_browser_required",
+        message: "Live AI discovery is available only from this local application.",
+      } satisfies MemoryApiError,
+      {
+        status: 403,
+        headers: { "cache-control": "no-store", "x-memoryos-mode": "live" },
+      },
+    );
+  }
+
   let requestPayload: unknown;
 
   try {
@@ -122,7 +136,7 @@ export async function POST(request: Request) {
 
   const memoryPack = requestPayload;
 
-  if (!shouldCallBackend(request)) {
+  if (!callsBackend) {
     return sampleResponse(memoryPack, "hosted-sample");
   }
 

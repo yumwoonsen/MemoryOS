@@ -12,7 +12,8 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit --incremental false",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "generate:api-types": "..\\.venv\\Scripts\\python.exe ..\\backend\\export_openapi.py && openapi-typescript openapi.json -o lib/api.generated.ts"
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "generate:api-types": "python ../backend/export_openapi.py && openapi-typescript openapi.json -o lib/api.generated.ts"
   },
   "dependencies": {
     "react": "19.2.8",
@@ -45,6 +46,7 @@
   "type": "module",
   "overrides": {
     "undici": "7.29.0",
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "js-yaml": "4.3.1"
   }
 }

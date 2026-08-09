@@ -343,19 +343,23 @@ export function parseStudioScenarioRun(value: unknown): StudioScenarioRunV2 | nu
     const expectedReplayInnerOrigin = interpreted.result.status === "pending_player_decision"
       ? "saved_live_replay"
       : "no_player_content";
-    if (interpreted.result.metadata.content_origin !== expectedReplayInnerOrigin) return null;
+    if (interpreted.result.metadata.mode !== "saved_replay"
+      || interpreted.result.metadata.content_origin !== expectedReplayInnerOrigin) return null;
     if (!isRecord(value.replay_provenance)
       || typeof value.replay_provenance.provider !== "string"
       || typeof value.replay_provenance.model !== "string"
       || typeof value.replay_provenance.prompt_version !== "string"
       || value.replay_provenance.result_schema_version !== "2.1"
       || typeof value.replay_provenance.captured_at !== "string"
-      || !Number.isFinite(Date.parse(value.replay_provenance.captured_at))) return null;
+      || !Number.isFinite(Date.parse(value.replay_provenance.captured_at))
+      || interpreted.result.metadata.provider !== value.replay_provenance.provider
+      || interpreted.result.metadata.model !== value.replay_provenance.model
+      || interpreted.result.metadata.prompt_version !== value.replay_provenance.prompt_version) return null;
   } else if (value.replay_provenance !== null) {
     return null;
-  } else if (interpreted.result.status === "pending_player_decision"
-    && (interpreted.result.metadata.mode !== "live_ai"
-      || interpreted.result.metadata.content_origin !== "live_ai_validated")) {
+  } else if (interpreted.result.metadata.mode !== "live_ai"
+    || (interpreted.result.status === "pending_player_decision"
+      && interpreted.result.metadata.content_origin !== "live_ai_validated")) {
     return null;
   }
   return {

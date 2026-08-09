@@ -1,4 +1,4 @@
-# MemoryOS player prototype
+# Garena Next Chapter — MemoryOS frontend
 
 This frontend is the compact, mobile-first player view for the latest MemoryOS prototype. It keeps
 one focused Free Fire Battle Royale example so the end-to-end idea is easy to understand without
@@ -13,7 +13,8 @@ The experience is split into four focused routes:
 
 The player story never exposes internal validation scores, rule IDs, prompts, or credentials. It
 accepts only `live_ai_validated` delivery content and labels it
-**AI-prepared · evidence-checked**. Deterministic runs and `saved_live_replay` artifacts are
+**AI-prepared · evidence-checked**. Deterministic runs and `mode: saved_replay` /
+`saved_live_replay` artifacts are
 Studio-only and cannot be projected into the player flow. A navigation link opens the separate
 Developer Studio without mixing its controls into the story itself. The
 checks still run behind the interface: results are bound to the consent-safe telemetry view,
@@ -91,9 +92,8 @@ The Studio distinguishes these result origins:
   existing enrichment and validation path;
 - **No player content** — the live interpreter validly abstained or the result was otherwise
   withheld; and
-- **Saved live replay** — Studio displayed a reviewed live capture whose scenario ID, fixture
-  SHA-256, fixture revision, provider, model, prompt version, result schema, and capture time match
-  the selected scenario exactly.
+- **Saved live replay** — Studio displayed `mode: saved_replay` for a reviewed live capture that
+  matches the exact fixture version and carries internally consistent recorded provenance.
 
 `saved_live_replay` is Studio-only. Its registry is currently empty until a reviewed capture is
 committed, and it cannot enter the player decision or continuation flow. A failed live run never
@@ -135,7 +135,7 @@ reliability results for the active prompt.
 From this directory:
 
 ```powershell
-npm install
+npm ci
 npm run dev
 ```
 
@@ -150,8 +150,9 @@ provider call.
 The browser sends only the opaque unified experience reference and its request reference. The
 same-origin server resolves the raw fixture, generates a private nonce, and calls the varied
 delivery endpoint; neither raw telemetry nor the nonce is reflected to the browser.
-`/api/discover` and its exact-fixture sample fallback remain compatibility infrastructure and are
-not used by the canonical player flow.
+`/api/discover`, `/api/generate`, and `/api/studio/generate-stream` remain dormant compatibility
+infrastructure and are not used by the canonical player flow. Because they can contact the backend
+or provider, they use the same strict local-browser gate as the canonical live routes.
 
 The Studio uses `/api/studio/health`, `/api/studio/scenarios`,
 `/api/studio/scenarios/prepare`, and `/api/studio/scenarios/interpret`. During local development,
@@ -246,8 +247,12 @@ through the configurations in the root README.
 npm run typecheck
 npm run lint
 npm test
-npm audit --audit-level=high
+npm run audit:production
 ```
+
+The production audit is the CI security gate. A full development audit currently reports the
+unpatched `image-size@2.0.2` parser advisories inherited through Vinext; the prototype has no
+untrusted image upload or image-metadata parsing path.
 
 The challenge, invitation, rematch, and continuation are simulations only. They do not send a real
 invitation or persist player actions.

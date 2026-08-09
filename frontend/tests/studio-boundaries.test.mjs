@@ -36,6 +36,7 @@ test("Studio exposes deliberate scenario preparation and quota-labelled executio
 
 test("saved replay stays Studio-only while the player parser remains live-AI-only", async () => {
   const contract = await source("../lib/ai-memory-contract.ts");
+  const scenarioParser = await source("../lib/studio-scenarios.ts");
 
   assert.match(
     contract,
@@ -43,11 +44,16 @@ test("saved replay stays Studio-only while the player parser remains live-AI-onl
   );
   assert.match(
     contract,
-    /StudioPendingDeliveryV2 = Omit<PendingDeliveryV2, "metadata">[\s\S]*"saved_live_replay"/,
+    /mode: "saved_replay"; content_origin: "saved_live_replay"[\s\S]*StudioPendingDeliveryV2/,
   );
+  assert.match(contract, /hasStudioModeOriginPair/);
   assert.match(
     contract,
-    /parseInterpretDeliveryV2[\s\S]*parsed\.metadata\.content_origin !== "live_ai_validated"/,
+    /parseInterpretDeliveryV2[\s\S]*parsed\.metadata\.mode !== "live_ai"[\s\S]*parsed\.metadata\.content_origin !== "live_ai_validated"/,
+  );
+  assert.match(
+    scenarioParser,
+    /origin === "saved_live_replay"[\s\S]*metadata\.mode !== "saved_replay"[\s\S]*metadata\.provider !== value\.replay_provenance\.provider/,
   );
 });
 

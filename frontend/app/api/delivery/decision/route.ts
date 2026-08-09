@@ -1,8 +1,18 @@
-import { isRecord, proxyMemoryOsPayload } from "@/lib/memoryos-server";
+import {
+  isRecord,
+  isTrustedSameOriginBrowserRequest,
+  proxyMemoryOsPayload,
+} from "@/lib/memoryos-server";
 
 const privateHeaders = { "cache-control": "no-store" };
 
 export async function POST(request: Request) {
+  if (!isTrustedSameOriginBrowserRequest(request)) {
+    return Response.json(
+      { stage: "frontend_proxy", code: "same_origin_browser_required", retryable: false, message: "Delivery decisions are accepted only from this application." },
+      { status: 403, headers: privateHeaders },
+    );
+  }
   let payload: unknown;
   try {
     payload = await request.json();

@@ -229,7 +229,6 @@ UNSAFE_MISSION_PATTERN = re.compile(
 VICTORY_WORDS = {"victory", "won", "winner", "booyah", "first place"}
 VICTORY_RESULTS = {"win", "won", "victory", "winner", "booyah", "first"}
 MISSION_METRIC_PREDICATES = {
-    "squad.revive_count": {ClaimPredicate.REVIVED},
     "squad.matches_completed": {ClaimPredicate.COMPLETED_MATCH},
     "match.first_squad_revive_actor_id": {ClaimPredicate.REVIVED},
     "match.top_three_reached": {ClaimPredicate.PLACED},
@@ -257,7 +256,6 @@ KNOWN_UNSUPPORTED_VEHICLES = {
 MISSION_METRIC_ALLOWED_ACTIONS = {
     "squad.participant_ids": {ClaimPredicate.COMPLETED_MATCH},
     "squad.matches_completed": {ClaimPredicate.COMPLETED_MATCH},
-    "squad.revive_count": {ClaimPredicate.REVIVED},
     "match.first_squad_revive_actor_id": {ClaimPredicate.REVIVED},
     "match.top_three_reached": set(),
     "match.invited_squad_visits_location": set(),
@@ -324,7 +322,6 @@ MISSION_AMBIGUOUS_QUANTIFIERS = {"few", "several", "multiple"}
 
 MISSION_METRIC_NOUNS = {
     "squad.matches_completed": ("match", "matches", "round", "rounds", "game", "games"),
-    "squad.revive_count": ("revive", "revives"),
     "match.assigned_player_assisted_elimination_player_ids": (
         "elimination",
         "eliminations",
@@ -477,30 +474,6 @@ def mission_metric_count_mentions(text: str, metric: str) -> list[int | None]:
     matches = list(before_noun_pattern.finditer(normalized))
     for pattern in after_noun_patterns:
         matches.extend(pattern.finditer(normalized))
-    if metric == "squad.revive_count":
-        object_pattern = r"(?:team-?mates?|squadmates?|players?)"
-        matches.extend(
-            re.finditer(
-                rf"(?<!\w)(?:revive|revives|revived|reviving)(?!\w)\s+"
-                rf"(?P<count>{cardinal_pattern}|both|couple|pair|double)(?!\w)\s+"
-                rf"{object_pattern}(?!\w)",
-                normalized,
-            )
-        )
-        matches.extend(
-            re.finditer(
-                rf"(?<!\w){object_pattern}(?!\w)\s+"
-                rf"(?P<count>{frequency_words})(?!\w)",
-                normalized,
-            )
-        )
-        matches.extend(
-            re.finditer(
-                rf"(?<!\w){object_pattern}(?!\w)\s+"
-                rf"(?P<count>{cardinal_pattern})(?!\w)\s+times?(?!\w)",
-                normalized,
-            )
-        )
     for match in sorted(matches, key=lambda item: item.start()):
         raw = match.group("count")
         if raw.isdigit():
@@ -1281,8 +1254,7 @@ class ProposalValidatorV2:
             for candidate_id in claim.supporting_mission_candidate_ids
             for candidate in prepared.mission_candidates
             if candidate.candidate_id == candidate_id
-            and candidate.verification.metric
-            == "match.first_squad_tactical_signal_actor_id"
+            and candidate.verification.metric == "match.first_squad_tactical_signal_actor_id"
             and isinstance(candidate.verification.target, str)
         )
         context_player_ids = {
@@ -1342,13 +1314,11 @@ class ProposalValidatorV2:
             for candidate in selected_candidates.values()
         )
         supports_duo_assist = any(
-            candidate.verification.metric
-            == "match.assigned_player_assisted_elimination_player_ids"
+            candidate.verification.metric == "match.assigned_player_assisted_elimination_player_ids"
             for candidate in selected_candidates.values()
         )
         supports_vehicle_extraction = any(
-            candidate.verification.metric
-            == "match.invited_squad_vehicle_escape_within_seconds"
+            candidate.verification.metric == "match.invited_squad_vehicle_escape_within_seconds"
             for candidate in selected_candidates.values()
         )
         extra_capability_language = bool(
@@ -1521,8 +1491,7 @@ class ProposalValidatorV2:
                     )
                 )
                 other_location_stated = any(
-                    location.casefold() != target.casefold()
-                    and contains_identity(text, location)
+                    location.casefold() != target.casefold() and contains_identity(text, location)
                     for match in prepared.normalized.matches
                     for event in match.events
                     for location in [event.location]
@@ -1586,9 +1555,8 @@ class ProposalValidatorV2:
                             f"Section {section} does not state the landing-rendezvous requirement.",
                         )
                     )
-            elif (
-                metric == "match.assigned_player_assisted_elimination_player_ids"
-                and isinstance(target, list)
+            elif metric == "match.assigned_player_assisted_elimination_player_ids" and isinstance(
+                target, list
             ):
                 affordance = selected_affordance_by_candidate.get(candidate.candidate_id)
                 assister_id = (
@@ -1623,12 +1591,8 @@ class ProposalValidatorV2:
                             f"Section {section} does not state the assigned duo-assist rule.",
                         )
                     )
-            elif metric == "match.first_squad_tactical_signal_actor_id" and isinstance(
-                target, str
-            ):
-                player_map = {
-                    player.player_id: player for player in prepared.normalized.players
-                }
+            elif metric == "match.first_squad_tactical_signal_actor_id" and isinstance(target, str):
+                player_map = {player.player_id: player for player in prepared.normalized.players}
                 player = player_map.get(target)
                 wrong_assignee = any(
                     player_id != target
@@ -1797,9 +1761,11 @@ class ProposalValidatorV2:
             if event.location
         }
         for location in locations:
-            if contains_identity(text, location) and not any(
-                claim.location == location for claim in claims
-            ) and location not in candidate_locations:
+            if (
+                contains_identity(text, location)
+                and not any(claim.location == location for claim in claims)
+                and location not in candidate_locations
+            ):
                 issues.append(
                     self._issue(
                         "unmapped_location",
@@ -2029,9 +1995,7 @@ class ProposalValidatorV2:
                         seconds
                         for affordance in prepared.mission_affordances
                         if candidate.candidate_id in affordance.objective_candidate_ids
-                        for seconds in [
-                            affordance.parameters.get("vehicle_escape_window_seconds")
-                        ]
+                        for seconds in [affordance.parameters.get("vehicle_escape_window_seconds")]
                         if type(seconds) is int
                     )
         if numeric_values - supported_numbers:
@@ -2072,13 +2036,11 @@ class ProposalValidatorV2:
         authorized_signal_actors = {
             str(candidate.verification.target)
             for candidate in mission_candidates
-            if candidate.verification.metric
-            == "match.first_squad_tactical_signal_actor_id"
+            if candidate.verification.metric == "match.first_squad_tactical_signal_actor_id"
             and isinstance(candidate.verification.target, str)
         }
         authorized_vehicle_extraction = any(
-            candidate.verification.metric
-            == "match.invited_squad_vehicle_escape_within_seconds"
+            candidate.verification.metric == "match.invited_squad_vehicle_escape_within_seconds"
             for candidate in mission_candidates
         )
         authorized_match_players = {
@@ -2102,21 +2064,16 @@ class ProposalValidatorV2:
             for teammate_id in [affordance.parameters.get("elimination_player_id")]
             if isinstance(assister_id, str) and isinstance(teammate_id, str)
         }
-        authorized_assist_eliminators = {
-            teammate_id for _, teammate_id in authorized_assist_pairs
-        }
+        authorized_assist_eliminators = {teammate_id for _, teammate_id in authorized_assist_pairs}
         authorized_future_landers = {
             player_id
             for affordance in prepared.mission_affordances
             if any(
                 candidate.candidate_id in affordance.objective_candidate_ids
-                and candidate.verification.metric
-                == "match.invited_squad_lands_at_location"
+                and candidate.verification.metric == "match.invited_squad_lands_at_location"
                 for candidate in mission_candidates
             )
-            for invitation_player_ids in [
-                affordance.parameters.get("invitation_player_ids")
-            ]
+            for invitation_player_ids in [affordance.parameters.get("invitation_player_ids")]
             if isinstance(invitation_player_ids, list)
             for player_id in invitation_player_ids
             if isinstance(player_id, str)
@@ -2267,10 +2224,7 @@ class ProposalValidatorV2:
                             and target_id is None
                             and (
                                 actor_id in authorized_future_landers
-                                or (
-                                    actor_id == "squad"
-                                    and bool(authorized_future_landers)
-                                )
+                                or (actor_id == "squad" and bool(authorized_future_landers))
                             )
                         )
                         or (
@@ -2279,8 +2233,7 @@ class ProposalValidatorV2:
                             and actor_id in authorized_signal_actors
                         )
                         or (
-                            predicate
-                            in {ClaimPredicate.ENTERED_VEHICLE, ClaimPredicate.ESCAPED}
+                            predicate in {ClaimPredicate.ENTERED_VEHICLE, ClaimPredicate.ESCAPED}
                             and target_id is None
                             and actor_id == "squad"
                             and authorized_vehicle_extraction

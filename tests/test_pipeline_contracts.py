@@ -189,7 +189,7 @@ def test_live_pipeline_retries_one_rejected_semantic_stage_with_feedback() -> No
     assert "perspective_not_second_person" in feedback
 
 
-def test_live_pipeline_keeps_safe_model_perspectives_and_falls_back_invalid_one() -> None:
+def test_live_pipeline_rejects_invalid_perspectives_without_deterministic_fallback() -> None:
     payload = json.loads((DATA_DIR / "historical_memory_packs.json").read_text(encoding="utf-8"))[0]
     pack = MemoryPackV11.model_validate(payload)
     baseline = MemoryPipeline().generate(pack)
@@ -218,15 +218,20 @@ def test_live_pipeline_keeps_safe_model_perspectives_and_falls_back_invalid_one(
 
     result = MemoryPipeline(generator).generate(pack)
 
-    assert result.status == PipelineStatusV11.READY
-    messages = {item.player_id: item.message for item in result.player_perspectives}
-    baseline_messages = {item.player_id: item.message for item in baseline.player_perspectives}
-    assert messages["lee"] == baseline_messages["lee"]
-    assert messages["mei"].startswith("Your AI retelling:")
-    assert result.metadata["narrative_fallbacks"] == {"perspectives": 1}
+    assert result.status == PipelineStatusV11.REJECTED
+    assert result.memory is None
+    assert result.player_perspectives == []
+    assert result.next_chapter is None
+    assert result.metadata["mode"] == "live_ai"
+    assert "narrative_fallbacks" not in result.metadata
+    assert [call["stage"] for call in generator.calls] == [
+        "memory_discovery",
+        "perspectives",
+        "perspectives",
+    ]
 
 
-def test_live_pipeline_keeps_safe_quest_prose_and_falls_back_invalid_line() -> None:
+def test_live_pipeline_rejects_invalid_quest_without_deterministic_fallback() -> None:
     payload = json.loads((DATA_DIR / "historical_memory_packs.json").read_text(encoding="utf-8"))[0]
     pack = MemoryPackV11.model_validate(payload)
     baseline = MemoryPipeline().generate(pack)
@@ -254,11 +259,15 @@ def test_live_pipeline_keeps_safe_quest_prose_and_falls_back_invalid_line() -> N
 
     result = MemoryPipeline(generator).generate(pack)
 
-    assert result.status == PipelineStatusV11.READY
-    assert result.next_chapter is not None
-    assert result.next_chapter.title.startswith("AI Remix:")
-    assert (
-        result.next_chapter.objectives[0].description
-        == baseline.next_chapter.objectives[0].description
-    )
-    assert result.metadata["narrative_fallbacks"] == {"quest": 1}
+    assert result.status == PipelineStatusV11.REJECTED
+    assert result.memory is None
+    assert result.player_perspectives == []
+    assert result.next_chapter is None
+    assert result.metadata["mode"] == "live_ai"
+    assert "narrative_fallbacks" not in result.metadata
+    assert [call["stage"] for call in generator.calls] == [
+        "memory_discovery",
+        "perspectives",
+        "quest_generation",
+        "quest_generation",
+    ]

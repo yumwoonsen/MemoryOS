@@ -13,7 +13,8 @@ The set covers:
 - a consent-safe assist actor whose distinct teammate performs the same-location elimination within
   30 seconds, expected to select `duo_assist`;
 - repeated fourth/fifth-place finishes expected to select `redemption`;
-- ordinary sparse telemetry where live AI is expected to return the typed `not_generated` result.
+- ordinary sparse telemetry where the interpreter is expected to return the typed `not_generated`
+  result.
 
 Run the free deterministic baseline from the repository root:
 
@@ -45,5 +46,6 @@ The JSON report includes terminal status, offered and selected mission family, c
 validation outcomes, end-to-end latency, and aggregate provider token usage. It excludes API keys,
 raw telemetry, prompts, generated prose, and provider error text.
 
-The deterministic baseline does not imitate semantic abstention, so the ordinary-telemetry label is
-expected to fail there. That case is designed for controlled live-model evaluation.
+The deterministic demo interpreter conservatively abstains when a reunion-only episode has no
+strong gameplay signal, so this credential-free baseline exercises the complete labelled set. The
+command exits nonzero when any run misses an expected label.

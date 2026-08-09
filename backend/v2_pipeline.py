@@ -341,10 +341,14 @@ class MemoryInterpretationPipelineV2:
                 # unknown legacy value instead of exposing it or weakening the pool.
                 continue
 
-        normalized_squad_id = unicodedata.normalize(
-            "NFKC",
-            prepared.normalized.squad_id,
-        ).strip().casefold()
+        normalized_squad_id = (
+            unicodedata.normalize(
+                "NFKC",
+                prepared.normalized.squad_id,
+            )
+            .strip()
+            .casefold()
+        )
         decision = self.variation_policy.select(
             prepared.mission_affordances,
             seed=f"{normalized_squad_id}\x1f{generation_nonce}",
@@ -352,8 +356,7 @@ class MemoryInterpretationPipelineV2:
         )
 
         affordance_by_id = {
-            affordance.affordance_id: affordance
-            for affordance in prepared.mission_affordances
+            affordance.affordance_id: affordance for affordance in prepared.mission_affordances
         }
         has_specialized = any(
             affordance.family != MissionFamilyV2.REUNION

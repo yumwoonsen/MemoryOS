@@ -110,7 +110,7 @@ def test_pending_capture_replaces_live_authorization_and_strips_runtime_metadata
     assert replay.result.metadata == {
         "provider": "test-live",
         "model": "typed-v2.1",
-        "mode": "live_ai",
+        "mode": "saved_replay",
         "prompt_version": interpretation.result.metadata["prompt_version"],
         "content_origin": "saved_live_replay",
         "grounded_render": False,
@@ -125,7 +125,7 @@ def test_not_generated_capture_keeps_no_player_content_provenance() -> None:
     assert replay.result.delivery_id is None
     assert replay.result.memory is None
     assert replay.result.next_chapter is None
-    assert replay.result.metadata["mode"] == "live_ai"
+    assert replay.result.metadata["mode"] == "saved_replay"
     assert replay.result.metadata["content_origin"] == "no_player_content"
 
 

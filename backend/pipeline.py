@@ -42,7 +42,6 @@ class LazyOpenAIStructuredGenerator:
 
     provider_name = "openai"
     semantic_retry_limit = 1
-    narrative_fallback_enabled = True
 
     def __init__(self) -> None:
         from backend.services.openai_client import DEFAULT_MODEL
@@ -92,7 +91,6 @@ class LazyGroqStructuredGenerator:
 
     provider_name = "groq"
     semantic_retry_limit = 1
-    narrative_fallback_enabled = True
 
     def __init__(self) -> None:
         from backend.services.groq_client import DEFAULT_MODEL
@@ -143,7 +141,6 @@ class LazyGeminiStructuredGenerator:
 
     provider_name = "gemini"
     semantic_retry_limit = 1
-    narrative_fallback_enabled = True
 
     def __init__(self) -> None:
         from backend.services.gemini_client import DEFAULT_MODEL
@@ -219,9 +216,9 @@ class MemoryPipeline:
 
     @property
     def narrative_fallback_enabled(self) -> bool:
-        """Return whether a live provider opts into deterministic narrative recovery."""
+        """Keep failed live narrative stages fail-closed after their one correction."""
 
-        return getattr(self._generator, "narrative_fallback_enabled", False) is True
+        return False
 
     @property
     def usage_totals(self) -> dict[str, int]:

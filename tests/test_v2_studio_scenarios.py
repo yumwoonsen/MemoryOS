@@ -119,6 +119,20 @@ def test_evaluation_labels_never_enter_telemetry_story_brief_or_provider_payload
     assert not (forbidden_keys & provider_keys)
 
 
+def test_deterministic_demo_abstains_on_ordinary_sparse_telemetry() -> None:
+    registered = studio_scenario_registry_v2.get("ordinary-sparse-telemetry")
+
+    result = MemoryInterpretationPipelineV2().interpret_delivery(registered.telemetry)
+
+    assert result.status == "not_generated"
+    assert result.reason_codes == ["ai_no_meaningful_episode"]
+    assert result.memory is None
+    assert result.player_perspectives == []
+    assert result.next_chapter is None
+    assert result.metadata["mode"] == "deterministic_demo"
+    assert result.metadata["content_origin"] == "no_player_content"
+
+
 def test_studio_interpret_uses_only_the_exact_registered_fixture(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

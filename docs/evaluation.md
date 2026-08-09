@@ -152,10 +152,10 @@ telemetry → `not_generated`. The report separates delivered, abstained, and re
 audits that the affordance ranking is unique, contains exactly the offered IDs, puts the selected ID
 first, and matches the selected family, reason codes, and backend objective set.
 
-The offline deterministic evaluator/test interpreter does not decide semantic abstention and currently
-generates for the ordinary case, so the default baseline intentionally reports typed-abstention
-accuracy `0`. That failed label is useful: only a labelled V2.12 live run can supply current evidence
-that the model uses `no_meaningful_episode` appropriately.
+The offline deterministic evaluator/test interpreter now abstains when a reunion-only window contains
+no meaningful gameplay signal. The ordinary case therefore provides a credential-free typed
+`not_generated` regression. This proves the product boundary and manifest behavior; a labelled live
+sample is still required before claiming that a hosted model uses `no_meaningful_episode` reliably.
 
 ### Registered Studio scenario checks
 
@@ -223,14 +223,14 @@ terminally invalid result still fails closed after final Pydantic and determinis
 The provider Story Brief omits null placeholders only—concrete false consent/capability values and
 all actual evidence remain present.
 
-## V2.12 richer-missions verification gate
+## V2.13 richer-missions verification gate
 
 The automated checks below cover the current contract. A configured historical smoke used the
 telemetry-only fixture, Groq `openai/gpt-oss-120b`, and
 `memory-interpreter-v2.4-grounded-controls`; it ended as a validated pending delivery without a
 correction. That result is retained only as V2.4 history. It is not evidence for the active
 `memory-interpreter-v2.13-perspective-safe-variation` prompt, its generate/abstain behavior, mission
-selection behavior, or current model reliability. V2.12 requires a new labelled provider/model
+selection behavior, or current model reliability. V2.13 requires a new labelled provider/model
 sample.
 
 Two controlled V2.10 smokes were recorded historically on 9 August 2026 with Gemini
@@ -239,7 +239,7 @@ synthetic rescue selected `role_reversal` and completed in 4.74 seconds; the rep
 selected `redemption` and completed in 4.81 seconds. Both passed deterministic validation without
 correction. These successful paths do not replace the labelled no-revive and ordinary-telemetry
 cases or repeated runs required for a provider reliability claim, and they are not evidence for the
-active V2.12 prompt.
+active V2.13 prompt.
 
 Automated verification must cover:
 
@@ -401,7 +401,7 @@ The integrated frontend has its own deterministic gates:
 ```powershell
 cd frontend
 npm ci
-npm audit --audit-level=high
+npm run audit:production
 npm run typecheck
 npm run lint
 npm test

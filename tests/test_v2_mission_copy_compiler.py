@@ -135,9 +135,7 @@ def test_compiles_landing_rendezvous_from_backend_location_and_roster() -> None:
         }
     )
 
-    descriptions = compile_mission_objective_descriptions(
-        selected, [landing], SAFE_NAMES
-    )
+    descriptions = compile_mission_objective_descriptions(selected, [landing], SAFE_NAMES)
 
     assert descriptions["objective:landing"] == "Land at Peak with the invited squad."
 
@@ -163,9 +161,7 @@ def test_compiles_duo_assist_with_both_invitation_safe_players() -> None:
 
     descriptions = compile_mission_objective_descriptions(selected, [duo], SAFE_NAMES)
 
-    assert descriptions["objective:duo-assist"] == (
-        "Lee assists Mei with an elimination."
-    )
+    assert descriptions["objective:duo-assist"] == ("Lee assists Mei with an elimination.")
 
 
 def test_compiles_tactical_signal_with_the_grounded_assignee() -> None:
@@ -182,9 +178,7 @@ def test_compiles_tactical_signal_with_the_grounded_assignee() -> None:
 
     descriptions = compile_mission_objective_descriptions(selected, [signal], SAFE_NAMES)
 
-    assert descriptions["objective:signal"] == (
-        "Mei places the squad's first tactical signal."
-    )
+    assert descriptions["objective:signal"] == ("Mei places the squad's first tactical signal.")
 
 
 def test_compiles_full_squad_vehicle_extraction_with_a_bounded_window() -> None:

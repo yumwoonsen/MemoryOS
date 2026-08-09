@@ -37,6 +37,7 @@ from backend.models.v2_studio_schemas import (
 )
 
 REPLAY_SCHEMA_VERSION = "1.0"
+SAVED_REPLAY_MODE = "saved_replay"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 DEFAULT_MANIFEST_PATH = (
     Path(__file__).resolve().parents[1] / "frontend" / "data" / "studio-replays" / "manifest.json"
@@ -222,7 +223,7 @@ def _sanitized_result(
     payload["metadata"] = {
         "provider": _safe_metadata_label(metadata, "provider", 80),
         "model": _safe_metadata_label(metadata, "model", 160),
-        "mode": "live_ai",
+        "mode": SAVED_REPLAY_MODE,
         "prompt_version": _safe_metadata_label(metadata, "prompt_version", 160),
         "content_origin": (
             "saved_live_replay"

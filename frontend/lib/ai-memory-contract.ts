@@ -1,3 +1,5 @@
+import { hasStudioModeOriginPair } from "@/lib/studio-result-provenance-core.mjs";
+
 export type ConsentPermissionsV2 = {
   memory_appearance: boolean;
   identity_display: boolean;
@@ -258,7 +260,7 @@ export type RejectedInterpretationV2 = {
   metadata: {
     provider: string;
     model: string;
-    mode: "live_ai" | "deterministic";
+    mode: "live_ai" | "deterministic_demo";
     prompt_version: string;
     content_origin: "no_player_content";
     grounded_render: boolean;
@@ -291,14 +293,35 @@ export type NotGeneratedInterpretationV2 = {
 
 export type InterpretDeliveryResultV2 = PendingDeliveryV2 | RejectedInterpretationV2 | NotGeneratedInterpretationV2;
 
+type StudioPendingDeliveryMetadataV2 = Omit<
+  PendingDeliveryV2["metadata"],
+  "mode" | "content_origin"
+> & (
+  | { mode: "live_ai"; content_origin: "live_ai_validated" }
+  | { mode: "deterministic_demo"; content_origin: "deterministic_studio_sample" }
+  | { mode: "saved_replay"; content_origin: "saved_live_replay" }
+);
+
 export type StudioPendingDeliveryV2 = Omit<PendingDeliveryV2, "metadata"> & {
-  metadata: Omit<PendingDeliveryV2["metadata"], "mode" | "content_origin"> & {
-    mode: "live_ai" | "deterministic";
-    content_origin: "live_ai_validated" | "deterministic_studio_sample" | "saved_live_replay";
+  metadata: StudioPendingDeliveryMetadataV2;
+};
+
+export type StudioRejectedInterpretationV2 = Omit<RejectedInterpretationV2, "metadata"> & {
+  metadata: Omit<RejectedInterpretationV2["metadata"], "mode"> & {
+    mode: RejectedInterpretationV2["metadata"]["mode"] | "saved_replay";
   };
 };
 
-export type StudioInterpretDeliveryResultV2 = StudioPendingDeliveryV2 | RejectedInterpretationV2 | NotGeneratedInterpretationV2;
+export type StudioNotGeneratedInterpretationV2 = Omit<NotGeneratedInterpretationV2, "metadata"> & {
+  metadata: Omit<NotGeneratedInterpretationV2["metadata"], "mode"> & {
+    mode: NotGeneratedInterpretationV2["metadata"]["mode"] | "deterministic_demo" | "saved_replay";
+  };
+};
+
+export type StudioInterpretDeliveryResultV2 =
+  | StudioPendingDeliveryV2
+  | StudioRejectedInterpretationV2
+  | StudioNotGeneratedInterpretationV2;
 
 export type DecisionRequestV2 =
   | { schema_version: "2.0"; decision: "accepted" }
@@ -571,6 +594,8 @@ function hasPendingPlayerContent(value: Record<string, unknown>) {
     && typeof value.next_chapter.recipe === "string"
     && isMissionFamily(value.next_chapter.family)
     && isStringArray(value.next_chapter.invitation_player_ids)
+    && value.next_chapter.invitation_player_ids.length >= 2
+    && value.next_chapter.invitation_player_ids.length <= 4
     && new Set(value.next_chapter.invitation_player_ids).size === value.next_chapter.invitation_player_ids.length
     && hasValidMissionObjectiveGrammar(value.next_chapter.objectives, value.next_chapter.family);
 }
@@ -599,12 +624,11 @@ export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretD
       || value.next_chapter != null
       || (Array.isArray(value.player_perspectives) && value.player_perspectives.length > 0)
       || value.validation.passed !== true
-      || value.metadata.mode !== "live_ai"
-      || value.metadata.content_origin !== "no_player_content"
+      || !hasStudioModeOriginPair(value.status, value.metadata.mode, value.metadata.content_origin)
       || value.metadata.grounded_render !== false
       || value.metadata.narrative_fallback !== false
       || !value.reason_codes.includes("ai_no_meaningful_episode")) return null;
-    return value as NotGeneratedInterpretationV2;
+    return value as StudioNotGeneratedInterpretationV2;
   }
 
   if (value.status === "rejected") {
@@ -613,17 +637,19 @@ export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretD
       || value.next_chapter != null
       || (Array.isArray(value.player_perspectives) && value.player_perspectives.length > 0)
       || value.validation.passed !== false
-      || value.metadata.content_origin !== "no_player_content"
+      || !hasStudioModeOriginPair(value.status, value.metadata.mode, value.metadata.content_origin)
       || value.metadata.grounded_render !== false
       || value.metadata.narrative_fallback !== false) return null;
-    return value as RejectedInterpretationV2;
+    return value as StudioRejectedInterpretationV2;
   }
 
   if (!hasPendingPlayerContent(value)
     || value.validation.passed !== true
-    || !["live_ai", "deterministic"].includes(String(value.metadata.mode))
-    || !["live_ai_validated", "deterministic_studio_sample", "saved_live_replay"]
-      .includes(String(value.metadata.content_origin))
+    || !hasStudioModeOriginPair(
+      "pending_player_decision",
+      value.metadata.mode,
+      value.metadata.content_origin,
+    )
     || value.metadata.grounded_render !== false
     || value.metadata.narrative_fallback !== false
     || !Array.isArray(value.grounded_claims)
@@ -660,11 +686,13 @@ export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretD
 
 export function parseInterpretDeliveryV2(value: unknown): InterpretDeliveryResultV2 | null {
   const parsed = parseStudioInterpretDeliveryV2(value);
-  if (parsed?.status === "pending_player_decision"
-    && (parsed.metadata.mode !== "live_ai"
-      || parsed.metadata.grounded_render === true
-      || parsed.metadata.narrative_fallback === true
-      || parsed.metadata.content_origin !== "live_ai_validated")) return null;
+  if (!parsed
+    || parsed.metadata.mode !== "live_ai"
+    || parsed.metadata.grounded_render === true
+    || parsed.metadata.narrative_fallback === true
+    || (parsed.status === "pending_player_decision"
+      ? parsed.metadata.content_origin !== "live_ai_validated"
+      : parsed.metadata.content_origin !== "no_player_content")) return null;
   return parsed as InterpretDeliveryResultV2 | null;
 }
 
@@ -683,8 +711,17 @@ function validatePlayerVisibleBinding(
 
   const eligiblePlayers = telemetry.squad.players.filter((player) => player.consent.memory_appearance);
   const eligibleById = new Map(eligiblePlayers.map((player) => [player.player_id, player]));
+  const invitationEligibleIds = new Set(
+    eligiblePlayers
+      .filter((player) => player.consent.mission_invitation)
+      .map((player) => player.player_id),
+  );
   if (!eligibleById.has(telemetry.target_player_id)) return false;
   if (delivery.player_perspectives.length !== eligibleById.size) return false;
+  if (delivery.next_chapter.invitation_player_ids.length !== invitationEligibleIds.size
+    || !delivery.next_chapter.invitation_player_ids.every((playerId) => invitationEligibleIds.has(playerId))) {
+    return false;
+  }
   const perspectiveIds = new Set<string>();
   for (const perspective of delivery.player_perspectives) {
     const player = eligibleById.get(perspective.player_id);

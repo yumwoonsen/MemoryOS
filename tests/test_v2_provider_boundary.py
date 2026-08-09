@@ -107,8 +107,7 @@ def test_active_prompt_asks_ai_to_choose_story_continuity_without_positional_bia
         "role_reversal",
     ]
     assert (
-        MemoryInterpreterV2.prompt_version
-        == "memory-interpreter-v2.13-perspective-safe-variation"
+        MemoryInterpreterV2.prompt_version == "memory-interpreter-v2.13-perspective-safe-variation"
     )
     flattened_prompt = " ".join(prompt.split())
     assert "A# order, reference number, objective count, and wording ease" in flattened_prompt
@@ -129,9 +128,8 @@ def test_active_prompt_asks_ai_to_choose_story_continuity_without_positional_bia
     assert "Normalized messages must be unique" in flattened_prompt
     assert "game/mode/map/result/placement metadata" in flattened_prompt
     assert 'write "secured an elimination", never bare "eliminated"' in flattened_prompt
-    assert (
-        "unsupported_categorical_detail: remove every categorical/zone value"
-        in " ".join(prompt.split())
+    assert "unsupported_categorical_detail: remove every categorical/zone value" in " ".join(
+        prompt.split()
     )
 
 
@@ -202,9 +200,7 @@ def test_provider_exposes_role_aware_signal_and_vehicle_extraction_capabilities(
         TelemetryPreparerV2().prepare(parsed_batch())
     ).brief
     objectives = [
-        objective
-        for affordance in story_brief.affordances
-        for objective in affordance.objectives
+        objective for affordance in story_brief.affordances for objective in affordance.objectives
     ]
     signal = next(
         item for item in objectives if item.kind == MissionObjectiveKindV2.TACTICAL_SIGNAL
@@ -362,9 +358,7 @@ def test_provider_handle_decision_round_trips_to_canonical_delivery_controls() -
         "squad.participant_ids": "Queue into a match with the invited squad.",
         "squad.matches_completed": "Complete at least 1 match.",
         "match.first_squad_revive_actor_id": "Lee completes the squad's first revive.",
-        "match.invited_squad_visits_location": (
-            "Return to Clock Tower with the invited squad."
-        ),
+        "match.invited_squad_visits_location": ("Return to Clock Tower with the invited squad."),
         "match.first_squad_tactical_signal_actor_id": (
             "Amir places the squad's first tactical signal."
         ),

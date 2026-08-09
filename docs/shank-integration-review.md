@@ -61,7 +61,8 @@ resolved in favor of the sanitized evidence ledger and deterministic factual con
 - The Studio/test sample matches canonical metadata and is unmistakably separate from live player
   output.
 - Frontend dependencies were upgraded and the remaining transitive `undici` version was pinned;
-  `npm audit --audit-level=high` is a merge gate.
+  `npm run audit:production` is a merge gate; the root README records the upstream build-only
+  Vinext/image parser advisory separately.
 
 ## Current phase
 

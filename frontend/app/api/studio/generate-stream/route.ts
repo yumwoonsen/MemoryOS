@@ -1,5 +1,5 @@
 import { getDemoResult } from "@/lib/demo-results";
-import { backendRequestHeaders } from "@/lib/memoryos-server";
+import { backendRequestHeaders, isTrustedLocalBrowserRequest } from "@/lib/memoryos-server";
 import type {
   DeveloperErrorEvent,
   DeveloperMemoryEngineResult,
@@ -287,6 +287,14 @@ function normalizeProviderError(payload: unknown, status: number): DeveloperErro
 }
 
 export async function POST(request: Request) {
+  const callsBackend = shouldCallBackend(request);
+  if (callsBackend && !isTrustedLocalBrowserRequest(request)) {
+    return errorResponse("local_browser_required", "input", {
+      mode: "live",
+      status: 403,
+    });
+  }
+
   const declaredLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
     return errorResponse("memory_pack_too_large", "input", {
@@ -329,7 +337,7 @@ export async function POST(request: Request) {
   }
 
   const memoryPack = requestPayload;
-  if (!shouldCallBackend(request)) return sampleResponse(memoryPack, "hosted-sample");
+  if (!callsBackend) return sampleResponse(memoryPack, "hosted-sample");
 
   const upstreamController = new AbortController();
   const abortUpstream = () => upstreamController.abort(request.signal.reason);

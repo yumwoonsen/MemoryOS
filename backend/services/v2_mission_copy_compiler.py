@@ -134,8 +134,7 @@ def _compile_candidate(
             or not isinstance(invitation_player_ids, list)
             or not invitation_player_ids
             or any(
-                not isinstance(player_id, str)
-                or player_id not in safe_player_display_names
+                not isinstance(player_id, str) or player_id not in safe_player_display_names
                 for player_id in invitation_player_ids
             )
         ):
@@ -188,8 +187,7 @@ def _compile_candidate(
             or len(invitation_player_ids) < 2
             or len(invitation_player_ids) != len(set(invitation_player_ids))
             or any(
-                not isinstance(player_id, str)
-                or player_id not in safe_player_display_names
+                not isinstance(player_id, str) or player_id not in safe_player_display_names
                 for player_id in invitation_player_ids
             )
             or isinstance(maximum_seconds, bool)

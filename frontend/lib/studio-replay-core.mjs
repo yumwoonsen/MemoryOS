@@ -1,3 +1,5 @@
+import { hasStudioModeOriginPair } from "./studio-result-provenance-core.mjs";
+
 const replaySchemaVersion = "1.0";
 const resultSchemaVersion = "2.1";
 
@@ -44,8 +46,13 @@ export function parseStudioReplayEnvelope(value, expectedScenario) {
     || value.result.schema_version !== resultSchemaVersion
     || !isRecord(value.result.metadata)
     || expectedInnerOrigin === null
+    || value.result.metadata.mode !== "saved_replay"
     || value.result.metadata.content_origin !== expectedInnerOrigin
-    || value.result.metadata.mode !== "live_ai"
+    || !hasStudioModeOriginPair(
+      resultStatus,
+      value.result.metadata.mode,
+      value.result.metadata.content_origin,
+    )
     || value.result.metadata.provider !== value.provenance.provider
     || value.result.metadata.model !== value.provenance.model
     || value.result.metadata.prompt_version !== value.provenance.prompt_version) return null;

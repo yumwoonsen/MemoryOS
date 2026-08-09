@@ -46,7 +46,6 @@ class GroqStructuredGenerator:
 
     provider_name = "groq"
     semantic_retry_limit = 1
-    narrative_fallback_enabled = True
 
     def __init__(self, model_name: str | None = None) -> None:
         api_key = os.getenv("GROQ_API_KEY")

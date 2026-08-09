@@ -140,7 +140,7 @@ authentication, persistence, and rollout telemetry are ready.
   without restating its numeric count.
 - Uses conservative lexical candidate evidence without treating it as a unique semantic mapping;
   tuple, prose, privacy, value, and grounding validators still decide delivery.
-- Supplies deterministic reunion, role-reversal, and redemption affordances, each composed from
+- Supplies six deterministic mission-family affordances, each composed from
   backend-owned objective capabilities and an `authoring_scope` of allowed intent, players, and targets;
   AI selects one and writes its mission title and short story bridge, while the backend compiles the
   exact objective descriptions. Conservative checks reject contradictory targets/operators,

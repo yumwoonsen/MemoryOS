@@ -273,8 +273,7 @@ def interpret_varied_delivery_v2(
         issue_codes = [issue.code for issue in result.validation.issues]
         logger.log(
             logging.WARNING if result.status.value == "rejected" else logging.INFO,
-            "v2_varied_interpretation_complete status=%s "
-            "correction_attempted=%s issue_codes=%s",
+            "v2_varied_interpretation_complete status=%s correction_attempted=%s issue_codes=%s",
             result.status.value,
             result.validation.correction_attempted,
             ",".join(issue_codes) or "none",

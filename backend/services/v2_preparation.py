@@ -196,10 +196,10 @@ INTEGER_DETAIL_MAXIMUMS = {
     "placement": 100,
 }
 
-MAX_ELIGIBLE_WINDOWS = 6
+MAX_SCANNED_WINDOWS = 6
 MAX_WINDOW_EVENTS = 10
 MAX_WINDOW_SPAN_SECONDS = 120
-MAX_PROVIDER_EVENTS = MAX_ELIGIBLE_WINDOWS * MAX_WINDOW_EVENTS
+MAX_SCANNED_EVENTS = MAX_SCANNED_WINDOWS * MAX_WINDOW_EVENTS
 MIN_CHAPTER_OBJECTIVES = 2
 MAX_CHAPTER_OBJECTIVES = 5
 
@@ -212,9 +212,7 @@ _CHAPTER_PRIMARY_METRIC = {
     MissionFamilyV2.REDEMPTION: "match.top_three_reached",
     MissionFamilyV2.RETURN_TO_PLACE: "match.invited_squad_visits_location",
     MissionFamilyV2.LANDING_RENDEZVOUS: "match.invited_squad_lands_at_location",
-    MissionFamilyV2.DUO_ASSIST: (
-        "match.assigned_player_assisted_elimination_player_ids"
-    ),
+    MissionFamilyV2.DUO_ASSIST: ("match.assigned_player_assisted_elimination_player_ids"),
 }
 _CHAPTER_EXTRA_PRIORITY = {
     "match.invited_squad_lands_at_location": 0,
@@ -340,6 +338,7 @@ class _ChapterMechanicSource:
     source_match_ids: list[str]
     source_context_ids: list[str]
     parameters: dict[str, object]
+
 
 COLLECTIVE_MEMBERSHIP_DETAIL = {
     CanonicalEventType.VEHICLE_ENTER: "squad_members_aboard",
@@ -879,9 +878,9 @@ class TelemetryPreparerV2:
                 if chunk:
                     chunks.append(chunk)
                 for selected in chunks:
-                    if len(windows) >= MAX_ELIGIBLE_WINDOWS:
+                    if len(windows) >= MAX_SCANNED_WINDOWS:
                         return windows
-                    remaining = MAX_PROVIDER_EVENTS - total_events
+                    remaining = MAX_SCANNED_EVENTS - total_events
                     if remaining < 2:
                         return windows
                     selected = selected[:remaining]
@@ -1131,10 +1130,7 @@ class TelemetryPreparerV2:
                 (all_events[event_id] for event_id in source_ids),
                 key=lambda item: (item.timestamp_seconds, item.event_id),
             ):
-                if (
-                    event.event_type == CanonicalEventType.LANDING
-                    and event.actor_id in invited_ids
-                ):
+                if event.event_type == CanonicalEventType.LANDING and event.actor_id in invited_ids:
                     assert event.actor_id is not None
                     first_landing_by_player.setdefault(event.actor_id, event)
             landing_events_by_location: dict[str, list[NormalizedEventV2]] = {}
@@ -1147,12 +1143,9 @@ class TelemetryPreparerV2:
                     landing_events,
                     key=lambda item: (item.timestamp_seconds, item.event_id),
                 )
-                if (
-                    {event.actor_id for event in rendezvous_events} == set(invited_ids)
-                    and max(event.timestamp_seconds for event in rendezvous_events)
-                    - min(event.timestamp_seconds for event in rendezvous_events)
-                    <= 30
-                ):
+                if {event.actor_id for event in rendezvous_events} == set(invited_ids) and max(
+                    event.timestamp_seconds for event in rendezvous_events
+                ) - min(event.timestamp_seconds for event in rendezvous_events) <= 30:
                     complete_landing_groups.append((location, rendezvous_events))
             if complete_landing_groups:
                 landing_location, landing_events = sorted(
@@ -1357,13 +1350,11 @@ class TelemetryPreparerV2:
                     (
                         all_events[candidate_id]
                         for candidate_id in source_ids
-                        if all_events[candidate_id].event_type
-                        == CanonicalEventType.ELIMINATION
+                        if all_events[candidate_id].event_type == CanonicalEventType.ELIMINATION
                         and all_events[candidate_id].actor_id == assist.target_id
                         and all_events[candidate_id].location == assist.location
                         and 0
-                        <= all_events[candidate_id].timestamp_seconds
-                        - assist.timestamp_seconds
+                        <= all_events[candidate_id].timestamp_seconds - assist.timestamp_seconds
                         <= 30
                     ),
                     None,
@@ -1532,8 +1523,7 @@ class TelemetryPreparerV2:
             if reunion is None:
                 continue
             reunion_candidates = [
-                candidate_by_id[candidate_id]
-                for candidate_id in reunion.objective_candidate_ids
+                candidate_by_id[candidate_id] for candidate_id in reunion.objective_candidate_ids
             ]
             baseline_by_metric = {
                 candidate.verification.metric: candidate for candidate in reunion_candidates
@@ -1601,9 +1591,7 @@ class TelemetryPreparerV2:
                 selected_sources = [mechanic_sources[primary_metric]]
                 merged_parameters = dict(affordance.parameters)
                 family_priority = _CHAPTER_FAMILY_EXTRA_PRIORITY.get(affordance.family, ())
-                priority_index = {
-                    metric: index for index, metric in enumerate(family_priority)
-                }
+                priority_index = {metric: index for index, metric in enumerate(family_priority)}
                 for metric in sorted(
                     mechanic_sources,
                     key=lambda item: (
@@ -1630,9 +1618,7 @@ class TelemetryPreparerV2:
                         continue
                     selected_sources.append(source)
                     merged_parameters.update(source.parameters)
-                    if len(selected_sources) == MAX_CHAPTER_OBJECTIVES - len(
-                        _CHAPTER_BASE_METRICS
-                    ):
+                    if len(selected_sources) == MAX_CHAPTER_OBJECTIVES - len(_CHAPTER_BASE_METRICS):
                         break
 
                 role_by_metric = {primary_metric: MissionObjectiveRoleV2.PRIMARY}
@@ -1676,9 +1662,7 @@ class TelemetryPreparerV2:
                         "match.invited_squad_lands_at_location": "landing",
                         "match.assigned_player_assisted_elimination_player_ids": "duo_assist",
                         "match.first_squad_tactical_signal_actor_id": "tactical_signal",
-                        "match.invited_squad_vehicle_escape_within_seconds": (
-                            "vehicle_extraction"
-                        ),
+                        "match.invited_squad_vehicle_escape_within_seconds": ("vehicle_extraction"),
                     }[metric]
                     chapter_candidates.append(
                         TelemetryPreparerV2._clone_chapter_candidate(
@@ -1758,8 +1742,7 @@ class TelemetryPreparerV2:
         candidate: dict[str, object],
     ) -> bool:
         return all(
-            key not in existing or existing[key] == value
-            for key, value in candidate.items()
+            key not in existing or existing[key] == value for key, value in candidate.items()
         )
 
     @staticmethod

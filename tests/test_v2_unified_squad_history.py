@@ -18,9 +18,7 @@ FIXTURE_PATH = (
 
 
 def unified_batch() -> RawTelemetryBatchV2:
-    return RawTelemetryBatchV2.model_validate(
-        json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
-    )
+    return RawTelemetryBatchV2.model_validate(json.loads(FIXTURE_PATH.read_text(encoding="utf-8")))
 
 
 def test_fixture_uses_one_invitation_safe_roster_for_the_entire_history() -> None:
@@ -61,17 +59,13 @@ def test_rich_match_is_one_coherent_pochinok_payback_episode() -> None:
     revive = next(event for event in events if event.provider_event_type == "TEAMMATE_REVIVED")
     assist = next(event for event in events if event.provider_event_type == "KILL_ASSIST")
     elimination = next(
-        event
-        for event in events
-        if event.provider_event_type == "PLAYER_ELIMINATED_OPPONENT"
+        event for event in events if event.provider_event_type == "PLAYER_ELIMINATED_OPPONENT"
     )
     vehicle_entry = next(
         event for event in events if event.provider_event_type == "SQUAD_ENTERED_VEHICLE"
     )
     zone_escape = next(
-        event
-        for event in events
-        if event.provider_event_type == "SQUAD_EXITED_DAMAGE_ZONE"
+        event for event in events if event.provider_event_type == "SQUAD_EXITED_DAMAGE_ZONE"
     )
     assert (revive.actor_id, revive.target_id) == ("ff-player-mei", "ff-player-lee")
     assert (assist.actor_id, assist.target_id) == ("ff-player-lee", "ff-player-mei")
@@ -98,9 +92,7 @@ def test_preparation_exposes_every_grounded_family_from_the_unified_history() ->
     }.issubset({affordance.family for affordance in prepared.mission_affordances})
 
     rich_window = next(
-        window
-        for window in prepared.windows
-        if window.match_id == "ff-unified-pochinok-01"
+        window for window in prepared.windows if window.match_id == "ff-unified-pochinok-01"
     )
     assert len(rich_window.event_ids) == 10
     assert set(rich_window.participant_ids) == {

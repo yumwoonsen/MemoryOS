@@ -91,9 +91,9 @@ export async function POST(request: Request) {
       { status: 502, headers: privateHeaders },
     );
   }
-  if (interpreted.result.status === "pending_player_decision"
-    && (interpreted.result.metadata.mode !== "live_ai"
-      || interpreted.result.metadata.content_origin !== "live_ai_validated")) {
+  if (interpreted.result.metadata.mode !== "live_ai"
+    || (interpreted.result.status === "pending_player_decision"
+      && interpreted.result.metadata.content_origin !== "live_ai_validated")) {
     return Response.json(
       {
         stage: "studio_scenario",

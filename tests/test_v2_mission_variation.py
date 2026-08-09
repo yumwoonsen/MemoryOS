@@ -23,9 +23,7 @@ def affordance(identifier: str, family: MissionFamilyV2) -> MissionAffordanceV2:
             f"objective:{identifier}:participants",
             f"objective:{identifier}:complete",
         ],
-        allowed_reason_codes=[
-            MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE
-        ],
+        allowed_reason_codes=[MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE],
     )
 
 
@@ -51,9 +49,7 @@ def test_selection_is_reproducible_and_invariant_to_affordance_input_order() -> 
 
     assert forward == reversed_input
     assert forward.ranked_affordance_ids[0] == forward.selected_affordance_id
-    assert set(forward.ranked_affordance_ids) == {
-        item.affordance_id for item in offered
-    }
+    assert set(forward.ranked_affordance_ids) == {item.affordance_id for item in offered}
 
 
 def test_specialized_family_always_beats_available_reunion_fallback() -> None:
@@ -119,9 +115,7 @@ def test_selection_never_invents_an_unavailable_family() -> None:
             recent_families=[MissionFamilyV2.LANDING_RENDEZVOUS],
         )
         assert decision.selected_family in available
-        assert decision.selected_affordance_id in {
-            item.affordance_id for item in offered
-        }
+        assert decision.selected_affordance_id in {item.affordance_id for item in offered}
 
 
 def test_reunion_is_selected_when_it_is_the_only_grounded_affordance() -> None:

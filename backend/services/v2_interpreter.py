@@ -91,6 +91,19 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
     ),
 }
 
+DETERMINISTIC_DEMO_EPISODE_SIGNALS = frozenset(
+    {
+        CanonicalEventType.KNOCK,
+        CanonicalEventType.ELIMINATION,
+        CanonicalEventType.REVIVE,
+        CanonicalEventType.ASSIST,
+        CanonicalEventType.VEHICLE_ENTER,
+        CanonicalEventType.VEHICLE_EXIT,
+        CanonicalEventType.ESCAPE,
+        CanonicalEventType.SIGNAL,
+    }
+)
+
 
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
@@ -132,6 +145,8 @@ class MemoryInterpreterV2:
         if prepared.normalized is None or prepared.ledger is None or prepared.story_brief is None:
             raise ValueError("prepared telemetry is required")
         if self._generator is None:
+            if self._deterministic_demo_should_abstain(prepared):
+                return InterpretationAbstentionReasonV2.NO_MEANINGFUL_EPISODE
             return self._deterministic_demo(prepared)
 
         payload = self._provider_payload(prepared)
@@ -488,9 +503,7 @@ class MemoryInterpreterV2:
                 or signal_player_id != target
                 or target not in invitation_player_ids
             ):
-                raise ValueError(
-                    "tactical-signal capability requires one invitation-safe assignee"
-                )
+                raise ValueError("tactical-signal capability requires one invitation-safe assignee")
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.TACTICAL_SIGNAL,
@@ -740,6 +753,27 @@ class MemoryInterpreterV2:
         if context_id.startswith(prefix):
             return f"match:{context_id[len(prefix) :]}"
         return context_id
+
+    @staticmethod
+    def _deterministic_demo_should_abstain(prepared: PreparedInterpretationV2) -> bool:
+        """Conservatively withhold a reunion-only demo when its episode has no strong signal."""
+
+        assert prepared.normalized is not None
+        if any(
+            affordance.family != MissionFamilyV2.REUNION
+            for affordance in prepared.mission_affordances
+        ):
+            return False
+
+        offered_event_ids = {
+            event_id for window in prepared.windows for event_id in window.event_ids
+        }
+        return not any(
+            event.event_id in offered_event_ids
+            and event.event_type in DETERMINISTIC_DEMO_EPISODE_SIGNALS
+            for match in prepared.normalized.matches
+            for event in match.events
+        )
 
     def _deterministic_demo(self, prepared: PreparedInterpretationV2) -> MemoryProposalV2:
         """A test/Studio demonstration, never a fallback for failed live AI."""

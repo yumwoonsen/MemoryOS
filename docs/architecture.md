@@ -23,10 +23,12 @@ memory is relevant; the player is not asked to audit raw telemetry.
 > and `2.1` input, while every `InterpretDeliveryResultV2` is `2.1`. The active prompt contract is
 > `memory-interpreter-v2.13-perspective-safe-variation`, loaded from `memory_interpreter_v2_13.txt`. A
 > historical 8 August 2026 Groq 120B smoke used the older V2.4 prompt; it is not evidence for the
-> current V2.12 prompt and must be rerun before
+> current V2.13 prompt and must be rerun before
 > making current live-quality claims. Existing V1.0 and V1.1 routes remain runnable compatibility
 > paths while production authentication, persistence, notifications, telemetry integration, and
 > post-match verification are deferred.
+
+![Compact MemoryOS product flow](assets/memoryos-core-flow-minimal.png)
 
 ```mermaid
 flowchart LR
@@ -102,9 +104,10 @@ the backend nor frontend caches or deduplicates completed live interpretations. 
 click is a new pipeline execution and may use two provider calls when the one permitted correction
 is attempted.
 
-The same-origin Studio layer may replay a reviewed live result only under the top-level
-`saved_live_replay` origin and only when scenario ID, fixture hash/revision, provider, model, prompt,
-result schema, and capture timestamp match exactly. The committed registry currently contains no
+The same-origin Studio layer may replay a reviewed live result only with inner
+`mode: "saved_replay"`, under the top-level `saved_live_replay` origin, when it matches the exact
+fixture version and carries internally consistent recorded provider, model, prompt, result-schema,
+and capture-time provenance. The committed registry currently contains no
 saved artifacts. This replay path is Studio-only and is not a result cache, player authorization,
 generic rescue fallback, or deterministic narrative fallback. The player projection accepts only
 `live_ai_validated` and displays **AI-prepared · evidence-checked**.
@@ -181,10 +184,12 @@ the model attach unsupported actions or observations to its replacement label.
 The backend currently compiles exactly six affordance families, only when their evidence and
 feasibility conditions hold. These are authoritative capability boundaries: the model can choose
 and narrate one offered transformation but cannot invent a mechanic or verification rule. The
-backend composes squad entry, one to three compatible same-window mechanics, and match completion
+backend composes squad entry, zero to three compatible same-window mechanics, and match completion
 into a two-to-five-step chapter, then compiles every selected capability into exact objective copy.
-The grammar assigns an explicit role to every step: prerequisite, primary, support, bonus, or
-completion. Only bonus objectives are optional; all other roles gate completion.
+Reunion has no primary mechanic; each specialized family has one required primary plus up to two
+compatible support or bonus mechanics. The grammar assigns an explicit role to every step:
+prerequisite, primary, support, bonus, or completion. Only bonus objectives are optional; all other
+roles gate completion.
 
 | Family | Availability | Backend-owned continuation |
 |---|---|---|
@@ -258,8 +263,8 @@ Reducing duplicated IDs and backend-owned controls in the provider schema should
 output easier for a live model to produce consistently. It does not weaken validation because the
 removed fields are derived from deterministic sources rather than trusted from the model. Automated
 compact-decision, abstention, affordance, enrichment, and projection checks pass. The historical
-120B/V2.4 and Gemini/V2.10 smokes predate the current V2.12 prompt and therefore cannot establish
-current prompt reliability; the expected improvement still requires a controlled V2.12 sample.
+120B/V2.4 and Gemini/V2.10 smokes predate the current V2.13 prompt and therefore cannot establish
+current prompt reliability; the expected improvement still requires a controlled V2.13 sample.
 
 ## V1.1 compatibility: historical discovery
 

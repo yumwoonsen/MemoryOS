@@ -1,6 +1,6 @@
 # Contributing to MemoryOS
 
-MemoryOS is currently a Phase 1/2 prototype. Contributions should strengthen the central claim: a
+MemoryOS is a handoff-stage hackathon prototype. Contributions should strengthen the central claim: a
 Next Chapter must be specific to one squad, grounded in evidence, distinct for each participant,
 and safe to abstain when the input is weak.
 
@@ -19,13 +19,11 @@ The included VS Code settings select the local virtual environment and enable py
 Run all checks before committing:
 
 ```powershell
-$env:MEMORYOS_PROVIDER = "deterministic"
-ruff format --check .
-ruff check .
-pytest
+python scripts/verify.py
 ```
 
-To apply the formatter locally, run `ruff format .` and then repeat the checks.
+This expects the backend development environment and frontend packages to be installed. To apply
+the backend formatter locally, run `ruff format .` and then repeat the verification suite.
 
 ## Change guidelines
 

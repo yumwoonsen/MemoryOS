@@ -169,8 +169,9 @@ tags, `assigned_player_id`, `source_event_ids`, and `verification` (`metric`, `o
 
 Every offered Story Brief affordance and every delivered `next_chapter` contains two to five
 ordered objectives. Deterministic composition places invitation-safe squad entry first, match
-completion last, and up to three compatible grounded mechanics between them. The primary family
-mechanic is never dropped, candidate IDs are unique per affordance, and no mechanic may be borrowed
+completion last, and up to three compatible grounded mechanics between them. Reunion has no
+primary mechanic; the primary mechanic of every specialized family is never dropped. Candidate IDs
+are unique per affordance, and no mechanic may be borrowed
 from another neutral window. Only `bonus` objectives are optional; prerequisite, primary, support,
 and completion objectives are required.
 
@@ -497,9 +498,10 @@ value. Studio renders its own human-readable explanation beside that safe code. 
 messages, raw response bodies, unknown stages or codes, and inconsistent retryability values are
 discarded; malformed failures collapse to the generic `studio_live_run_withheld` boundary.
 
-The local-only Studio proxy may return `content_origin: "saved_live_replay"` after a live HTTP
-`503` only when a reviewed artifact exactly matches the selected scenario ID, fixture SHA-256,
-fixture revision, provider, model, prompt version, result schema, and capture timestamp. The saved
+The local-only Studio proxy may return `mode: "saved_replay"` with
+`content_origin: "saved_live_replay"` after a live HTTP `503` only when a reviewed artifact matches
+the exact fixture version and carries internally consistent recorded provider, model, prompt,
+result-schema, and capture-time provenance. The saved
 replay registry is currently empty. A replay is Studio-only and is not a cache entry or a player
 delivery. There is no generic rescue/deterministic fallback. The canonical player projection
 accepts only `metadata.content_origin: "live_ai_validated"` and displays the badge
@@ -891,9 +893,11 @@ delivery output or the minimal typed `not_generated` projection. The decision ro
 accepts `accepted` or `declined`; a decline must be either `not_relevant` or `details_wrong`.
 Decisions are process-local prototype data only.
 
-Until browser authentication, ownership checks, and rate limiting are implemented, both
-provider-consuming frontend routes are deliberately local-only:
-`/api/delivery/prepare` and `/api/studio/scenarios/interpret`. Each requires a loopback request URL
+Until browser authentication, ownership checks, and rate limiting are implemented, all
+provider-consuming frontend routes are deliberately local-only. The canonical routes are
+`/api/delivery/prepare` and `/api/studio/scenarios/interpret`; dormant compatibility routes
+`/api/generate`, backend-calling `/api/discover`, and `/api/studio/generate-stream` retain the same
+gate. Each requires a loopback request URL
 (`localhost`, `127.0.0.1`, or `[::1]`), an `Origin` header exactly equal to that URL's origin, and
 an absent or `same-origin` `Sec-Fetch-Site` header. Missing-origin, hosted, forged, or cross-site
 requests fail with `403 local_browser_required` before the frontend contacts the backend. Studio

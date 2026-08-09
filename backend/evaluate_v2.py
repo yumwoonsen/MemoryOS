@@ -370,6 +370,14 @@ def _temporary_model(provider: ProviderName, model: str | None) -> Iterator[None
             os.environ[environment_key] = original
 
 
+def benchmark_labels_passed(report: dict[str, Any]) -> bool:
+    """Return true only when a non-empty benchmark run matches every supplied label."""
+
+    model_reports = report.get("models", [])
+    runs = [run for model_report in model_reports for run in model_report.get("runs", [])]
+    return bool(runs) and all(run.get("labels_passed") is True for run in runs)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
@@ -384,7 +392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps({"status": "configuration_error", "code": str(error)}))
         return 2
     print(json.dumps(report, indent=2))
-    return 0
+    return 0 if benchmark_labels_passed(report) else 1
 
 
 if __name__ == "__main__":

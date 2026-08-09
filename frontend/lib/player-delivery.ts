@@ -298,12 +298,7 @@ export function projectPendingDeliveryForPlayer(
   const { refByPlayerId, roster, backendIdByRecipientRef, rawIdByRecipientRef } = scoped;
   const currentRef = refByPlayerId.get(telemetry.target_player_id);
   if (!currentRef) return null;
-  const backendInvitationIds = delivery.next_chapter.invitation_player_ids?.length
-    ? delivery.next_chapter.invitation_player_ids
-    : telemetry.squad.players
-      .filter((player) => player.consent.memory_appearance && player.consent.mission_invitation)
-      .map((player) => player.player_id);
-  const invitationIds = new Set(backendInvitationIds);
+  const invitationIds = new Set(delivery.next_chapter.invitation_player_ids);
   const invitationRoster = roster.filter((member) => {
     const backendId = backendIdByRecipientRef.get(member.recipient_ref);
     const rawId = rawIdByRecipientRef.get(member.recipient_ref);

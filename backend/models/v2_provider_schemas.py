@@ -138,11 +138,10 @@ class ProviderMissionObjectiveV2(StrictModel):
         }.get(self.kind)
         if expected_boundary_role is not None and self.objective_role != expected_boundary_role:
             raise ValueError("provider prerequisite and completion kinds require matching roles")
-        if (
-            expected_boundary_role is None
-            and self.objective_role
-            in {MissionObjectiveRoleV2.PREREQUISITE, MissionObjectiveRoleV2.COMPLETION}
-        ):
+        if expected_boundary_role is None and self.objective_role in {
+            MissionObjectiveRoleV2.PREREQUISITE,
+            MissionObjectiveRoleV2.COMPLETION,
+        }:
             raise ValueError("gameplay objective kinds cannot use boundary roles")
         return self
 

@@ -71,12 +71,16 @@ def test_deterministic_benchmark_reports_safe_per_run_fields() -> None:
     assert by_case["landing-rendezvous"]["selected_family"] == "landing_rendezvous"
     assert by_case["duo-assist"]["selected_family"] == "duo_assist"
     assert by_case["repeated-near-miss"]["selected_family"] == "redemption"
-    assert by_case["ordinary-sparse-telemetry"]["labels_passed"] is False
+    ordinary = by_case["ordinary-sparse-telemetry"]
+    assert ordinary["status"] == "not_generated"
+    assert ordinary["selected_family"] is None
+    assert ordinary["labels_passed"] is True
     summary = model_report["summary"]
     assert summary["mission_family_labels_evaluated"] == 5
     assert summary["mission_family_accuracy"] == 1
     assert summary["cross_fixture_family_variation_rate"] == 1
-    assert summary["typed_abstention_accuracy"] == 0
+    assert summary["status_accuracy"] == 1
+    assert summary["typed_abstention_accuracy"] == 1
     for run in model_report["runs"]:
         assert set(run) == {
             "case_id",
@@ -97,6 +101,23 @@ def test_deterministic_benchmark_reports_safe_per_run_fields() -> None:
             "output_tokens",
             "provider_latency_ms",
         }
+
+
+@pytest.mark.parametrize(("labels_passed", "expected_exit_code"), [(True, 0), (False, 1)])
+def test_cli_exit_code_reflects_label_results(
+    labels_passed: bool,
+    expected_exit_code: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        evaluate_v2_module,
+        "run_benchmark",
+        lambda **_kwargs: {
+            "models": [{"runs": [{"labels_passed": labels_passed}]}],
+        },
+    )
+
+    assert evaluate_v2_module.main([]) == expected_exit_code
 
 
 def test_repeated_model_matrix_can_be_exercised_without_network(monkeypatch) -> None:

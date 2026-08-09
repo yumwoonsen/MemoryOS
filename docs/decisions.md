@@ -324,7 +324,7 @@ remain historical context rather than evidence about Gemini or the current promp
 
 ## ADR-021 — Backend-compiled objective copy, AI-authored story bridge
 
-**Status:** accepted and implemented for the V2.12 prompt boundary
+**Status:** accepted and implemented for the V2.13 prompt boundary
 
 The active prompt is `memory-interpreter-v2.13-perspective-safe-variation`, loaded from
 `memory_interpreter_v2_13.txt`. AI still performs the meaningful interpretation: it ranks the
@@ -348,7 +348,7 @@ the clearly labelled scripted sequence: invitations, lobby assembly, game start,
 mission completion. It does not ingest an authenticated result or claim real objective verification.
 
 Historical V2.4 and V2.10 provider results remain labelled historical and are not evidence for the
-active V2.12 prompt.
+active V2.13 prompt.
 
 ## ADR-022 — Backend-owned Studio scenarios and separated provenance
 
@@ -369,10 +369,10 @@ with zero provider calls. `POST /v2/studio/scenarios/{scenario_id}/interpret` al
 and runs only the exact registered fixture through the existing live V2 pipeline. This prevents a
 named demonstration from silently accepting different client telemetry.
 
-The Studio may display a reviewed live capture under the separate top-level origin
-`saved_live_replay` only when the scenario ID, fixture hash/revision, provider, model, prompt
-version, result schema, and capture timestamp match exactly. The committed replay registry is
-currently empty. Saved replay is Studio inspection content, not player authorization, a generic
+The Studio may display a reviewed live capture with inner `mode: "saved_replay"` under the separate
+top-level origin `saved_live_replay` only when it matches the exact fixture version and carries
+internally consistent recorded provider, model, prompt, result-schema, and capture-time provenance.
+The committed replay registry is currently empty. Saved replay is Studio inspection content, not player authorization, a generic
 rescue fallback, deterministic prose, or a completed-result cache. The player projection accepts
 only `live_ai_validated` pending deliveries and labels them
 **AI-prepared · evidence-checked**.
@@ -400,8 +400,9 @@ controls and could not combine compatible mechanics from one episode.
 
 An affordance remains one AI-selectable continuation and one mission family. Deterministic
 preparation now composes that affordance into two to five ordered objectives: invitation-safe squad
-entry, one to three compatible mechanics grounded in the same neutral event window, and match
-completion. The primary family mechanic is always kept; redemption remains focused on its
+entry, zero to three compatible mechanics grounded in the same neutral event window, and match
+completion. Reunion has no primary mechanic; the primary mechanic of every specialized family is
+always kept. Redemption remains focused on its
 cross-match placement arc; landing and return targets are not combined. Every composed objective
 has an affordance-local ID and the selected family's recipe, preventing ambiguous provider
 references or cross-affordance control reuse.

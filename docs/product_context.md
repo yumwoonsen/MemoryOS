@@ -32,8 +32,9 @@ Historical browsing remains a separate read-only timeline rather than a second d
 - Authenticated upstream telemetry must establish source truth; the player judges relevance rather
   than auditing raw events.
 - AI chooses only among deterministic, consent-safe connected event windows.
-- The backend offers only reunion, role-reversal, and redemption missions supported by the current
-  evidence. AI may select one or abstain; it cannot invent a new mechanic.
+- The backend offers only reunion, role reversal, redemption, return-to-place, landing-rendezvous,
+  and duo-assist missions supported by the current evidence. AI may select one or abstain; it cannot
+  invent a new mechanic.
 - Gameplay telemetry establishes facts, not feelings.
 - Player-authored context may express meaning but cannot rewrite match facts.
 - A weak candidate is skipped instead of decorated with generic nostalgia.

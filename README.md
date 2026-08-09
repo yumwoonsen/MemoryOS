@@ -18,7 +18,31 @@ The project answers two questions:
 > This is a hackathon prototype built with synthetic fixtures. It does not connect to
 > Free Fire production services, contain player data, or claim access to Garena's internal APIs.
 
-## System boundary
+## What the prototype demonstrates
+
+- A server-owned synthetic squad history can become one evidence-backed shared memory.
+- AI can choose among feasible episode-and-mission combinations and author the human-facing
+  framing without controlling telemetry, consent, player identity, or verification rules.
+- Invalid, unsafe, contradictory, or ungrounded AI output can be repaired once and is otherwise
+  withheld; sparse context can produce an explicit abstention.
+- A player can accept or decline a validated chapter, then enter a clearly labelled simulated squad
+  continuation.
+
+## Product flow
+
+![MemoryOS core flow from gameplay evidence to a new chapter](docs/assets/memoryos-core-flow.png)
+
+```text
+synthetic gameplay evidence
+    -> consent-safe episode and mission preparation
+    -> AI memory, perspectives, and mission framing
+    -> deterministic validation and objective compilation
+    -> player decision
+    -> labelled squad invitation and match simulation
+    -> session-only history
+```
+
+## Architecture overview and responsibilities
 
 The v2 path deliberately separates decisions that must be reliable from the creative proposal
 that benefits from AI:
@@ -38,7 +62,7 @@ Source quality is resolved upstream. The player decides whether a validated deli
 ```text
 raw telemetry
     -> deterministic normalization, consent filtering, and eligible windows
-    -> typed Story Brief and feasible, verifiable reunion / role-reversal / redemption affordances
+    -> typed Story Brief and feasible, verifiable mission affordances across six supported families
     -> AI comparison of episode x mission options and one compact typed draft, or a grounded abstention
     -> deterministic proposal/control enrichment and exact objective-copy compilation
     -> deterministic grounding, privacy, media, and mission validation
@@ -83,13 +107,14 @@ and `O#` references. The provider ranks the `A#` choices and writes the selected
 short story bridge; each `A#` is an episode-and-mission pair, so the first ranked `A#` selects both the
 continuation and its linked episode without a redundant selected-window output field. The backend
 then resolves those short references to the authoritative window, family, recipe, assignments, source
-evidence, exact objective descriptions, and verification rules. Deterministic composition keeps the
-primary family mechanic, adds only compatible capabilities from the same neutral window, and never
-pads a chapter with fabricated actions. The player still receives one clear Next Chapter rather than an
-internal candidate menu.
-The ordered grammar is explicit: an invitation-safe prerequisite, one primary family mechanic,
-zero to two compatible support or optional bonus mechanics, and match completion. Bonus objectives
-are the only optional steps and never decide whether the chapter completes. Current grounded bonus
+evidence, exact objective descriptions, and verification rules. For every specialized family,
+deterministic composition keeps its primary mechanic, adds only compatible capabilities from the
+same neutral window, and never pads a chapter with fabricated actions. The player still receives
+one clear Next Chapter rather than an internal candidate menu.
+The ordered grammar is explicit: an invitation-safe prerequisite, zero to three compatible
+mechanics, and match completion. Reunion has no primary mechanic; each specialized family has one
+required primary plus up to two support or optional bonus mechanics. Bonus objectives are the only
+optional steps and never decide whether the chapter completes. Current grounded bonus
 capabilities include the first tactical signal and a full-squad vehicle escape within 60 seconds;
 both require their exact source events in the selected window.
 The model is instructed to choose the strongest direct evidence-linked continuation, not the first
@@ -138,7 +163,7 @@ Two controlled historical live smokes on 9 August 2026 used Gemini `gemini-3.6-f
 `memory-interpreter-v2.10.1-category-safe-perspectives`. The synthetic rescue selected `role_reversal` and
 completed in 4.74 seconds; repeated near misses selected `redemption` and completed in 4.81 seconds.
 Both passed validation without correction. These are two successful paths, not a complete provider
-reliability, reunion-counterfactual, or abstention matrix, and not evidence for the active V2.12
+reliability, reunion-counterfactual, or abstention matrix, and not evidence for the active V2.13
 prompt.
 
 The general v2 API boundary is `POST /v2/memories/interpret-delivery`. The player prototype uses
@@ -171,10 +196,10 @@ telemetry, the Story Brief, or provider input.
 Studio does not cache or deduplicate completed interpretations. Its browser lock prevents a second
 concurrent click, but every new live-run click starts a fresh pipeline execution and may use two
 provider calls when the one permitted correction is needed. A reviewed `saved_live_replay` may be
-shown only in Studio when its scenario ID, fixture SHA-256, fixture revision, provider, model,
-prompt, result schema, and capture time all match. The committed replay registry is currently
-empty. There is no generic rescue or deterministic narrative fallback. The player path accepts
-only `live_ai_validated` content.
+shown only in Studio when it matches the exact fixture version and carries internally consistent
+recorded provider, model, prompt, result-schema, and capture-time provenance. The committed replay
+registry is currently empty. There is no generic rescue or deterministic narrative fallback. The
+player path accepts only `live_ai_validated` content.
 
 The implemented v1.0/v1.1 endpoints remain available as compatibility surfaces alongside the
 separate v2 raw-telemetry DTO, proposal validator, API routes, and frontend adapter. V2 does not
@@ -193,12 +218,18 @@ inherit the composed `MemoryPackV11` input contract.
 - A credential-free deterministic provider plus Gemini, Groq GPT-OSS, and OpenAI live providers
 - FastAPI, command-line, pytest, and generated OpenAPI entry points
 
-## Quick start
+## Prerequisites
 
-Requirements: Python 3.11 or newer.
+- Python 3.11 or newer.
+- Node.js 22.13 or newer and npm for the frontend.
+- Git for cloning and handoff work.
+- A Gemini, Groq, or OpenAI key only when running an explicitly selected live provider. All tests
+  and deterministic preparation run without credentials.
+
+## Backend setup
 
 ```powershell
-cd memoryos-build
+cd MemoryOS
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
@@ -262,7 +293,27 @@ Open the repository folder and accept the recommended Python extension. The work
   the local environment or `.env`.
 - **MemoryOS: Run Golden Path** processes the original confirmed fixture in the terminal.
 
-## Optional live AI mode for the current v1.1 pipeline
+## Environment variables and live AI
+
+Configuration is server-side. `.env` is Git-ignored and loaded by the application, and provider credentials must never use a
+`NEXT_PUBLIC_` variable or enter browser code.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `MEMORYOS_PROVIDER` | `deterministic`, `gemini`, `groq`, or `openai` | `deterministic` |
+| `GEMINI_API_KEY` | Gemini credential for live generation | unset |
+| `GEMINI_MODEL` | Gemini model identifier | `gemini-3.6-flash` |
+| `GEMINI_V2_MAX_OUTPUT_TOKENS` | Bounded V2 response budget | `4000` |
+| `GROQ_API_KEY`, `GROQ_MODEL` | Optional Groq provider configuration | key unset; GPT-OSS 20B |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Optional OpenAI provider configuration | key unset |
+| `MEMORYOS_PROXY_TOKEN` | Optional shared secret between trusted frontend and backend servers | unset |
+| `MEMORYOS_API_URL` | Frontend-server URL for the FastAPI backend | local backend URL |
+| `MEMORYOS_CORS_ORIGINS` | Explicit browser origins accepted by FastAPI | documented local origins |
+
+The current V2 contract recommends Gemini `gemini-3.6-flash`, loads
+`memory-interpreter-v2.13-perspective-safe-variation` from
+`backend/prompts/memory_interpreter_v2_13.txt`, emits result schema `2.1`, uses low reasoning, allows
+one semantic repair, sets a 60-second provider timeout, and disables hidden SDK transport retries.
 
 Deterministic mode is intentionally the default: it is repeatable, free, and cannot spend API
 credits accidentally. To opt in to live generation:
@@ -314,7 +365,7 @@ silently substituting deterministic narrative.
 
 See [the API guide](docs/api.md) for configuration and request shapes.
 
-## Player prototype
+## Frontend setup
 
 The integrated `frontend/` contains the mobile-first player experience, AI Memory Inbox, reunion
 simulation, read-only history, and Developer Studio. The canonical `/` route uses same-origin
@@ -340,9 +391,91 @@ separately deployed HTTPS FastAPI backend. For the preferred prototype path, sto
 `MEMORYOS_API_URL` and the matching proxy token in the frontend server environment. Never place a
 provider key in the browser bundle.
 
+## Run both applications
+
+Use two terminals after completing both setup sections:
+
+```powershell
+# Terminal 1, repository root
+$env:MEMORYOS_PROVIDER = "deterministic"  # use gemini only for an explicit live run
+uvicorn backend.main:app --reload
+
+# Terminal 2
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:3000`. The frontend server calls FastAPI at
+`http://127.0.0.1:8000` unless `MEMORYOS_API_URL` is configured. Restart the backend after changing
+provider settings or keys. Deterministic mode supports fixture preparation and offline evaluation;
+the complete player or live Studio interpretation requires `gemini`, `groq`, or `openai` plus its
+server-side credential.
+
+## Main routes
+
+| Route | Purpose |
+|---|---|
+| `/` | Generate and review one validated player memory from the unified synthetic squad history |
+| `/mission` | Invitation, lobby, and explicitly simulated continuation |
+| `/history` | Read-only, session-local chapter timeline |
+| `/studio` | Scenario preparation, live interpretation, validation trace, and delivery inspection |
+| `http://127.0.0.1:8000/docs` | Interactive FastAPI/OpenAPI reference |
+
+## Main API endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Configuration and provider health without consuming model tokens |
+| `POST /v2/memories/interpret-delivery` | Interpret supplied V2 telemetry through the validated pipeline |
+| `POST /v2/memories/interpret-varied-delivery` | Player flow with bounded server-owned mission variety |
+| `GET /v2/studio/scenarios` | Return safe versioned Studio descriptors |
+| `POST /v2/studio/scenarios/{scenario_id}/prepare` | Deterministic preparation with zero provider calls |
+| `POST /v2/studio/scenarios/{scenario_id}/interpret` | Fresh live interpretation for one registered fixture |
+| `POST /v2/deliveries/{delivery_id}/decision` | Record accept or one controlled decline reason |
+| `GET /v2/deliveries/{delivery_id}/trace` | Return the sanitized developer trace |
+
+The `/v1/*` endpoints remain compatibility surfaces. New player and Studio work should use V2.
+
+## Demo fixtures and walkthrough
+
+Developer Studio owns five versioned scenarios:
+
+| Scenario | Use in a demo |
+|---|---|
+| Rescue sequence | Hero path: rescue evidence to a role-reversal chapter |
+| Landing rendezvous | Alternative path: a complete squad landing at one named location |
+| Duo assist | Alternative path: a grounded assist-to-elimination pair |
+| Repeated near miss | Alternative path: two placements supporting redemption |
+| Ordinary sparse telemetry | Insufficient-context path: explicit abstention/no player delivery |
+
+For the hero demo, start both applications, open `/studio`, select **Rescue sequence**, prepare the
+scenario, and then run the live interpretation. Inspect the Mission tab and Stage 04 accepted-for-
+inspection preview; this Studio convenience does not record a player decision. Use `/` for the actual
+player decision and `/mission` for the labelled simulation.
+
+For alternatives, repeat the Studio flow with Landing rendezvous, Duo assist, or Repeated near miss.
+For insufficient context, select Ordinary sparse telemetry and confirm that no player delivery is
+created. Run every committed label without credentials with:
+
+```powershell
+python -m backend.evaluate_v2 --provider deterministic
+```
+
+Live Studio interpretation consumes provider quota and may use one additional bounded repair call.
+Deterministic preparation and deterministic evaluation consume none.
+
 ## Verify changes
 
-Run the same checks as CI:
+After the backend virtual environment and frontend packages are installed, run the complete
+credential-free handoff suite from the repository root:
+
+```powershell
+python scripts/verify.py
+```
+
+The script runs the backend formatter check, lint, tests, dependency check, both deterministic
+evaluators, the production dependency audit, TypeScript check, frontend lint, build, and rendered
+flow tests. The equivalent individual commands are:
 
 ```powershell
 $env:MEMORYOS_PROVIDER = "deterministic"
@@ -352,7 +485,7 @@ pytest
 
 cd frontend
 npm ci
-npm audit --audit-level=high
+npm run audit:production
 npm run typecheck
 npm run lint
 npm test
@@ -381,7 +514,7 @@ python -m backend.evaluate_v2 --provider gemini --allow-live-api
 ## Repository map
 
 ```text
-memoryos-build/
+MemoryOS/
 |-- backend/
 |   |-- agents/          # Bounded semantic and validation stages
 |   |-- data/            # Synthetic Memory Pack fixtures
@@ -389,9 +522,11 @@ memoryos-build/
 |   |-- prompts/         # Version-controlled model behavior
 |   |-- services/        # Evidence, ranking, and provider boundaries
 |   |-- main.py          # FastAPI app and OpenAPI contract
-|   `-- pipeline.py      # Canonical orchestration
+|   |-- v2_pipeline.py   # Canonical V2 interpretation and delivery orchestration
+|   `-- pipeline.py      # V1 compatibility orchestration
 |-- docs/                # Product, architecture, API, decisions, and evaluation
 |-- frontend/            # Integrated player, mission, history, Studio, and API proxy routes
+|-- scripts/             # Cross-platform repository verification entry point
 `-- tests/               # Contract, ranking, grounding, privacy, and pipeline tests
 ```
 
@@ -407,8 +542,56 @@ memoryos-build/
 | [Evaluation](docs/evaluation.md) | Quality metrics and regression workflow |
 | [Roadmap](docs/roadmap.md) | Integration path and production questions |
 | [Shank integration review](docs/shank-integration-review.md) | Merge choices, compatibility, and next work |
-| [Prototype demo and test guide](docs/prototype-demo-test.md) | Current Phase 3 walkthrough and v2 acceptance checks |
 | [Phase 1 foundation](docs/phase-1-foundation.md) | Original single-memory vertical slice |
+
+## Live, deterministic, saved, and simulated behavior
+
+| Surface | What is real in this repository | What is not real |
+|---|---|---|
+| V2 live interpretation | A configured provider selects an offered episode/affordance and authors bounded prose; backend validation is real | It is not production telemetry ingestion or a guarantee of model quality |
+| Deterministic preparation | Normalization, consent filtering, event windows, capabilities, objective rules, and validation | It does not author or select a live player narrative |
+| Saved Studio replay | A reviewed historical live result with exact provenance, labelled `mode: saved_replay` | It makes no current provider call and cannot enter the player route |
+| Player decision | Accept/decline is recorded in process-local prototype state | It is not authenticated or durable |
+| Invitation and match continuation | UI transitions and family-specific completion presentation | Invites, joins, gameplay, and post-match verification are simulated |
+| History | Read-only timeline for the current browser session | It is not a durable squad record |
+
+## Data, privacy, and consent
+
+All committed fixtures are synthetic. Current consent is evaluated before prompting or delivery;
+opted-out identities are removed or anonymized, invitation eligibility remains backend-owned, and
+rejected provider prose is withheld. Provider keys and the optional proxy token stay on servers.
+The player projection excludes raw telemetry, canonical player IDs, evidence controls, verification
+rules, validation issues, and Studio traces. This prototype is not approved for real player data,
+and it has no production retention, deletion, authentication, or notification policy.
+
+## Third-party software, services, and media
+
+- FastAPI, Pydantic, Uvicorn, HTTPX, pytest, Ruff, and the OpenAI Python SDK support the backend.
+- Gemini uses Google's OpenAI-compatible API; Groq and OpenAI are optional server-side providers.
+- React, Vinext, Vite, TypeScript, ESLint, Tailwind tooling, and Cloudflare tooling support the
+  frontend and its Sites-compatible worker build.
+- OpenAPI TypeScript generation uses `openapi-typescript` and Redocly tooling.
+- All gameplay records are project-authored synthetic fixtures. Committed UI art is static prototype
+  media; the system performs no video understanding and sends no image frames to the model.
+
+See `LICENSE` and the package manifests for exact software licensing and versions. Free Fire and
+Garena product names are contextual references for the challenge prototype, not bundled datasets or
+production integrations.
+
+## Troubleshooting
+
+- **The frontend cannot reach MemoryOS:** verify FastAPI is running on port 8000 or set the
+  server-side `MEMORYOS_API_URL`.
+- **A new key is ignored:** restart the backend; environment files are loaded when the pipeline is
+  constructed.
+- **Studio preparation works but live interpretation fails:** preparation is credential-free. Check
+  `MEMORYOS_PROVIDER`, the matching server-side key, model access, quota, and `/health`.
+- **PowerShell blocks `npm.ps1`:** use `npm.cmd` for the same npm command or adjust the local execution
+  policy according to your organization policy.
+- **The player receives no memory:** inspect Studio. Abstention, provider failure, malformed output,
+  and failed validation intentionally produce no player delivery.
+- **Generated API types appear stale:** activate the repository virtual environment, run
+  `npm run generate:api-types` inside `frontend`, then rerun backend and frontend contract checks.
 
 ## Known limitations
 
@@ -419,9 +602,8 @@ memoryos-build/
   and observability is reported as completed stage snapshots rather than a live token trace.
 - The invitation, lobby, game, and successful completion sequence is a labelled static simulation.
   Live post-match telemetry ingestion and objective verification are deferred. Its completion
-  chapter title is selected deterministically by mission family—**Together Again**,
-  **The Favour Returned**, or **The Comeback Complete**—with a collision-safe alternative when it
-  would repeat the accepted mission title.
+  chapter title is selected deterministically from a family-specific title set, with a
+  collision-safe alternative when it would repeat the accepted mission title.
 - Developer Studio does not cache or deduplicate completed live interpretations. Every explicit
   live-run click may use an initial provider call plus one correction call. The UI only blocks
   duplicate concurrent clicks.
@@ -440,6 +622,11 @@ memoryos-build/
   provider request; work may continue until completion or timeout.
 - The legacy player adapter still carries hand-written v1.0 compatibility guards; the v1.1 API
   surface is generated from OpenAPI and checked for drift.
+- The Vinext build tool currently resolves `image-size@2.0.2`, whose ICNS, JXL, and HEIF parsers
+  have upstream denial-of-service advisories without a patched release. It is development/build
+  tooling only; this repository processes committed static WebP assets and exposes no untrusted
+  image-upload or metadata-inspection path. Production dependency auditing remains a CI gate, and
+  the Vinext dependency should be upgraded when it adopts a patched parser.
 - Media is limited to curated synthetic clips, thumbnails, or keyframes with deterministic event
   mappings. The prototype performs no automated video understanding.
 - Authenticated durable delivery decisions, suppression, feedback, deletion, and retention remain

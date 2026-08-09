@@ -280,9 +280,9 @@ test("does not ship the disposable starter preview", async () => {
 
 test("ships one exact server-owned player history plus an explicitly empty saved-replay registry", async () => {
   const dataFiles = (await readdir(new URL("../data/", import.meta.url))).sort();
-  assert.deepEqual(dataFiles, ["funny_memory.json", "player-scenarios", "raw_telemetry_v2.json", "studio-replays"]);
-  const telemetry = JSON.parse(await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"));
-  assert.equal(telemetry.schema_version, "2.0");
+  assert.deepEqual(dataFiles, ["funny_memory.json", "player-scenarios", "studio-replays"]);
+  const telemetry = await unifiedPlayerTelemetry();
+  assert.equal(telemetry.schema_version, "2.1");
   assert.ok(Array.isArray(telemetry.matches));
   for (const forbidden of ["title", "summary", "memory_type", "narrative_angle", "mission", "objectives", "resurfacing_reason", "importance"]) {
     assert.equal(JSON.stringify(telemetry).includes(`"${forbidden}"`), false, `${forbidden} must not pre-author the v2 input`);
@@ -1043,6 +1043,86 @@ test("provider-consuming routes require a strict local browser request", async (
   }
 });
 
+test("legacy provider proxies cannot be invoked outside a trusted local browser", async () => {
+  const memoryPack = await readFile(
+    new URL("../data/funny_memory.json", import.meta.url),
+    "utf8",
+  );
+  const routeCases = [
+    { path: "/api/generate", body: memoryPack, upstream: { status: "ready" } },
+    { path: "/api/discover", body: memoryPack, upstream: { status: "ready" } },
+    {
+      path: "/api/studio/generate-stream",
+      body: memoryPack,
+      upstream: { type: "result", result: { status: "ready" } },
+    },
+  ];
+  const rejectedBrowserShapes = [
+    { label: "missing Origin", options: { requestOrigin: "http://localhost", browserHeaders: false } },
+    {
+      label: "cross-site fetch",
+      options: {
+        requestOrigin: "http://localhost",
+        headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+      },
+    },
+  ];
+
+  for (const routeCase of routeCases) {
+    for (const rejected of rejectedBrowserShapes) {
+      const blocked = await postWithBackendStub(
+        routeCase.path,
+        routeCase.body,
+        routeCase.upstream,
+        rejected.options,
+      );
+      assert.equal(blocked.response.status, 403, `${routeCase.path}: ${rejected.label}`);
+      assert.equal((await blocked.response.json()).code, "local_browser_required");
+      assert.equal(blocked.upstreamRequest, null, `${routeCase.path}: ${rejected.label} must not fetch`);
+    }
+
+    const allowed = await postWithBackendStub(
+      routeCase.path,
+      routeCase.body,
+      routeCase.upstream,
+      { requestOrigin: "http://localhost" },
+    );
+    assert.equal(allowed.response.status, 200, `${routeCase.path}: valid localhost browser request`);
+    assert.ok(allowed.upstreamRequest, `${routeCase.path}: valid localhost request should reach the backend`);
+  }
+});
+
+test("delivery decisions require an explicit same-origin browser request", async () => {
+  const body = JSON.stringify({ delivery_id: "delivery-1", decision: "accepted" });
+  for (const options of [
+    { requestOrigin: "https://memoryos.example", browserHeaders: false },
+    {
+      requestOrigin: "https://memoryos.example",
+      headers: { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+    },
+  ]) {
+    const blocked = await postWithBackendStub(
+      "/api/delivery/decision",
+      body,
+      { delivery_id: "delivery-1", decision: "accepted" },
+      options,
+    );
+    assert.equal(blocked.response.status, 403);
+    assert.equal((await blocked.response.json()).code, "same_origin_browser_required");
+    assert.equal(blocked.upstreamRequest, null);
+  }
+
+  const allowed = await postWithBackendStub(
+    "/api/delivery/decision",
+    body,
+    { delivery_id: "delivery-1", decision: "accepted" },
+    { requestOrigin: "https://memoryos.example" },
+  );
+  assert.equal(allowed.response.status, 200);
+  assert.match(allowed.upstreamRequest.input, /\/v2\/deliveries\/delivery-1\/decision$/);
+  assert.deepEqual(JSON.parse(allowed.upstreamRequest.init.body), { decision: "accepted" });
+});
+
 test("player delivery boundary strips judge internals and refuses deterministic or rejected prose", async () => {
   const telemetry = await unifiedPlayerTelemetry();
   const deterministicResult = createTestLiveDelivery(telemetry, { studioOrigin: true });
@@ -1094,6 +1174,31 @@ test("player delivery boundary strips judge internals and refuses deterministic 
     assert.equal(Object.hasOwn(playerDelivery, internal), false, `${internal} must remain server-side`);
   }
   assert.doesNotMatch(JSON.stringify(playerDelivery), /ff-player-|event_id|supporting_|verification|generation_nonce|matches|consent/i);
+
+  const emptyInvitationRoster = structuredClone(liveResult);
+  emptyInvitationRoster.next_chapter.invitation_player_ids = [];
+  const emptyRosterWithheld = await postWithBackendStub(
+    "/api/delivery/prepare",
+    playerPrepareBody(telemetry),
+    emptyInvitationRoster,
+  );
+  assert.equal(emptyRosterWithheld.response.status, 422);
+  assert.equal((await emptyRosterWithheld.response.json()).code, "memory_withheld");
+
+  for (const invitationPlayerIds of [
+    liveResult.next_chapter.invitation_player_ids.slice(0, 2),
+    [...liveResult.next_chapter.invitation_player_ids.slice(0, 3), "unknown-player-id"],
+  ]) {
+    const mismatchedRoster = structuredClone(liveResult);
+    mismatchedRoster.next_chapter.invitation_player_ids = invitationPlayerIds;
+    const withheld = await postWithBackendStub(
+      "/api/delivery/prepare",
+      playerPrepareBody(telemetry),
+      mismatchedRoster,
+    );
+    assert.equal(withheld.response.status, 502);
+    assert.equal((await withheld.response.json()).code, "delivery_binding_failed");
+  }
 
   const rerun = await postWithBackendStub(
     "/api/delivery/prepare",
@@ -1426,9 +1531,7 @@ test("Studio fails closed when a live run has no exact registered replay", async
   );
   assert.equal((await forgedRetryability.response.json()).code, "studio_live_run_withheld");
 
-  const telemetry = JSON.parse(
-    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
-  );
+  const telemetry = await unifiedPlayerTelemetry();
   const noncanonical = await postWithBackendStub(
     "/api/studio/scenarios/interpret",
     JSON.stringify({ scenario }),
@@ -1441,12 +1544,38 @@ test("Studio fails closed when a live run has no exact registered replay", async
   );
   assert.equal(noncanonical.response.status, 502);
   assert.equal((await noncanonical.response.json()).code, "noncanonical_live_result");
+
+  const deterministicRejectedResult = {
+    ...createTestLiveDelivery(telemetry, { studioOrigin: true }),
+    delivery_id: null,
+    status: "rejected",
+    reason_codes: ["unsupported_claim"],
+    memory: null,
+    player_perspectives: [],
+    next_chapter: null,
+    grounded_claims: [],
+    validation: { passed: false, correction_attempted: true, issues: [{ code: "unsupported_claim" }] },
+    metadata: {
+      ...createTestLiveDelivery(telemetry, { studioOrigin: true }).metadata,
+      content_origin: "no_player_content",
+    },
+  };
+  const deterministicRejected = await postWithBackendStub(
+    "/api/studio/scenarios/interpret",
+    JSON.stringify({ scenario }),
+    {
+      schema_version: "2.1",
+      scenario,
+      result: deterministicRejectedResult,
+    },
+    { requestOrigin: "http://localhost" },
+  );
+  assert.equal(deterministicRejected.response.status, 502);
+  assert.equal((await deterministicRejected.response.json()).code, "noncanonical_live_result");
 });
 
 test("Studio trace lookup is same-origin, private, and carries source-quality state", async () => {
-  const telemetry = JSON.parse(
-    await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
-  );
+  const telemetry = await unifiedPlayerTelemetry();
   const qualityTrace = structuredClone(createTestLiveDelivery(telemetry).studio_trace);
   qualityTrace.source_quality_flag = true;
   qualityTrace.stages.at(-1).status = "complete";

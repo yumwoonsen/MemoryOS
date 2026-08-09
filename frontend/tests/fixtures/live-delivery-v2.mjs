@@ -208,7 +208,7 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
       ? {
           provider: "deterministic",
           model: "test-only-fixture",
-          mode: "deterministic",
+          mode: "deterministic_demo",
           prompt_version: "test-only",
           content_origin: "deterministic_studio_sample",
           grounded_render: false,

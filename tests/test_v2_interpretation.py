@@ -27,7 +27,7 @@ from backend.services.v2_delivery_repository import v2_delivery_repository
 from backend.services.v2_evaluation import summarize_v2_results
 from backend.services.v2_interpreter import MAX_PROVIDER_PAYLOAD_BYTES, MemoryInterpreterV2
 from backend.services.v2_preparation import (
-    MAX_PROVIDER_EVENTS,
+    MAX_SCANNED_EVENTS,
     MAX_WINDOW_EVENTS,
     MAX_WINDOW_SPAN_SECONDS,
     TelemetryPreparerV2,
@@ -37,9 +37,6 @@ from backend.services.v2_validator import ProposalValidatorV2
 from backend.v2_pipeline import MemoryInterpretationPipelineV2
 
 DATA_PATH = Path(__file__).resolve().parents[1] / "backend" / "data" / "raw_telemetry_v2.json"
-PLAYER_DATA_PATH = (
-    Path(__file__).resolve().parents[1] / "frontend" / "data" / "raw_telemetry_v2.json"
-)
 FAKE_GITHUB_TOKEN = "ghp_" + ("a" * 36)
 client = TestClient(app)
 REAL_BUILD_CONFIGURED_V2_PIPELINE = api._build_configured_v2_pipeline
@@ -54,7 +51,7 @@ def parsed_batch() -> RawTelemetryBatchV2:
 
 
 def player_batch() -> RawTelemetryBatchV2:
-    return RawTelemetryBatchV2.model_validate_json(PLAYER_DATA_PATH.read_text(encoding="utf-8"))
+    return parsed_batch()
 
 
 @pytest.fixture(autouse=True)
@@ -1925,9 +1922,7 @@ def test_duplicate_perspective_feedback_targets_the_safe_group() -> None:
 
     feedback = MemoryInterpretationPipelineV2._safe_correction_feedback(prepared, [issue])
 
-    assert feedback == [
-        {"code": "perspectives_not_distinct", "section": "perspectives"}
-    ]
+    assert feedback == [{"code": "perspectives_not_distinct", "section": "perspectives"}]
 
 
 def test_live_interpreter_propagates_second_malformed_output_after_one_retry(
@@ -2449,7 +2444,7 @@ def test_provider_projection_is_stably_capped_to_offered_window_events() -> None
     assert ledger_event_ids == window_ids
     payload_bytes = len(json.dumps(provider_payload, separators=(",", ":")).encode())
 
-    assert len(projected_ids) <= MAX_PROVIDER_EVENTS
+    assert len(projected_ids) <= MAX_SCANNED_EVENTS
     assert projected_ids == window_ids
     assert all(len(window.event_ids) <= MAX_WINDOW_EVENTS for window in prepared.windows)
     assert all(

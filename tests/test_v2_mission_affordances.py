@@ -149,8 +149,7 @@ def test_rescue_chapters_add_only_compatible_grounded_support_and_bonus_steps() 
         if item.family == MissionFamilyV2.RETURN_TO_PLACE
     )
     objectives = [
-        candidate_by_id[candidate_id]
-        for candidate_id in return_chapter.objective_candidate_ids
+        candidate_by_id[candidate_id] for candidate_id in return_chapter.objective_candidate_ids
     ]
 
     assert [item.verification.metric for item in objectives] == [
@@ -188,16 +187,13 @@ def test_vehicle_extraction_requires_an_explicit_full_squad_sequence() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed(payload))
 
     assert not any(
-        candidate.verification.metric
-        == "match.invited_squad_vehicle_escape_within_seconds"
+        candidate.verification.metric == "match.invited_squad_vehicle_escape_within_seconds"
         for candidate in prepared.mission_candidates
     )
 
 
 def test_complete_invited_squad_landing_offers_a_named_rendezvous() -> None:
-    prepared = TelemetryPreparerV2().prepare(
-        parsed(evaluation_payload("landing_rendezvous.json"))
-    )
+    prepared = TelemetryPreparerV2().prepare(parsed(evaluation_payload("landing_rendezvous.json")))
 
     assert prepared.issues == []
     landing = next(
@@ -239,18 +235,12 @@ def test_complete_invited_squad_landing_offers_a_named_rendezvous() -> None:
 def test_landing_story_bridge_accepts_backend_authorized_future_landers(
     story_bridge: str,
 ) -> None:
-    prepared = TelemetryPreparerV2().prepare(
-        parsed(evaluation_payload("landing_rendezvous.json"))
-    )
+    prepared = TelemetryPreparerV2().prepare(parsed(evaluation_payload("landing_rendezvous.json")))
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
     proposal = CompactProposalExpanderV2().expand(
         prepared,
         compact.model_copy(
-            update={
-                "mission": compact.mission.model_copy(
-                    update={"story_bridge": story_bridge}
-                )
-            }
+            update={"mission": compact.mission.model_copy(update={"story_bridge": story_bridge})}
         ),
     )
 
@@ -324,18 +314,12 @@ def test_landing_rendezvous_uses_each_players_first_landing_in_the_window() -> N
 def test_landing_story_bridge_cannot_contradict_the_backend_rule(
     story_bridge: str,
 ) -> None:
-    prepared = TelemetryPreparerV2().prepare(
-        parsed(evaluation_payload("landing_rendezvous.json"))
-    )
+    prepared = TelemetryPreparerV2().prepare(parsed(evaluation_payload("landing_rendezvous.json")))
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
     proposal = CompactProposalExpanderV2().expand(
         prepared,
         compact.model_copy(
-            update={
-                "mission": compact.mission.model_copy(
-                    update={"story_bridge": story_bridge}
-                )
-            }
+            update={"mission": compact.mission.model_copy(update={"story_bridge": story_bridge})}
         ),
     )
 
@@ -353,16 +337,13 @@ def test_typed_assist_pair_offers_a_player_specific_duo_mission() -> None:
 
     assert prepared.issues == []
     duo = next(
-        item
-        for item in prepared.mission_affordances
-        if item.family == MissionFamilyV2.DUO_ASSIST
+        item for item in prepared.mission_affordances if item.family == MissionFamilyV2.DUO_ASSIST
     )
     candidate = next(
         item
         for item in prepared.mission_candidates
         if item.candidate_id in duo.objective_candidate_ids
-        and item.verification.metric
-        == "match.assigned_player_assisted_elimination_player_ids"
+        and item.verification.metric == "match.assigned_player_assisted_elimination_player_ids"
     )
 
     assert candidate.assigned_player_id == "ff-player-lee"
@@ -450,9 +431,7 @@ def test_duo_assist_requires_the_target_teammate_to_secure_the_linked_eliminatio
 
     prepared = TelemetryPreparerV2().prepare(parsed(payload))
 
-    assert MissionFamilyV2.DUO_ASSIST not in {
-        item.family for item in prepared.mission_affordances
-    }
+    assert MissionFamilyV2.DUO_ASSIST not in {item.family for item in prepared.mission_affordances}
 
 
 @pytest.mark.parametrize(
@@ -472,9 +451,7 @@ def test_duo_assist_requires_an_ordered_same_location_pair_within_thirty_seconds
 
     prepared = TelemetryPreparerV2().prepare(parsed(payload))
 
-    assert MissionFamilyV2.DUO_ASSIST not in {
-        item.family for item in prepared.mission_affordances
-    }
+    assert MissionFamilyV2.DUO_ASSIST not in {item.family for item in prepared.mission_affordances}
 
 
 @pytest.mark.parametrize(
@@ -493,11 +470,7 @@ def test_duo_story_bridge_cannot_strengthen_the_backend_owned_count(
     proposal = CompactProposalExpanderV2().expand(
         prepared,
         compact.model_copy(
-            update={
-                "mission": compact.mission.model_copy(
-                    update={"story_bridge": story_bridge}
-                )
-            }
+            update={"mission": compact.mission.model_copy(update={"story_bridge": story_bridge})}
         ),
     )
 
@@ -681,9 +654,7 @@ def test_validator_rejects_changed_objective_role_and_requirement_metadata() -> 
         }
     )
     tampered = proposal.model_copy(
-        update={
-            "mission": proposal.mission.model_copy(update={"objectives": objectives})
-        }
+        update={"mission": proposal.mission.model_copy(update={"objectives": objectives})}
     )
 
     report = ProposalValidatorV2().validate(prepared, tampered)
@@ -769,9 +740,7 @@ def test_live_generation_has_truthful_content_origin_and_selection_trace() -> No
         for affordance in prepared.mission_affordances
         if affordance.family == MissionFamilyV2.ROLE_REVERSAL
     )
-    assert result.studio_trace.mission_selection.selected_affordance_id == (
-        selected.affordance_id
-    )
+    assert result.studio_trace.mission_selection.selected_affordance_id == (selected.affordance_id)
     assert len(result.next_chapter.objectives) == 5
     assert [item.objective_role.value for item in result.next_chapter.objectives] == [
         "prerequisite",

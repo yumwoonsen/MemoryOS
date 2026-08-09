@@ -134,12 +134,8 @@ def test_variation_filters_the_exact_top_three_distinct_non_recent_families() ->
 
 def test_same_seed_is_deterministic_and_history_prevents_an_immediate_repeat() -> None:
     batch = _batch()
-    first_pipeline = MemoryInterpretationPipelineV2(
-        repository=InMemoryV2DeliveryRepository()
-    )
-    mirror_pipeline = MemoryInterpretationPipelineV2(
-        repository=InMemoryV2DeliveryRepository()
-    )
+    first_pipeline = MemoryInterpretationPipelineV2(repository=InMemoryV2DeliveryRepository())
+    mirror_pipeline = MemoryInterpretationPipelineV2(repository=InMemoryV2DeliveryRepository())
 
     first = first_pipeline.interpret_delivery(batch, variation_seed=NONCE)
     mirror = mirror_pipeline.interpret_delivery(batch, variation_seed=NONCE)
@@ -161,9 +157,7 @@ def test_same_seed_is_deterministic_and_history_prevents_an_immediate_repeat() -
 
 def test_unknown_and_unavailable_history_values_are_ignored_safely() -> None:
     batch = _batch(DEFAULT_PATH)
-    repository = _StaticHistoryRepository(
-        ["unknown_legacy_family", MissionFamilyV2.DUO_ASSIST]
-    )
+    repository = _StaticHistoryRepository(["unknown_legacy_family", MissionFamilyV2.DUO_ASSIST])
 
     result = MemoryInterpretationPipelineV2(repository=repository).interpret_delivery(
         batch,
@@ -177,8 +171,7 @@ def test_unknown_and_unavailable_history_values_are_ignored_safely() -> None:
     assert result.next_chapter is not None
     assert result.next_chapter.family in available
     assert all(
-        affordance.family in available
-        for affordance in result.studio_trace.mission_affordances
+        affordance.family in available for affordance in result.studio_trace.mission_affordances
     )
 
 

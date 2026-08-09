@@ -29,6 +29,7 @@ import {
   studioInitialResultTab,
   studioInspectionDecision,
 } from "@/lib/studio-inspection-decision-core.mjs";
+import { safeStudioRuleTarget } from "@/lib/studio-safe-display-core.mjs";
 import { usePlayerFlow } from "../player-flow-provider";
 
 type ResultTab = "summary" | "grounding" | "mission";
@@ -138,8 +139,10 @@ function safeRuleTarget(
   target: string | number | boolean | string[],
   result: StudioInterpretDeliveryResultV2,
 ) {
-  if (!Array.isArray(target)) return String(target);
-  return target.map((item) => safeSubject(item, result)).join(", ");
+  const players = result.status === "pending_player_decision"
+    ? result.player_perspectives
+    : [];
+  return safeStudioRuleTarget(target, players);
 }
 
 function claimSupport(claim: GroundedClaimV2) {

@@ -42,15 +42,16 @@ capabilities for one neutral window are known, deterministic preparation compose
 chapter into **two to five ordered objectives**:
 
 1. one required invitation-safe squad prerequisite;
-2. one required primary mechanic for every specialized family;
-3. zero to two compatible support or optional bonus mechanics from the same window; and
+2. zero mechanics for reunion, or one required primary mechanic for a specialized family;
+3. for specialized families, zero to two compatible support or optional bonus mechanics from the
+   same window; and
 4. one required match-completion objective.
 
 Only the `bonus` role is optional. Prerequisite, primary, support, and completion objectives are
 required and determine chapter completion. The player and Studio preserve the same complete order;
 the UI labels each role instead of collapsing lifecycle rules into a single step.
 
-The primary family mechanic is always retained. Secondary mechanics are added only when their
+The primary mechanic of every specialized family is always retained. Secondary mechanics are added only when their
 typed source events belong to the same window and do not create a conflicting landing/return
 target. Redemption stays focused on its cross-match placement arc. Every composed candidate gets
 an affordance-local ID and the selected family's recipe, so provider references remain unique and
@@ -173,17 +174,17 @@ Rejected prose and free-form validator messages are not returned. If the correct
 fails, MemoryOS withholds all generated artifacts. One live run therefore uses one initial provider
 call and may use one correction call.
 
-V2.1 adds an explicit content origin:
+V2.1 adds explicit execution modes and content origins:
 
-- backend result `live_ai_validated` for player-deliverable pending output;
-- backend result `no_player_content` for an abstention or withheld result;
-- backend result `deterministic_studio_sample` for offline/test output only; and
-- top-level Studio `saved_live_replay` for a reviewed exact-version live capture used only for
-  inspection.
+- `mode: live_ai` with `live_ai_validated` for player-deliverable pending output;
+- `live_ai` or `deterministic_demo` with `no_player_content` for an abstention or withheld result;
+- `mode: deterministic_demo` with `deterministic_studio_sample` for offline/test output only; and
+- `mode: saved_replay` with top-level Studio `saved_live_replay` for a reviewed exact-fixture live
+  capture used only for inspection.
 
 The player accepts only `live_ai_validated` and shows
-**AI-prepared · evidence-checked**. A replay requires matching scenario ID, fixture hash/revision,
-provider, model, prompt, result schema, and capture time; no replay is currently committed. It never
+**AI-prepared · evidence-checked**. A replay requires an exact fixture version and internally
+consistent recorded provenance; no replay is currently committed. It never
 acts as a generic rescue or deterministic fallback.
 
 Studio registers Rescue, Landing rendezvous, Duo assist, Repeated near miss, and Ordinary scenarios.

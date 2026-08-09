@@ -6,6 +6,7 @@ import {
   parseStudioReplayEnvelope,
   studioReplayArtifactsFromManifest,
 } from "../lib/studio-replay-core.mjs";
+import { hasStudioModeOriginPair } from "../lib/studio-result-provenance-core.mjs";
 
 const rescueScenario = {
   scenario_id: "rescue-role-reversal",
@@ -37,13 +38,42 @@ function replayEnvelope(scenario = rescueScenario, status = "pending_player_deci
       metadata: {
         provider: "gemini",
         model: "gemini-2.5-flash",
-        mode: "live_ai",
+        mode: "saved_replay",
         prompt_version: "memory-interpreter-v2.1",
         content_origin: noPlayerContent ? "no_player_content" : "saved_live_replay",
       },
     },
   };
 }
+
+test("Studio metadata accepts only canonical mode and content-origin pairs", () => {
+  for (const [status, mode, origin] of [
+    ["pending_player_decision", "live_ai", "live_ai_validated"],
+    ["pending_player_decision", "deterministic_demo", "deterministic_studio_sample"],
+    ["pending_player_decision", "saved_replay", "saved_live_replay"],
+    ["not_generated", "live_ai", "no_player_content"],
+    ["not_generated", "deterministic_demo", "no_player_content"],
+    ["not_generated", "saved_replay", "no_player_content"],
+    ["rejected", "live_ai", "no_player_content"],
+    ["rejected", "deterministic_demo", "no_player_content"],
+    ["rejected", "saved_replay", "no_player_content"],
+  ]) {
+    assert.equal(hasStudioModeOriginPair(status, mode, origin), true);
+  }
+
+  for (const [status, mode, origin] of [
+    ["pending_player_decision", "live_ai", "saved_live_replay"],
+    ["pending_player_decision", "saved_replay", "live_ai_validated"],
+    ["pending_player_decision", "deterministic_demo", "saved_live_replay"],
+    ["not_generated", "saved_replay", "saved_live_replay"],
+    ["not_generated", "deterministic_demo", "deterministic_studio_sample"],
+    ["pending_player_decision", "deterministic", "deterministic_studio_sample"],
+    ["rejected", "saved_replay", "live_ai_validated"],
+    ["unknown", "saved_replay", "no_player_content"],
+  ]) {
+    assert.equal(hasStudioModeOriginPair(status, mode, origin), false);
+  }
+});
 
 test("saved Studio replays require an exact fixture hash and revision", () => {
   const valid = replayEnvelope();
@@ -57,6 +87,7 @@ test("saved Studio replays require an exact fixture hash and revision", () => {
     (value) => { value.provenance.result_schema_version = "2.0"; },
     (value) => { value.provenance.captured_at = "yesterday"; },
     (value) => { value.result.metadata.provider = "different-provider"; },
+    (value) => { value.result.metadata.mode = "live_ai"; },
     (value) => { value.result.metadata.content_origin = "live_ai_validated"; },
   ]) {
     const changed = structuredClone(valid);
@@ -69,6 +100,10 @@ test("ordinary telemetry can replay an exact saved live abstention without playe
   const abstention = replayEnvelope(ordinaryScenario, "not_generated");
   assert.equal(abstention.result.metadata.content_origin, "no_player_content");
   assert.ok(parseStudioReplayEnvelope(abstention, ordinaryScenario));
+
+  const unsafeLiveMode = structuredClone(abstention);
+  unsafeLiveMode.result.metadata.mode = "live_ai";
+  assert.equal(parseStudioReplayEnvelope(unsafeLiveMode, ordinaryScenario), null);
 
   const unsafePendingOrigin = structuredClone(abstention);
   unsafePendingOrigin.result.metadata.content_origin = "saved_live_replay";
