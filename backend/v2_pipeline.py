@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import unicodedata
+from dataclasses import replace
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -15,6 +17,7 @@ from backend.models.v2_schemas import (
     InterpretationAbstentionReasonV2,
     InterpretDeliveryResultV2,
     InterpretDeliveryStatusV2,
+    MissionFamilyV2,
     MissionSelectionV2,
     ProposalValidationReportV2,
     RawTelemetryBatchV2,
@@ -36,6 +39,7 @@ from backend.services.v2_delivery_repository import (
     v2_delivery_repository,
 )
 from backend.services.v2_interpreter import MemoryInterpreterV2, ProviderInputLimitError
+from backend.services.v2_mission_variation import MissionVariationPolicyV2
 from backend.services.v2_preparation import PreparedInterpretationV2, TelemetryPreparerV2
 from backend.services.v2_proposal_expander import CompactProposalExpansionError
 from backend.services.v2_validator import FATAL_VALIDATION_CODES, ProposalValidatorV2
@@ -52,6 +56,7 @@ class MemoryInterpretationPipelineV2:
         self.interpreter = MemoryInterpreterV2(generator)
         self.validator = ProposalValidatorV2()
         self.repository = repository or v2_delivery_repository
+        self.variation_policy = MissionVariationPolicyV2()
 
     @property
     def provider_name(self) -> str:
@@ -68,7 +73,13 @@ class MemoryInterpretationPipelineV2:
     def validate_provider_configuration(self) -> None:
         self.interpreter.validate_configuration()
 
-    def interpret_delivery(self, batch: RawTelemetryBatchV2) -> InterpretDeliveryResultV2:
+    def interpret_delivery(
+        self,
+        batch: RawTelemetryBatchV2,
+        *,
+        variation_seed: str | None = None,
+    ) -> InterpretDeliveryResultV2:
+        variation_pool_size = 0 if variation_seed is not None else None
         prepared = self.preparer.prepare(batch)
         if prepared.issues:
             validation = ProposalValidationReportV2(passed=False, issues=prepared.issues)
@@ -77,7 +88,15 @@ class MemoryInterpretationPipelineV2:
                 prepared,
                 validation,
                 preparation_failed=True,
+                variation_pool_size=variation_pool_size,
             )
+
+        if variation_seed is not None:
+            prepared = self._apply_mission_variation(
+                prepared,
+                generation_nonce=variation_seed,
+            )
+            variation_pool_size = len(prepared.mission_affordances)
 
         correction_attempted = False
         try:
@@ -87,10 +106,16 @@ class MemoryInterpretationPipelineV2:
                 batch,
                 prepared,
                 preparation_failed=True,
+                variation_pool_size=variation_pool_size,
             )
         except CompactProposalExpansionError as error:
             if self.execution_mode != "live_ai" or error.code in FATAL_VALIDATION_CODES:
-                return self._expansion_rejection(batch, prepared, error)
+                return self._expansion_rejection(
+                    batch,
+                    prepared,
+                    error,
+                    variation_pool_size=variation_pool_size,
+                )
             correction_attempted = True
             try:
                 proposal = self.interpreter.propose(
@@ -105,6 +130,7 @@ class MemoryInterpretationPipelineV2:
                     batch,
                     prepared,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
             except CompactProposalExpansionError as correction_error:
                 return self._expansion_rejection(
@@ -112,6 +138,7 @@ class MemoryInterpretationPipelineV2:
                     prepared,
                     correction_error,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
         except OpenAIProviderError as error:
             if self.execution_mode != "live_ai" or error.code != "provider_invalid_response":
@@ -132,6 +159,7 @@ class MemoryInterpretationPipelineV2:
                     batch,
                     prepared,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
             except CompactProposalExpansionError as correction_error:
                 return self._expansion_rejection(
@@ -139,12 +167,14 @@ class MemoryInterpretationPipelineV2:
                     prepared,
                     correction_error,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
         if isinstance(proposal, InterpretationAbstentionReasonV2):
             return self._not_generated(
                 batch,
                 prepared,
                 correction_attempted=correction_attempted,
+                variation_pool_size=variation_pool_size,
             )
         validation = self.validator.validate(
             prepared,
@@ -171,6 +201,7 @@ class MemoryInterpretationPipelineV2:
                     batch,
                     prepared,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
             except CompactProposalExpansionError as correction_error:
                 return self._expansion_rejection(
@@ -178,12 +209,14 @@ class MemoryInterpretationPipelineV2:
                     prepared,
                     correction_error,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
             if isinstance(proposal, InterpretationAbstentionReasonV2):
                 return self._not_generated(
                     batch,
                     prepared,
                     correction_attempted=True,
+                    variation_pool_size=variation_pool_size,
                 )
             validation = self.validator.validate(
                 prepared,
@@ -191,7 +224,12 @@ class MemoryInterpretationPipelineV2:
                 correction_attempted=True,
             )
         if not validation.passed:
-            return self._rejected(batch, prepared, validation)
+            return self._rejected(
+                batch,
+                prepared,
+                validation,
+                variation_pool_size=variation_pool_size,
+            )
 
         assert prepared.normalized is not None
         assert prepared.story_brief is not None
@@ -209,7 +247,8 @@ class MemoryInterpretationPipelineV2:
                     objective_id=candidate.candidate_id,
                     description=proposed_objective.description,
                     assigned_player_id=candidate.assigned_player_id,
-                    required=True,
+                    objective_role=candidate.objective_role,
+                    required=candidate.required,
                     verification=candidate.verification,
                     source_event_ids=candidate.source_event_ids,
                 )
@@ -275,7 +314,105 @@ class MemoryInterpretationPipelineV2:
             grounded_claims=proposal.claims,
             validation=validation,
             studio_trace=trace,
-            metadata=self._metadata(content_created=True),
+            metadata=self._metadata(
+                content_created=True,
+                variation_pool_size=variation_pool_size,
+            ),
+        )
+
+    def _apply_mission_variation(
+        self,
+        prepared: PreparedInterpretationV2,
+        *,
+        generation_nonce: str,
+    ) -> PreparedInterpretationV2:
+        """Narrow provider input to a deterministic, cooldown-aware family pool."""
+
+        if prepared.normalized is None or prepared.story_brief is None:
+            raise ValueError("prepared telemetry is required for mission variation")
+
+        trace_id = TelemetryPreparerV2.trace_id(prepared.normalized.request_id)
+        recent_families: list[MissionFamilyV2] = []
+        for raw_family in self.repository.recent_mission_families(trace_id, limit=2):
+            try:
+                recent_families.append(MissionFamilyV2(raw_family))
+            except (TypeError, ValueError):
+                # Process-local history is not authoritative mission input. Ignore an
+                # unknown legacy value instead of exposing it or weakening the pool.
+                continue
+
+        normalized_squad_id = unicodedata.normalize(
+            "NFKC",
+            prepared.normalized.squad_id,
+        ).strip().casefold()
+        decision = self.variation_policy.select(
+            prepared.mission_affordances,
+            seed=f"{normalized_squad_id}\x1f{generation_nonce}",
+            recent_families=recent_families,
+        )
+
+        affordance_by_id = {
+            affordance.affordance_id: affordance
+            for affordance in prepared.mission_affordances
+        }
+        has_specialized = any(
+            affordance.family != MissionFamilyV2.REUNION
+            for affordance in prepared.mission_affordances
+        )
+        deferred_recent = set(decision.deferred_recent_families)
+        selected_affordances = []
+        selected_families: set[MissionFamilyV2] = set()
+        for affordance_id in decision.ranked_affordance_ids:
+            affordance = affordance_by_id[affordance_id]
+            if has_specialized:
+                if (
+                    affordance.family == MissionFamilyV2.REUNION
+                    or affordance.family in deferred_recent
+                ):
+                    continue
+            elif affordance.family != MissionFamilyV2.REUNION:
+                continue
+            if affordance.family in selected_families:
+                continue
+            selected_affordances.append(affordance)
+            selected_families.add(affordance.family)
+            if len(selected_affordances) == 3:
+                break
+
+        if not selected_affordances:
+            raise RuntimeError("mission variation produced an empty grounded pool")
+
+        ordered_window_ids = list(
+            dict.fromkeys(affordance.window_id for affordance in selected_affordances)
+        )
+        ordered_candidate_ids = list(
+            dict.fromkeys(
+                candidate_id
+                for affordance in selected_affordances
+                for candidate_id in affordance.objective_candidate_ids
+            )
+        )
+        window_by_id = {window.window_id: window for window in prepared.windows}
+        candidate_by_id = {
+            candidate.candidate_id: candidate for candidate in prepared.mission_candidates
+        }
+        selected_windows = [window_by_id[window_id] for window_id in ordered_window_ids]
+        selected_candidates = [
+            candidate_by_id[candidate_id] for candidate_id in ordered_candidate_ids
+        ]
+        selected_story_brief = prepared.story_brief.model_copy(
+            update={
+                "eligible_event_windows": selected_windows,
+                "mission_candidates": selected_candidates,
+                "mission_affordances": selected_affordances,
+            }
+        )
+        return replace(
+            prepared,
+            windows=selected_windows,
+            mission_candidates=selected_candidates,
+            mission_affordances=selected_affordances,
+            story_brief=selected_story_brief,
         )
 
     def _provider_input_limit_rejection(
@@ -285,6 +422,7 @@ class MemoryInterpretationPipelineV2:
         *,
         preparation_failed: bool = False,
         correction_attempted: bool = False,
+        variation_pool_size: int | None = None,
     ) -> InterpretDeliveryResultV2:
         validation = ProposalValidationReportV2(
             passed=False,
@@ -302,6 +440,7 @@ class MemoryInterpretationPipelineV2:
             prepared,
             validation,
             preparation_failed=preparation_failed,
+            variation_pool_size=variation_pool_size,
         )
 
     def _not_generated(
@@ -310,6 +449,7 @@ class MemoryInterpretationPipelineV2:
         prepared: PreparedInterpretationV2,
         *,
         correction_attempted: bool,
+        variation_pool_size: int | None = None,
     ) -> InterpretDeliveryResultV2:
         validation = ProposalValidationReportV2(
             passed=True,
@@ -328,7 +468,7 @@ class MemoryInterpretationPipelineV2:
                 correction_attempted=correction_attempted,
                 abstained=True,
             ),
-            metadata=self._metadata(),
+            metadata=self._metadata(variation_pool_size=variation_pool_size),
         )
 
     @staticmethod
@@ -344,6 +484,7 @@ class MemoryInterpretationPipelineV2:
             "summary",
             "why_this_matters_now",
             "mission",
+            "perspectives",
         }
         if prepared.normalized is not None:
             allowed_sections.update(
@@ -358,6 +499,7 @@ class MemoryInterpretationPipelineV2:
         allowed_sections.update(provider_objective_sections)
         static_sections = {
             "why_now_evidence_mismatch": "why_this_matters_now",
+            "perspectives_not_distinct": "perspectives",
         }
         feedback: list[dict[str, str]] = []
         seen: set[tuple[str, str | None]] = set()
@@ -392,6 +534,7 @@ class MemoryInterpretationPipelineV2:
         error: CompactProposalExpansionError,
         *,
         correction_attempted: bool = False,
+        variation_pool_size: int | None = None,
     ) -> InterpretDeliveryResultV2:
         return self._rejected(
             batch,
@@ -401,6 +544,7 @@ class MemoryInterpretationPipelineV2:
                 correction_attempted=correction_attempted,
                 issues=[error.issue()],
             ),
+            variation_pool_size=variation_pool_size,
         )
 
     def _rejected(
@@ -410,6 +554,7 @@ class MemoryInterpretationPipelineV2:
         validation: ProposalValidationReportV2,
         *,
         preparation_failed: bool = False,
+        variation_pool_size: int | None = None,
     ) -> InterpretDeliveryResultV2:
         if preparation_failed:
             validation = self._public_preparation_validation(validation)
@@ -425,7 +570,7 @@ class MemoryInterpretationPipelineV2:
                 preparation_failed=preparation_failed,
                 correction_attempted=validation.correction_attempted,
             ),
-            metadata=self._metadata(),
+            metadata=self._metadata(variation_pool_size=variation_pool_size),
         )
 
     def _trace(
@@ -583,7 +728,12 @@ class MemoryInterpretationPipelineV2:
             return TelemetryPreparerV2.trace_id(batch.request_id).replace("trace_", "request_", 1)
         return batch.request_id
 
-    def _metadata(self, *, content_created: bool = False) -> dict[str, object]:
+    def _metadata(
+        self,
+        *,
+        content_created: bool = False,
+        variation_pool_size: int | None = None,
+    ) -> dict[str, object]:
         if content_created:
             content_origin = (
                 "live_ai_validated"
@@ -605,6 +755,11 @@ class MemoryInterpretationPipelineV2:
         }
         if self.interpreter.observability:
             metadata["observability"] = self.interpreter.observability
+        if variation_pool_size is not None:
+            metadata["mission_variation"] = {
+                "policy": type(self.variation_policy).__name__,
+                "pool_size": variation_pool_size,
+            }
         return metadata
 
 

@@ -27,8 +27,8 @@ dedicated MemoryOS Studio remains intentionally separate from this player protot
 
 The canonical `/` route uses the AI-first v2 adapter and proxies:
 
-- `POST /v2/memories/interpret-delivery` for raw telemetry to one fully enriched, validated public
-  delivery; and
+- `POST /v2/memories/interpret-varied-delivery` for one server-owned unified squad history to one
+  fully enriched, validated public delivery; and
 - `POST /v2/deliveries/{delivery_id}/decision` for acceptance or one structured decline reason.
 
 The live provider's compact decision is internal to the backend. AI authors memory and perspective
@@ -57,9 +57,9 @@ impose a family priority. It checks the selected option's grounding and consent,
 bridge that contradicts its target/operator, introduces an unoffered mechanic, asserts an unsupported
 fact, or violates privacy or safety. The story bridge does not need to repeat every objective rule.
 
-For readability, the player projection combines overlapping roster-participation and
-completed-match requirements into one clear step, such as **Complete one match with the invited
-squad**. The separate backend rules are unchanged and remain visible in Developer Studio.
+The player projection preserves every objective in the backend's two-to-five-step grammar. It
+labels prerequisite, primary, support, bonus, and completion roles; only bonuses are optional, and
+required objectives alone determine the scripted prototype outcome.
 
 This preserves the compact player sequence: one memory, its grounded explanation,
 the current player's perspective, one clear Next Chapter, and one decision. `/history` remains a
@@ -126,7 +126,7 @@ no longer repeats identifiers and control values already owned by the backend. T
 the player boundary or validation. The updated backend/frontend suites and one telemetry-only live
 interpretation passed historically on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
 v2.4 prompt. The current v2.1 mission-affordance path uses
-`memory-interpreter-v2.12-richer-missions` from `memory_interpreter_v2_12.txt`; historical
+`memory-interpreter-v2.13-perspective-safe-variation` from `memory_interpreter_v2_13.txt`; historical
 V2.4 and V2.10 runs are not comparative
 reliability results for the active prompt.
 
@@ -147,6 +147,9 @@ only a real local-browser request: the request URL must use `localhost`, `127.0.
 its `Origin` must exactly match that URL's origin, and `Sec-Fetch-Site` must be absent or
 `same-origin`. Missing-origin, hosted, and cross-site requests receive `403` before any backend or
 provider call.
+The browser sends only the opaque unified experience reference and its request reference. The
+same-origin server resolves the raw fixture, generates a private nonce, and calls the varied
+delivery endpoint; neither raw telemetry nor the nonce is reflected to the browser.
 `/api/discover` and its exact-fixture sample fallback remain compatibility infrastructure and are
 not used by the canonical player flow.
 
@@ -163,11 +166,16 @@ requests and is never serialized into the browser bundle.
 
 ## Current memory and squad history
 
-`/` is the local AI Memory Inbox. It submits the server-held synthetic raw telemetry fixture through
+`/` is the local AI Memory Inbox. It submits one coherent server-held synthetic squad history through
 the `/api/delivery/prepare` proxy, receives one evidence-validated live-AI delivery with explicit
 `live_ai_validated` provenance, displays **AI-prepared · evidence-checked**, then records only an
 accept decision or one of two decline reasons through
 `/api/delivery/decision`.
+After a terminal `declined`, `not_generated`, or error state, **Generate another grounded chapter**
+resets the entire player flow and makes a new provider-backed request. The backend defers the last
+two successfully delivered families when other grounded families are available and lets the AI
+rank up to three distinct validated choices. The rerun control is deliberately unavailable while a
+request or decision is pending and after acceptance, and every rerun may consume provider quota.
 The v2 proxy preserves those semantics while binding the decision to the opaque delivery ID.
 `/history` is a separate read-only view built from verified, confirmed, deduplicated safe-list data.
 It performs no delivery preparation and records no player decision. Player feedback does not

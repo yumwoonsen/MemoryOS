@@ -21,7 +21,7 @@ memory is relevant; the player is not asked to audit raw telemetry.
 > projection, five-scenario Studio registry, Studio trace, and acceptance tests exist.
 > `RawTelemetryBatchV2` accepts both `2.0`
 > and `2.1` input, while every `InterpretDeliveryResultV2` is `2.1`. The active prompt contract is
-> `memory-interpreter-v2.12-richer-missions`, loaded from `memory_interpreter_v2_12.txt`. A
+> `memory-interpreter-v2.13-perspective-safe-variation`, loaded from `memory_interpreter_v2_13.txt`. A
 > historical 8 August 2026 Groq 120B smoke used the older V2.4 prompt; it is not evidence for the
 > current V2.12 prompt and must be rerun before
 > making current live-quality claims. Existing V1.0 and V1.1 routes remain runnable compatibility
@@ -183,6 +183,8 @@ feasibility conditions hold. These are authoritative capability boundaries: the 
 and narrate one offered transformation but cannot invent a mechanic or verification rule. The
 backend composes squad entry, one to three compatible same-window mechanics, and match completion
 into a two-to-five-step chapter, then compiles every selected capability into exact objective copy.
+The grammar assigns an explicit role to every step: prerequisite, primary, support, bonus, or
+completion. Only bonus objectives are optional; all other roles gate completion.
 
 | Family | Availability | Backend-owned continuation |
 |---|---|---|
@@ -365,8 +367,9 @@ separates player-facing language from factual and consent controls:
   confidence, and confirmation state.
 - The model authors one message per opted-in player, while the server fixes identity, ordering, and
   player-specific evidence references.
-- The model authors quest title, mission, recipe, and objective descriptions, while the server fixes
-  objective IDs, assignments, requirements, source events, and verification rules.
+- The model authors the quest title and short story bridge, while the server fixes the recipe,
+  objective descriptions, roles, IDs, assignments, requirements, source events, and verification
+  rules.
 
 Live prompts receive control-only scaffolds. The pipeline copies model-authored narrative fields
 onto the authoritative scaffold and ignores model attempts to change control fields. Narrative then
@@ -436,6 +439,13 @@ Provider transport or refusal failures remain safe HTTP `503` errors.
 Rejected proposal prose is never included in a player response or Developer Studio trace; Studio may
 show stable issue codes and a structural, redacted validation trace only.
 
+`POST /v2/memories/interpret-varied-delivery` runs the same fail-closed pipeline after a
+trusted-server variation step. A normalized squad ID and opaque nonce seed a stable shuffle; up to
+three distinct specialized families are offered, with the last two successful families deferred
+when alternatives exist. Filtering happens before provider authoring and is applied consistently to
+windows, candidates, affordances, and the Story Brief. The provider therefore cannot escape the
+grounded pool, and `reunion` is retained only as the no-specialized-family fallback.
+
 `POST /v2/deliveries/{delivery_id}/decision` records `accepted` or `declined`. A decline
 requires exactly `not_relevant` or `details_wrong` and suppresses that exact process-local delivery.
 Authentication, durable storage, retention, deletion, and operational review are deferred
@@ -483,8 +493,10 @@ The player frontend now has one canonical consumer flow split by responsibility:
 - `/history` is a compact, read-only timeline. It shows the current session milestones plus only
   sanitized metadata from eligible past packs; it does not prepare deliveries or record decisions.
 
-The current-memory route uses the v2 interpretation contract through same-origin server proxies.
-The server normalizes synthetic raw telemetry, asks one live model for a compact decision, enriches a generated proposal
+The current-memory route uses the varied v2 interpretation contract through same-origin server
+proxies. The server holds one coherent synthetic squad history, generates a private nonce for each
+chapter, normalizes the telemetry, asks one live model for a compact decision inside the grounded
+rotation pool, enriches a generated proposal
 with authoritative claims and mission controls, validates the complete result, and returns
 `pending_player_decision`. A player can accept or decline;
 `details_wrong` is a data-quality signal and `not_relevant` is a relevance signal. Neither lets the
@@ -506,7 +518,7 @@ The player projection preserves the complete ordered two-to-five-step chapter. Q
 invited squad and completing the match remain distinct lifecycle requirements around the grounded
 gameplay mechanics; Developer Studio shows the same objective count and underlying controls.
 
-`/` proxies `/v2/memories/interpret-delivery` and
+`/` proxies `/v2/memories/interpret-varied-delivery` and
 `/v2/deliveries/{delivery_id}/decision` without exposing backend credentials. `/history` remains
 read-only and does not prepare a delivery or record a decision.
 

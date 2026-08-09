@@ -144,6 +144,26 @@ function isMissionCandidate(value: unknown): value is StudioInterpretationTraceV
     && typeof value.candidate_id === "string"
     && typeof value.window_id === "string"
     && typeof value.recipe === "string"
+    && ["prerequisite", "primary", "support", "bonus", "completion"]
+      .includes(String(value.objective_role))
+    && typeof value.required === "boolean"
+    && (value.objective_role === "bonus" ? value.required === false : value.required === true)
+    && isStringArray(value.compatibility_tags)
+    && value.compatibility_tags.length > 0
+    && value.compatibility_tags.length <= 4
+    && new Set(value.compatibility_tags).size === value.compatibility_tags.length
+    && value.compatibility_tags.every((tag) => [
+      "squad_entry",
+      "location",
+      "individual_assignment",
+      "squad_coordination",
+      "combat",
+      "support_action",
+      "tactical",
+      "vehicle",
+      "placement",
+      "match_completion",
+    ].includes(tag))
     && (value.assigned_player_id == null || typeof value.assigned_player_id === "string")
     && isStringArray(value.source_event_ids)
     && isVerification(value.verification);
@@ -169,6 +189,23 @@ function isMissionAffordance(value: unknown): value is MissionAffordanceV2 {
     && value.objective_candidate_ids.length >= 2
     && value.objective_candidate_ids.length <= 5
     && uniqueNonEmpty(value.allowed_reason_codes);
+}
+
+function hasValidAffordanceObjectiveGrammar(
+  affordance: MissionAffordanceV2,
+  candidateById: Map<string, StudioInterpretationTraceV2["mission_candidates"][number]>,
+) {
+  const objectives = affordance.objective_candidate_ids.map((candidateId) => candidateById.get(candidateId));
+  if (objectives.some((objective) => !objective)) return false;
+  const roles = objectives.map((objective) => objective!.objective_role);
+  const expectedPrimaryCount = affordance.family === "reunion" ? 0 : 1;
+  return roles[0] === "prerequisite"
+    && roles.at(-1) === "completion"
+    && roles.filter((role) => role === "prerequisite").length === 1
+    && roles.filter((role) => role === "completion").length === 1
+    && roles.filter((role) => role === "primary").length === expectedPrimaryCount
+    && roles.filter((role) => role === "support").length <= 2
+    && roles.filter((role) => role === "bonus").length <= 2;
 }
 
 export function parseStudioScenarioDescriptor(value: unknown): StudioScenarioDescriptorV2 | null {
@@ -260,7 +297,9 @@ export function parseStudioScenarioPreparation(value: unknown): StudioScenarioPr
     || !Array.isArray(value.mission_affordances)
     || !value.mission_affordances.every(isMissionAffordance)) return null;
 
-  const candidateIds = new Set(value.mission_candidates.map((item) => item.candidate_id));
+  const candidates = value.mission_candidates as StudioInterpretationTraceV2["mission_candidates"];
+  const candidateById = new Map(candidates.map((item) => [item.candidate_id, item]));
+  const candidateIds = new Set(candidateById.keys());
   const windowIds = new Set(value.eligible_windows.map((item) => item.window_id));
   const issueCodes = value.normalization.issue_codes as string[];
   if ((value.status === "ready"
@@ -272,9 +311,10 @@ export function parseStudioScenarioPreparation(value: unknown): StudioScenarioPr
     || value.mission_candidates.some((candidate) => !windowIds.has(candidate.window_id))) {
     return null;
   }
-  if (value.mission_affordances.some((affordance) =>
+  if ((value.mission_affordances as MissionAffordanceV2[]).some((affordance) =>
     !windowIds.has(affordance.window_id)
-    || affordance.objective_candidate_ids.some((candidateId) => !candidateIds.has(candidateId)))) {
+    || affordance.objective_candidate_ids.some((candidateId) => !candidateIds.has(candidateId))
+    || !hasValidAffordanceObjectiveGrammar(affordance, candidateById))) {
     return null;
   }
   return value as StudioScenarioPreparationV2;

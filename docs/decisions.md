@@ -326,8 +326,8 @@ remain historical context rather than evidence about Gemini or the current promp
 
 **Status:** accepted and implemented for the V2.12 prompt boundary
 
-The active prompt is `memory-interpreter-v2.12-richer-missions`, loaded from
-`memory_interpreter_v2_12.txt`. AI still performs the meaningful interpretation: it ranks the
+The active prompt is `memory-interpreter-v2.13-perspective-safe-variation`, loaded from
+`memory_interpreter_v2_13.txt`. AI still performs the meaningful interpretation: it ranks the
 offered episode-and-affordance combinations, selects one, and authors the memory language,
 perspectives, mission title, and a short narrative bridge connecting the source episode to the next
 chapter.

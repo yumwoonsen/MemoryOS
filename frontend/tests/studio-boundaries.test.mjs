@@ -77,3 +77,17 @@ test("both provider-consuming routes share the strict local-browser gate", async
   assert.match(playerRoute, /isTrustedLocalBrowserRequest\(request\)/);
   assert.match(studioRoute, /isTrustedLocalBrowserRequest\(request\)/);
 });
+
+test("player varied generation keeps the unified fixture and nonce behind the server boundary", async () => {
+  const playerRoute = await source("../app/api/delivery/prepare/route.ts");
+  const registry = await source("../lib/player-scenario.server.ts");
+  const browser = await source("../app/memory-experience.tsx");
+
+  assert.match(registry, /unified_squad_history\.json/);
+  assert.match(registry, /PLAYER_EXPERIENCE_REF: PlayerExperienceRef = "squad-signal-01"/);
+  assert.match(playerRoute, /allowedBodyKeys = new Set\(\["experience_ref", "request_id"\]\)/);
+  assert.match(playerRoute, /crypto\.randomUUID\(\)/);
+  assert.match(playerRoute, /\{ telemetry, generation_nonce: generationNonce \}/);
+  assert.match(playerRoute, /\/v2\/memories\/interpret-varied-delivery/);
+  assert.doesNotMatch(browser, /unified_squad_history|generation_nonce|ff-player-/i);
+});

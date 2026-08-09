@@ -1,6 +1,6 @@
 import { MemoryExperience } from "./memory-experience";
-import { playerExperienceSeeds } from "@/lib/player-scenario.server";
+import { playerExperienceSeed } from "@/lib/player-scenario.server";
 
 export default function Home() {
-  return <MemoryExperience seeds={playerExperienceSeeds()} />;
+  return <MemoryExperience seed={playerExperienceSeed()} />;
 }

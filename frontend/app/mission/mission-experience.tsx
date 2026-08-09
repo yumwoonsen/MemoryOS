@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PlayerShell } from "../player-shell";
 import { usePlayerFlow } from "../player-flow-provider";
+import { MissionObjectiveList } from "../mission-objective-list.mjs";
 import { challengeTitle, deliveryModeLabel } from "@/lib/delivery-flow";
 import type { PendingDelivery } from "@/lib/delivery-flow";
 import {
@@ -182,7 +183,6 @@ function MissionReadyCard({
   invitees: Invitee[];
   onContinue: () => void;
 }) {
-  const requiredObjectives = delivery.next_chapter.objectives.filter((objective) => objective.required);
   const awayCount = invitees.filter((invitee) => invitee.activity === "away").length;
   return (
     <section className="history-intro mission-start-card" aria-labelledby="mission-title">
@@ -190,7 +190,7 @@ function MissionReadyCard({
       <h1 id="mission-title">{challengeTitle(delivery.next_chapter.title)}</h1>
       <p className="mission-source-memory">From “{delivery.memory.title}”</p>
       <p>{delivery.next_chapter.mission}</p>
-      <ObjectiveList objectives={requiredObjectives} />
+      <MissionObjectiveList objectives={delivery.next_chapter.objectives} />
       <div className="safe-squad-block">
         <span className="next-chapter-label">Invitation-eligible squad</span>
         <div className="player-squad-row mission-eligible-summary">
@@ -266,7 +266,10 @@ function ContinuationCard({
   feedback: "hidden" | null;
   onHide: () => void;
 }) {
-  const completedObjectives = outcome.objective_results.filter((objective) => objective.completed);
+  const requiredObjectives = outcome.objective_results.filter((objective) => objective.required);
+  const completedRequiredObjectives = requiredObjectives.filter((objective) => objective.completed);
+  const bonusObjectives = outcome.objective_results.filter((objective) => objective.objective_role === "bonus");
+  const completedBonusObjectives = bonusObjectives.filter((objective) => objective.completed);
   return (
     <>
       <section className="story-continues-card" aria-labelledby="story-continues-title">
@@ -279,14 +282,25 @@ function ContinuationCard({
           <li><small>New chapter</small><strong>{chapter.title}</strong></li>
         </ol>
         <div className="verification-summary">
-          <strong>{completedObjectives.length}/{outcome.objective_results.length}</strong>
-          <span>prototype objectives completed</span>
+          <strong>{completedRequiredObjectives.length}/{requiredObjectives.length}</strong>
+          <span>required objectives completed</span>
         </div>
+        {bonusObjectives.length > 0 ? (
+          <p className="bonus-result-summary">
+            {completedBonusObjectives.length}/{bonusObjectives.length} optional bonuses completed
+          </p>
+        ) : null}
         <ul className="verification-list">
           {outcome.objective_results.map((objective) => (
-            <li className={objective.completed ? "passed" : undefined} key={objective.objective_ref}>
+            <li
+              className={`${objective.completed ? "passed" : "optional-open"}${objective.objective_role === "bonus" ? " is-bonus" : ""}`}
+              key={objective.objective_ref}
+            >
               <span aria-hidden="true">{objective.completed ? "✓" : "–"}</span>
-              <p>{objective.description}</p>
+              <div>
+                <small>{objective.objective_role === "bonus" ? "Bonus" : objective.required ? "Required" : "Optional"}</small>
+                <p>{objective.description}</p>
+              </div>
             </li>
           ))}
         </ul>
@@ -321,16 +335,6 @@ function ProcessingCard({ family }: { family: PendingDelivery["next_chapter"]["f
       <h1>Game in progress.</h1>
       <p className="reveal-loading-copy">The squad is playing the selected Next Chapter. This demonstration will move to its scripted successful completion state.</p>
     </section>
-  );
-}
-
-function ObjectiveList({ objectives }: { objectives: PendingDelivery["next_chapter"]["objectives"] }) {
-  return (
-    <ol className="mission-objective-list">
-      {objectives.map((objective, index) => (
-        <li key={objective.objective_ref}><span>{index + 1}</span><p>{objective.description}</p></li>
-      ))}
-    </ol>
   );
 }
 

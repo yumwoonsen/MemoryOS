@@ -77,6 +77,25 @@ export type MissionFamilyV2 =
   | "landing_rendezvous"
   | "duo_assist";
 
+export type MissionObjectiveRoleV2 =
+  | "prerequisite"
+  | "primary"
+  | "support"
+  | "bonus"
+  | "completion";
+
+export type MissionCompatibilityTagV2 =
+  | "squad_entry"
+  | "location"
+  | "individual_assignment"
+  | "squad_coordination"
+  | "combat"
+  | "support_action"
+  | "tactical"
+  | "vehicle"
+  | "placement"
+  | "match_completion";
+
 export type MissionAffordanceV2 = {
   affordance_id: string;
   family: MissionFamilyV2;
@@ -120,6 +139,7 @@ export type MissionObjectiveV2 = {
   objective_id: string;
   description: string;
   assigned_player_id?: string | null;
+  objective_role: MissionObjectiveRoleV2;
   required: boolean;
   verification: {
     metric: string;
@@ -154,6 +174,9 @@ export type StudioInterpretationTraceV2 = {
     candidate_id: string;
     window_id: string;
     recipe: string;
+    objective_role: MissionObjectiveRoleV2;
+    required: boolean;
+    compatibility_tags: MissionCompatibilityTagV2[];
     assigned_player_id?: string | null;
     source_event_ids: string[];
     verification: MissionObjectiveV2["verification"];
@@ -310,12 +333,33 @@ function isMissionObjective(value: unknown): value is MissionObjectiveV2 {
     && typeof value.objective_id === "string"
     && typeof value.description === "string"
     && (value.assigned_player_id == null || typeof value.assigned_player_id === "string")
+    && ["prerequisite", "primary", "support", "bonus", "completion"]
+      .includes(String(value.objective_role))
     && typeof value.required === "boolean"
+    && (value.objective_role === "bonus" ? value.required === false : value.required === true)
     && isRecord(value.verification)
     && typeof value.verification.metric === "string"
     && ["equals", "at_least", "contains_all"].includes(String(value.verification.operator))
     && isRuleTarget(value.verification.target)
     && isStringArray(value.source_event_ids);
+}
+
+function hasValidMissionObjectiveGrammar(value: unknown, family: unknown) {
+  if (!isMissionFamily(family)
+    || !Array.isArray(value)
+    || value.length < 2
+    || value.length > 5
+    || !value.every(isMissionObjective)) return false;
+  const objectives = value as MissionObjectiveV2[];
+  const roles = objectives.map((objective) => objective.objective_role);
+  const expectedPrimaryCount = family === "reunion" ? 0 : 1;
+  return roles[0] === "prerequisite"
+    && roles.at(-1) === "completion"
+    && roles.filter((role) => role === "prerequisite").length === 1
+    && roles.filter((role) => role === "completion").length === 1
+    && roles.filter((role) => role === "primary").length === expectedPrimaryCount
+    && roles.filter((role) => role === "support").length <= 2
+    && roles.filter((role) => role === "bonus").length <= 2;
 }
 
 function isGroundedClaim(value: unknown): value is GroundedClaimV2 {
@@ -352,6 +396,41 @@ function isMissionFamily(value: unknown): value is MissionFamilyV2 {
     "landing_rendezvous",
     "duo_assist",
   ].includes(String(value));
+}
+
+function isMissionCandidate(
+  value: unknown,
+): value is StudioInterpretationTraceV2["mission_candidates"][number] {
+  return isRecord(value)
+    && typeof value.candidate_id === "string"
+    && typeof value.window_id === "string"
+    && typeof value.recipe === "string"
+    && ["prerequisite", "primary", "support", "bonus", "completion"]
+      .includes(String(value.objective_role))
+    && typeof value.required === "boolean"
+    && (value.objective_role === "bonus" ? value.required === false : value.required === true)
+    && isStringArray(value.compatibility_tags)
+    && value.compatibility_tags.length > 0
+    && value.compatibility_tags.length <= 4
+    && new Set(value.compatibility_tags).size === value.compatibility_tags.length
+    && value.compatibility_tags.every((tag) => [
+      "squad_entry",
+      "location",
+      "individual_assignment",
+      "squad_coordination",
+      "combat",
+      "support_action",
+      "tactical",
+      "vehicle",
+      "placement",
+      "match_completion",
+    ].includes(tag))
+    && (value.assigned_player_id == null || typeof value.assigned_player_id === "string")
+    && isStringArray(value.source_event_ids)
+    && isRecord(value.verification)
+    && typeof value.verification.metric === "string"
+    && ["equals", "at_least", "contains_all"].includes(String(value.verification.operator))
+    && isRuleTarget(value.verification.target);
 }
 function isMissionAffordance(value: unknown): value is MissionAffordanceV2 {
   if (!isRecord(value)
@@ -390,6 +469,7 @@ function isTrace(value: unknown) {
     && Number.isInteger(value.privacy_redaction_count)
     && Array.isArray(value.eligible_windows)
     && Array.isArray(value.mission_candidates)
+    && value.mission_candidates.every(isMissionCandidate)
     && Array.isArray(value.mission_affordances)
     && value.mission_affordances.every(isMissionAffordance)
     && (value.mission_selection == null || isMissionSelection(value.mission_selection))
@@ -492,11 +572,7 @@ function hasPendingPlayerContent(value: Record<string, unknown>) {
     && isMissionFamily(value.next_chapter.family)
     && isStringArray(value.next_chapter.invitation_player_ids)
     && new Set(value.next_chapter.invitation_player_ids).size === value.next_chapter.invitation_player_ids.length
-    && Array.isArray(value.next_chapter.objectives)
-    && value.next_chapter.objectives.length >= 2
-    && value.next_chapter.objectives.length <= 5
-    && value.next_chapter.objectives.every(isMissionObjective)
-    && value.next_chapter.objectives.some((objective) => isRecord(objective) && objective.required === true);
+    && hasValidMissionObjectiveGrammar(value.next_chapter.objectives, value.next_chapter.family);
 }
 
 export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretDeliveryResultV2 | null {

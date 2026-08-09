@@ -26,6 +26,12 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
     ? flow.continuation
     : null;
   const pastItems = items;
+  const requiredResults = visibleContinuation?.outcome.objective_results.filter((objective) => objective.required) ?? [];
+  const completedRequiredResults = requiredResults.filter((objective) => objective.completed);
+  const bonusResults = visibleContinuation?.outcome.objective_results.filter(
+    (objective) => objective.objective_role === "bonus",
+  ) ?? [];
+  const completedBonusResults = bonusResults.filter((objective) => objective.completed);
   const status = flow.continuation
     ? (visibleContinuation ? "Story continued" : "Chapter hidden")
     : flow.missionAccepted
@@ -79,7 +85,12 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
           {flow.continuation?.feedback === "hidden" ? (
             <p className="history-session-note">The completed sequel is hidden from this timeline. The original memory was not disputed.</p>
           ) : visibleContinuation ? (
-            <p className="history-session-note">{visibleContinuation.outcome.objective_results.filter((objective) => objective.completed).length} of {visibleContinuation.outcome.objective_results.length} prototype objectives completed in the scripted match simulation.</p>
+            <p className="history-session-note">
+              {completedRequiredResults.length} of {requiredResults.length} required prototype objectives completed
+              {bonusResults.length > 0
+                ? `; ${completedBonusResults.length} of ${bonusResults.length} optional bonuses completed`
+                : ""} in the scripted match simulation.
+            </p>
           ) : (
             <Link className="reveal-memory-button history-home-action" href="/mission">Continue mission</Link>
           )}

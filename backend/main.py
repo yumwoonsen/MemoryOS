@@ -31,6 +31,7 @@ from backend.models.schemas import (
 from backend.models.v2_schemas import (
     DeliveryDecisionRecordV2,
     InterpretDeliveryResultV2,
+    InterpretVariedDeliveryRequestV2,
     RawTelemetryBatchV2,
     RecordDeliveryDecisionRequestV2,
     StudioInterpretationTraceV2,
@@ -106,6 +107,7 @@ PROTECTED_POST_PATHS = {
     "/v1/memories/prepare-delivery",
     "/v1/memories/record-delivery-decision",
     "/v2/memories/interpret-delivery",
+    "/v2/memories/interpret-varied-delivery",
     "/v2/deliveries/{delivery_id}/decision",
 }
 
@@ -242,6 +244,37 @@ def interpret_delivery_v2(
         logger.log(
             logging.WARNING if result.status.value == "rejected" else logging.INFO,
             "v2_interpretation_complete status=%s correction_attempted=%s issue_codes=%s",
+            result.status.value,
+            result.validation.correction_attempted,
+            ",".join(issue_codes) or "none",
+        )
+        return result
+    except OpenAIProviderError as error:
+        return _provider_error_response(error)
+
+
+@app.post(
+    "/v2/memories/interpret-varied-delivery",
+    response_model=InterpretDeliveryResultV2,
+    response_model_exclude_none=True,
+    responses={503: {"model": ProviderErrorBody}},
+    tags=["memory-interpretation-v2"],
+)
+def interpret_varied_delivery_v2(
+    request: InterpretVariedDeliveryRequestV2,
+) -> InterpretDeliveryResultV2 | JSONResponse:
+    """Interpret telemetry within a bounded, cooldown-aware mission-family pool."""
+
+    try:
+        result = _build_configured_v2_pipeline().interpret_delivery(
+            request.telemetry,
+            variation_seed=request.generation_nonce,
+        )
+        issue_codes = [issue.code for issue in result.validation.issues]
+        logger.log(
+            logging.WARNING if result.status.value == "rejected" else logging.INFO,
+            "v2_varied_interpretation_complete status=%s "
+            "correction_attempted=%s issue_codes=%s",
             result.status.value,
             result.validation.correction_attempted,
             ",".join(issue_codes) or "none",

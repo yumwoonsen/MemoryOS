@@ -25,7 +25,9 @@ export type InvitationResponse = {
 export type PrototypeObjectiveOutcome = {
   objective_ref: string;
   description: string;
-  completed: true;
+  objective_role: PlayerPendingDeliveryProjectionV2["next_chapter"]["objectives"][number]["objective_role"];
+  required: boolean;
+  completed: boolean;
 };
 
 export type PrototypeMatchOutcome = {
@@ -33,7 +35,7 @@ export type PrototypeMatchOutcome = {
   family: MissionFamilyV2;
   completion_copy: string;
   objective_results: PrototypeObjectiveOutcome[];
-  complete: true;
+  complete: boolean;
 };
 
 export type ContinuationChapter = {

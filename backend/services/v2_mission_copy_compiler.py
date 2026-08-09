@@ -162,6 +162,48 @@ def _compile_candidate(
         teammate_name = _safe_display_name(teammate_id, safe_player_display_names)
         return f"{assister_name} assists {teammate_name} with an elimination."
 
+    if metric == "match.first_squad_tactical_signal_actor_id":
+        signal_player_id = affordance.parameters.get("signal_player_id")
+        if (
+            rule.operator != "equals"
+            or not isinstance(rule.target, str)
+            or not rule.target
+            or candidate.assigned_player_id != rule.target
+            or signal_player_id != rule.target
+        ):
+            raise MissionCopyCompilationError(
+                f"candidate {candidate.candidate_id} has an invalid tactical-signal rule"
+            )
+        display_name = _safe_display_name(rule.target, safe_player_display_names)
+        return f"{display_name} places the squad's first tactical signal."
+
+    if metric == "match.invited_squad_vehicle_escape_within_seconds":
+        invitation_player_ids = affordance.parameters.get("invitation_player_ids")
+        maximum_seconds = affordance.parameters.get("vehicle_escape_window_seconds")
+        if (
+            rule.operator != "equals"
+            or rule.target is not True
+            or candidate.assigned_player_id is not None
+            or not isinstance(invitation_player_ids, list)
+            or len(invitation_player_ids) < 2
+            or len(invitation_player_ids) != len(set(invitation_player_ids))
+            or any(
+                not isinstance(player_id, str)
+                or player_id not in safe_player_display_names
+                for player_id in invitation_player_ids
+            )
+            or isinstance(maximum_seconds, bool)
+            or not isinstance(maximum_seconds, int)
+            or not 1 <= maximum_seconds <= 300
+        ):
+            raise MissionCopyCompilationError(
+                f"candidate {candidate.candidate_id} has an invalid vehicle-extraction rule"
+            )
+        return (
+            "Board one vehicle with the invited squad and leave the danger zone together "
+            f"within {maximum_seconds} seconds."
+        )
+
     raise MissionCopyCompilationError(
         f"candidate {candidate.candidate_id} uses unsupported metric {metric!r}"
     )

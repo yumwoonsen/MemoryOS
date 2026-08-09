@@ -95,7 +95,7 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
 
-    prompt_version = "memory-interpreter-v2.12-richer-missions"
+    prompt_version = "memory-interpreter-v2.13-perspective-safe-variation"
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
@@ -167,9 +167,12 @@ class MemoryInterpreterV2:
                         "Write one short first-person sentence per narrator. Use that narrator's "
                         "unchanged player_event_roles map literally: actor allows active wording, "
                         "target allows only passive or affected wording, and full_squad allows "
-                        "only we/the squad. Every message must be distinct. Narrators sharing only "
-                        "full_squad evidence may vary concise grammar without gaining individual "
-                        "roles. Every perspective must cite at least one permitted event from the "
+                        "only we/the squad. For perspectives_not_distinct, assign exactly one "
+                        "different permitted linked-window event to each narrator before changing "
+                        "wording. Prefer actor or target evidence over full_squad evidence. Use I "
+                        "only for actor or target evidence and We/The squad only for full_squad "
+                        "evidence. Normalized messages must be unique. Every perspective must cite "
+                        "a permitted event from the "
                         "selected linked window; match or context IDs alone are insufficient. Do "
                         "not mention another player's action as before/after context. Keep every "
                         "perspective category-free: do not copy vehicle types, weapon classes, "
@@ -194,7 +197,8 @@ class MemoryInterpreterV2:
                         "why the selected continuation follows from the episode. It may paraphrase "
                         "the selected mechanic, but it must not add another mechanic, target, "
                         "threshold, player assignment, or condition. Objective requirements are "
-                        "backend-owned and must not be rewritten."
+                        "backend-owned and must not be rewritten. Treat objective_role and "
+                        "required as authoritative; never promote a bonus into a requirement."
                     ),
                 },
             }
@@ -204,7 +208,7 @@ class MemoryInterpreterV2:
         if encoded_size > MAX_PROVIDER_PAYLOAD_BYTES:
             raise ProviderInputLimitError("sanitized provider payload exceeds its byte limit")
         decision = self._generator.generate(
-            prompt_name="memory_interpreter_v2_12.txt",
+            prompt_name="memory_interpreter_v2_13.txt",
             payload=payload,
             response_model=ProviderInterpretationDecisionV2,
             stage=stage,
@@ -365,6 +369,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.REQUIRED_PARTICIPANTS,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=["invited squad", "queue", "match"],
                 roster_ref="invitation_player_ids",
             )
@@ -374,6 +380,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.COMPLETED_MATCHES,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=["complete", f"at least {target}", "match"],
                 minimum_count=target,
             )
@@ -387,6 +395,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.EVENT_ACTOR,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=[display_name_by_id[target], "completes", "first", "revive"],
                 assigned_player_id=target,
                 event_type=CanonicalEventType.REVIVE,
@@ -399,6 +409,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.PLACEMENT_AT_MOST,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=[f"top {placement}"],
                 placement_at_most=placement,
             )
@@ -413,6 +425,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.RETURN_TO_LOCATION,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=["return", target, "invited squad"],
                 location=target,
             )
@@ -430,6 +444,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.LANDING_RENDEZVOUS,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=["land", target, "invited squad"],
                 roster_ref="invitation_player_ids",
                 location=target,
@@ -451,6 +467,8 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.DUO_ASSIST,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
                 required_terms=[
                     display_name_by_id[assister_id],
                     "assists",
@@ -460,6 +478,63 @@ class MemoryInterpreterV2:
                 assigned_player_id=assister_id,
                 teammate_player_id=teammate_id,
                 minimum_count=1,
+            )
+        if metric == "match.first_squad_tactical_signal_actor_id":
+            signal_player_id = affordance.parameters.get("signal_player_id")
+            if (
+                candidate.verification.operator != "equals"
+                or not isinstance(target, str)
+                or candidate.assigned_player_id != target
+                or signal_player_id != target
+                or target not in invitation_player_ids
+            ):
+                raise ValueError(
+                    "tactical-signal capability requires one invitation-safe assignee"
+                )
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.TACTICAL_SIGNAL,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
+                required_terms=[
+                    display_name_by_id[target],
+                    "places",
+                    "first",
+                    "tactical signal",
+                ],
+                assigned_player_id=target,
+                ordinal="first",
+            )
+        if metric == "match.invited_squad_vehicle_escape_within_seconds":
+            invitation_ids = affordance.parameters.get("invitation_player_ids")
+            maximum_seconds = affordance.parameters.get("vehicle_escape_window_seconds")
+            if (
+                candidate.verification.operator != "equals"
+                or target is not True
+                or candidate.assigned_player_id is not None
+                or invitation_ids != invitation_player_ids
+                or isinstance(maximum_seconds, bool)
+                or not isinstance(maximum_seconds, int)
+                or not 1 <= maximum_seconds <= 300
+            ):
+                raise ValueError(
+                    "vehicle-extraction capability requires the safe roster and time window"
+                )
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.FULL_SQUAD_VEHICLE_EXTRACTION,
+                objective_role=candidate.objective_role,
+                required=candidate.required,
+                required_terms=[
+                    "invited squad",
+                    "board",
+                    "one vehicle",
+                    "leave",
+                    "danger zone",
+                    f"within {maximum_seconds} seconds",
+                ],
+                roster_ref="invitation_player_ids",
+                maximum_seconds=maximum_seconds,
             )
         raise ValueError(f"unsupported mission capability metric: {metric}")
 
@@ -851,6 +926,8 @@ class MemoryInterpreterV2:
             ProposedMissionObjectiveV2(
                 candidate_id=candidate.candidate_id,
                 description=compiled_descriptions[candidate.candidate_id],
+                objective_role=candidate.objective_role,
+                required=candidate.required,
             )
             for candidate in chosen
         ]

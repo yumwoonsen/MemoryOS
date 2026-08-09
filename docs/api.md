@@ -10,6 +10,9 @@ The implemented consumer API is additive:
 
 - `POST /v2/memories/interpret-delivery` ingests raw telemetry and returns either one fully
   validated V2.1 delivery, a typed V2.1 abstention, or a fail-closed result with no generated artifacts.
+- `POST /v2/memories/interpret-varied-delivery` accepts a trusted-server envelope containing raw
+  telemetry and an opaque generation nonce, then narrows authoring to a cooldown-aware grounded
+  mission pool before running the same enrichment and validation pipeline.
 - `POST /v2/deliveries/{delivery_id}/decision` records one prototype accept/decline decision and
   suppresses the exact delivery when declined.
 - `GET /v2/deliveries/{delivery_id}/trace` returns the sanitized Studio trace for a process-local
@@ -25,6 +28,25 @@ Their Pydantic models, normalizer, validators, OpenAPI snapshot, and integration
 implemented. They remain prototype routes without player authentication or durable storage.
 Existing `/v1/memories/discover-history`, `/generate`, `/prepare-delivery`, and
 `/record-delivery-decision` remain compatibility/internal behavior during migration.
+
+## `POST /v2/memories/interpret-varied-delivery`
+
+This trusted-server endpoint accepts exactly a raw telemetry batch plus a private generation nonce:
+
+```json
+{
+  "telemetry": { "schema_version": "2.1", "request_id": "..." },
+  "generation_nonce": "6d2acfb7-6167-4f7b-900d-c21148e41f79"
+}
+```
+
+The same-origin frontend server generates the 16-to-128-character ASCII nonce. The backend combines
+it with the normalized squad ID, excludes the last two successfully delivered families when
+grounded alternatives exist, retains at most three distinct specialized families, and sends that
+reduced catalogue to the provider. Family history is recorded only after a validated delivery. The
+nonce, history, and raw telemetry are not returned in player metadata; safe metadata contains only
+the policy name and offered pool size. The general interpretation endpoint below does not apply
+this rotation policy.
 
 ## `POST /v2/memories/interpret-delivery`
 
@@ -141,14 +163,16 @@ current feasibility are offered.
 Each `MissionAffordanceV2` carries backend-owned `affordance_id`, `family`, `window_id`,
 `source_event_ids`, `source_match_ids`, `source_context_ids`, `parameters`,
 `objective_candidate_ids`, and `allowed_reason_codes`. The corresponding
-`MissionCapabilityCandidate` records own `recipe`, `assigned_player_id`, `source_event_ids`, and
-`verification` (`metric`, `operator`, and `target`).
+`MissionCapabilityCandidate` records own `recipe`, `objective_role`, `required`, compatibility
+tags, `assigned_player_id`, `source_event_ids`, and `verification` (`metric`, `operator`, and
+`target`).
 
 Every offered Story Brief affordance and every delivered `next_chapter` contains two to five
 ordered objectives. Deterministic composition places invitation-safe squad entry first, match
 completion last, and up to three compatible grounded mechanics between them. The primary family
 mechanic is never dropped, candidate IDs are unique per affordance, and no mechanic may be borrowed
-from another neutral window.
+from another neutral window. Only `bonus` objectives are optional; prerequisite, primary, support,
+and completion objectives are required.
 
 `landing_rendezvous` is offered only when one selected neutral window contains a named landing for
 every invitation-ready player at the same location and the first such landing per player spans no
@@ -208,7 +232,7 @@ control plane. Player, action, and target terms are checked as one supported rol
 citing separate events that contain each word is insufficient. That expected reliability benefit
 is not inferred from schema size alone. Automated suites cover the current contract. A historical
 telemetry-only Groq 120B request passed on 8 August 2026 with the older V2.4 prompt, but it is not
-evidence for the active `memory-interpreter-v2.12-richer-missions` prompt. Current live
+evidence for the active `memory-interpreter-v2.13-perspective-safe-variation` prompt. Current live
 reliability remains an evaluation task.
 
 The internal Story Brief includes neutral `authoring_constraints`: per-player
@@ -309,7 +333,7 @@ This abridged example omits additional required section claims and trace details
     "provider": "gemini",
     "model": "gemini-3.6-flash",
     "mode": "live_ai",
-    "prompt_version": "memory-interpreter-v2.12-richer-missions",
+    "prompt_version": "memory-interpreter-v2.13-perspective-safe-variation",
     "content_origin": "live_ai_validated",
     "grounded_render": false,
     "narrative_fallback": false
@@ -759,8 +783,8 @@ The deterministic provider is appropriate for repeatable tests and offline Studi
 player route requires an explicitly configured Gemini, Groq, or OpenAI provider and fails closed; it
 never silently uses deterministic narrative when a live provider is unavailable.
 
-The active v2 prompt contract is `memory-interpreter-v2.12-richer-missions`, loaded from
-`memory_interpreter_v2_12.txt`. Any V2.4/120B or V2.10 Gemini smoke record is historical only and
+The active v2 prompt contract is `memory-interpreter-v2.13-perspective-safe-variation`, loaded from
+`memory_interpreter_v2_13.txt`. Any V2.4/120B or V2.10 Gemini smoke record is historical only and
 cannot be cited as validation of this prompt.
 
 The default needs no credentials:
@@ -859,10 +883,11 @@ hand or retain a separate Worker implementation of ranking and generation; that 
 meaning for schema version, consent, and `ready`.
 
 The canonical `/` player route uses same-origin `/api/delivery/prepare` and
-`/api/delivery/decision` proxies for `POST /v2/memories/interpret-delivery` and
+`/api/delivery/decision` proxies for `POST /v2/memories/interpret-varied-delivery` and
 `POST /v2/deliveries/{delivery_id}/decision`. The prepare route supplies the server-held synthetic
-raw telemetry fixture and accepts only fully validated live-AI delivery output or the minimal typed
-`not_generated` projection. The decision route
+unified squad history plus a private server-generated nonce; the browser sends only an opaque
+experience reference and matching request reference. The route accepts only fully validated live-AI
+delivery output or the minimal typed `not_generated` projection. The decision route
 accepts `accepted` or `declined`; a decline must be either `not_relevant` or `details_wrong`.
 Decisions are process-local prototype data only.
 

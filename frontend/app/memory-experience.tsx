@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PlayerShell } from "./player-shell";
 import { usePlayerFlow } from "./player-flow-provider";
+import { MissionObjectiveList } from "./mission-objective-list.mjs";
 import type { DeliveryDeclineReasonV2 } from "@/lib/ai-memory-contract";
 import {
   challengeTitle,
@@ -19,10 +20,7 @@ import {
 } from "@/lib/delivery-flow";
 import type { DecisionRequest, PendingDelivery } from "@/lib/delivery-flow";
 import type { PlayerExperienceSeedV2 } from "@/lib/player-delivery";
-import {
-  playerExperienceDescriptor,
-  type PlayerExperienceRef,
-} from "@/lib/player-scenarios";
+import { canGenerateAnotherGroundedChapter } from "@/lib/player-rerun-flow-core.mjs";
 
 type View =
   | { kind: "unrevealed" }
@@ -48,50 +46,6 @@ function formatClock(seconds?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function PlayerExperiencePicker({
-  seeds,
-  selectedExperienceRef,
-  disabled,
-  onSelect,
-}: {
-  seeds: PlayerExperienceSeedV2[];
-  selectedExperienceRef: PlayerExperienceRef;
-  disabled: boolean;
-  onSelect: (experienceRef: PlayerExperienceRef) => void;
-}) {
-  return (
-    <section className="player-experience-picker" aria-labelledby="demo-memory-picker-title">
-      <div className="player-experience-heading">
-        <div>
-          <p className="demo-kicker">Synthetic demo histories</p>
-          <h2 id="demo-memory-picker-title">Choose a squad signal to open.</h2>
-        </div>
-        <span>{seeds.length} safe fixtures</span>
-      </div>
-      <div className="player-experience-options">
-        {seeds.map((candidate, index) => {
-          const descriptor = playerExperienceDescriptor(candidate.experience_ref);
-          const selected = candidate.experience_ref === selectedExperienceRef;
-          return (
-            <button
-              className="player-experience-option"
-              type="button"
-              aria-pressed={selected}
-              disabled={disabled}
-              onClick={() => onSelect(candidate.experience_ref)}
-              key={candidate.experience_ref}
-            >
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <strong>{descriptor.label}</strong>
-              <small>{descriptor.teaser}</small>
-            </button>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function MatchArtwork({ members }: { members: PlayerExperienceSeedV2["display_roster"] }) {
   return (
     <div className="player-memory-art" aria-hidden="true">
@@ -110,50 +64,18 @@ function MatchArtwork({ members }: { members: PlayerExperienceSeedV2["display_ro
   );
 }
 
-export function MemoryExperience({ seeds }: { seeds: PlayerExperienceSeedV2[] }) {
-  const { flow, resetPlayerFlow } = usePlayerFlow();
-  const [selectedExperienceRef, setSelectedExperienceRef] = useState<PlayerExperienceRef>(() =>
-    seeds.find((candidate) => candidate.request_id === flow.delivery?.request_id)?.experience_ref
-      ?? seeds[0]?.experience_ref
-      ?? "memory-01");
-  const seed = seeds.find((candidate) => candidate.experience_ref === selectedExperienceRef)
-    ?? seeds[0];
-
-  if (!seed) {
-    throw new Error("No player demo experiences are configured.");
-  }
-
-  const selectExperience = (experienceRef: PlayerExperienceRef) => {
-    if (experienceRef === selectedExperienceRef) return;
-    resetPlayerFlow();
-    setSelectedExperienceRef(experienceRef);
-  };
-
-  return (
-    <ScenarioMemoryExperience
-      key={seed.experience_ref}
-      seed={seed}
-      seeds={seeds}
-      onSelectExperience={selectExperience}
-    />
-  );
+export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
+  return <ScenarioMemoryExperience seed={seed} />;
 }
 
-function ScenarioMemoryExperience({
-  seed,
-  seeds,
-  onSelectExperience,
-}: {
-  seed: PlayerExperienceSeedV2;
-  seeds: PlayerExperienceSeedV2[];
-  onSelectExperience: (experienceRef: PlayerExperienceRef) => void;
-}) {
+function ScenarioMemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
   const router = useRouter();
   const {
     flow,
     setPreparedDelivery,
     acceptMission,
     declineMission,
+    resetPlayerFlow,
   } = usePlayerFlow();
   const [view, setView] = useState<View>(() => {
     const restoredDelivery = flow.delivery && isDeliveryBoundToSeed(flow.delivery, seed)
@@ -240,6 +162,12 @@ function ScenarioMemoryExperience({
     }
   }, [seed, setPreparedDelivery]);
 
+  const generateAnother = useCallback(() => {
+    if (!canGenerateAnotherGroundedChapter(view.kind)) return;
+    resetPlayerFlow();
+    void prepare();
+  }, [prepare, resetPlayerFlow, view.kind]);
+
   async function decide(request: DecisionRequest) {
     if (view.kind !== "ready" && view.kind !== "decline" && view.kind !== "decision_error") return;
     const delivery = view.delivery;
@@ -305,13 +233,6 @@ function ScenarioMemoryExperience({
       modeLabel={modeLabel}
       modeHeading="Battle Royale"
     >
-      <PlayerExperiencePicker
-        seeds={seeds}
-        selectedExperienceRef={seed.experience_ref}
-        disabled={busy}
-        onSelect={onSelectExperience}
-      />
-
       {view.kind === "unrevealed" ? (
         <section className="demo-input-card" aria-labelledby="current-memory-title">
           <MatchArtwork members={featuredMembers} />
@@ -321,7 +242,7 @@ function ScenarioMemoryExperience({
             <p className="demo-match-context">
               {formatWords(featuredMatch.game)} <span>/</span> {formatWords(featuredMatch.mode)} <span>/</span> {featuredMatch.map_name ?? "Battle Royale"}
             </p>
-            <p className="reveal-teaser">Your original squad left a story behind. Open it when you are ready.</p>
+            <p className="reveal-teaser">One consent-safe squad history can support several grounded continuations. Open the chapter when you are ready.</p>
             <div className="reveal-squad">
               <div className="player-avatar-stack" aria-label={`${featuredMembers.length} opted-in squad members`}>
                 {featuredMembers.slice(0, 4).map((member, index) => (
@@ -348,14 +269,15 @@ function ScenarioMemoryExperience({
       )}
 
       {view.kind === "no_memory" && (
-        <NoMemoryCard />
+        <NoMemoryCard onGenerateAnother={generateAnother} />
       )}
 
       {view.kind === "error" && (
         <StateCard
           title="Your memory is unavailable"
           message={view.message}
-          onRetry={view.retryable ? () => void prepare() : undefined}
+          retryable={view.retryable}
+          onGenerateAnother={generateAnother}
         />
       )}
 
@@ -389,7 +311,7 @@ function ScenarioMemoryExperience({
       )}
 
       {view.kind === "declined" && (
-        <DeclinedCard reason={view.reason} />
+        <DeclinedCard reason={view.reason} onGenerateAnother={generateAnother} />
       )}
 
       {view.kind === "decision_error" && (
@@ -416,7 +338,6 @@ function MemoryDetail({
 }) {
   const members = delivery.invitation_roster;
   const currentPlayer = members.find((member) => member.is_current_player);
-  const requiredObjectives = delivery.next_chapter.objectives.filter((objective) => objective.required);
 
   return (
     <>
@@ -484,14 +405,7 @@ function MemoryDetail({
         <div className="next-chapter-label">Next Chapter / {formatWords(delivery.next_chapter.family)}</div>
         <h2 id="next-chapter-title">{challengeTitle(delivery.next_chapter.title)}</h2>
         <p className="player-next-mission">{delivery.next_chapter.mission}</p>
-        <ol className="player-objectives" aria-label="Next Chapter mission steps">
-          {requiredObjectives.map((objective, index) => (
-            <li key={objective.objective_ref}>
-              <span>{index + 1}</span>
-              <p>{objective.description}</p>
-            </li>
-          ))}
-        </ol>
+        <MissionObjectiveList objectives={delivery.next_chapter.objectives} variant="memory" />
         {(delivery.next_chapter.family === "role_reversal"
           || delivery.next_chapter.family === "return_to_place") ? (
           /* eslint-disable-next-line @next/next/no-img-element */
@@ -555,7 +469,24 @@ function DeclineCard({
   );
 }
 
-function DeclinedCard({ reason }: { reason: DeliveryDeclineReasonV2 }) {
+function GenerationRerun({ onGenerateAnother }: { onGenerateAnother: () => void }) {
+  return (
+    <div className="grounded-rerun">
+      <p>Each rerun uses provider quota and rotates among backend-validated mission plans grounded in this same consent-safe squad history.</p>
+      <button className="reveal-memory-button" type="button" onClick={onGenerateAnother}>
+        Generate another grounded chapter
+      </button>
+    </div>
+  );
+}
+
+function DeclinedCard({
+  reason,
+  onGenerateAnother,
+}: {
+  reason: DeliveryDeclineReasonV2;
+  onGenerateAnother: () => void;
+}) {
   const detailsWrong = reason === "details_wrong";
   return (
     <section className="history-intro history-completion" aria-labelledby="declined-title">
@@ -564,7 +495,8 @@ function DeclinedCard({ reason }: { reason: DeliveryDeclineReasonV2 }) {
       <p>{detailsWrong
         ? "This mission is closed for the current session, and a source-quality signal was recorded for operations review. Your match history was not edited."
         : "This mission is closed for the current session. The relevance signal can help MemoryOS choose a better moment after durable storage is approved."}</p>
-      <Link className="reveal-memory-button history-home-action" href="/history">View squad history</Link>
+      <GenerationRerun onGenerateAnother={onGenerateAnother} />
+      <Link className="history-text-action" href="/history">View squad history</Link>
     </section>
   );
 }
@@ -591,14 +523,14 @@ function DecisionErrorCard({
   );
 }
 
-function NoMemoryCard() {
+function NoMemoryCard({ onGenerateAnother }: { onGenerateAnother: () => void }) {
   return (
     <section className="player-state-card" role="status">
       <span>No memory generated</span>
       <h1>Nothing meaningful surfaced this time.</h1>
       <p>MemoryOS reviewed the available squad activity and chose not to force a story from ordinary evidence.</p>
-      <p>A different result needs new match activity or updated eligible context, so the same telemetry will not be rerun from this screen.</p>
-      <Link className="reveal-memory-button history-home-action" href="/history">View squad history</Link>
+      <GenerationRerun onGenerateAnother={onGenerateAnother} />
+      <Link className="history-text-action" href="/history">View squad history</Link>
     </section>
   );
 }
@@ -606,18 +538,21 @@ function NoMemoryCard() {
 function StateCard({
   title,
   message,
-  onRetry,
+  retryable,
+  onGenerateAnother,
 }: {
   title: string;
   message: string;
-  onRetry?: () => void;
+  retryable: boolean;
+  onGenerateAnother: () => void;
 }) {
   return (
     <section className="player-state-card" role="alert">
       <span>Current memory</span>
       <h1>{title}</h1>
       <p>{message}</p>
-      {onRetry ? <button type="button" onClick={onRetry}>Try again</button> : null}
+      {!retryable ? <p>The previous draft remains private because it could not be delivered safely.</p> : null}
+      <GenerationRerun onGenerateAnother={onGenerateAnother} />
     </section>
   );
 }

@@ -756,8 +756,13 @@ export function StudioDashboard() {
               ))}
               <article className="studio-result-card result-quest"><p>AI-authored mission framing</p><h3>{result.next_chapter.title}</h3><span>{result.next_chapter.mission}</span></article>
               {result.next_chapter.objectives.map((objective) => (
-                <article className="studio-result-card" key={objective.objective_id}>
-                  <p>Backend-compiled requirement</p><h3>{objective.description}</h3>
+                <article className={`studio-result-card${objective.objective_role === "bonus" ? " result-bonus" : ""}`} key={objective.objective_id}>
+                  <p>{objective.objective_role === "bonus"
+                    ? "Optional bonus"
+                    : objective.objective_role === "primary"
+                      ? "Required objective"
+                      : `${formatWords(objective.objective_role)} objective`}</p>
+                  <h3>{objective.description}</h3>
                   <span>{formatWords(objective.verification.metric)} / {formatWords(objective.verification.operator)} / {safeRuleTarget(objective.verification.target, result)}</span>
                 </article>
               ))}

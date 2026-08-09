@@ -13,6 +13,7 @@ from typing import Protocol
 from backend.models.schemas import DeliveryDecision, DeliveryDeclineReason
 from backend.models.v2_schemas import (
     DeliveryDecisionRecordV2,
+    MissionFamilyV2,
     StudioInterpretationTraceV2,
 )
 
@@ -29,16 +30,28 @@ class V2DeliveryRepository(Protocol):
 
     def get_trace(self, delivery_id: str) -> StudioInterpretationTraceV2 | None: ...
 
+    def recent_mission_families(
+        self,
+        trace_id: str,
+        *,
+        limit: int = 2,
+    ) -> list[MissionFamilyV2]: ...
+
 
 class InMemoryV2DeliveryRepository:
     def __init__(self) -> None:
         self._traces: dict[str, StudioInterpretationTraceV2] = {}
         self._decisions: dict[str, DeliveryDecisionRecordV2] = {}
+        self._mission_family_history: dict[str, list[MissionFamilyV2]] = {}
         self._lock = Lock()
 
     def register(self, delivery_id: str, trace: StudioInterpretationTraceV2) -> None:
         with self._lock:
             self._traces[delivery_id] = deepcopy(trace)
+            if trace.mission_selection is not None:
+                self._mission_family_history.setdefault(trace.trace_id, []).append(
+                    trace.mission_selection.selected_family
+                )
 
     def record_decision(
         self,
@@ -89,12 +102,28 @@ class InMemoryV2DeliveryRepository:
             trace = self._traces.get(delivery_id)
             return deepcopy(trace) if trace is not None else None
 
+    def recent_mission_families(
+        self,
+        trace_id: str,
+        *,
+        limit: int = 2,
+    ) -> list[MissionFamilyV2]:
+        """Return bounded process-local rotation history for one telemetry signal."""
+
+        if limit < 0:
+            raise ValueError("limit must be non-negative")
+        if limit == 0:
+            return []
+        with self._lock:
+            return list(self._mission_family_history.get(trace_id, ())[-limit:])
+
     def clear(self) -> None:
         """Test-only reset for process-local state."""
 
         with self._lock:
             self._traces.clear()
             self._decisions.clear()
+            self._mission_family_history.clear()
 
 
 v2_delivery_repository = InMemoryV2DeliveryRepository()

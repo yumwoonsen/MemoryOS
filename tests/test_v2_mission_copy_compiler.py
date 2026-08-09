@@ -10,7 +10,9 @@ from backend.models.schemas import QuestRecipe
 from backend.models.v2_schemas import (
     MissionAffordanceV2,
     MissionCapabilityCandidate,
+    MissionCompatibilityTagV2,
     MissionFamilyV2,
+    MissionObjectiveRoleV2,
     MissionSelectionReasonCodeV2,
 )
 from backend.services.v2_mission_copy_compiler import (
@@ -36,6 +38,9 @@ def candidate(
             "candidate_id": candidate_id,
             "window_id": WINDOW_ID,
             "recipe": QuestRecipe.REMIX,
+            "objective_role": MissionObjectiveRoleV2.PRIMARY,
+            "required": True,
+            "compatibility_tags": [MissionCompatibilityTagV2.SUPPORT_ACTION],
             "assigned_player_id": assigned_player_id,
             "source_event_ids": [EVENT_ID],
             "verification": {
@@ -160,6 +165,53 @@ def test_compiles_duo_assist_with_both_invitation_safe_players() -> None:
 
     assert descriptions["objective:duo-assist"] == (
         "Lee assists Mei with an elimination."
+    )
+
+
+def test_compiles_tactical_signal_with_the_grounded_assignee() -> None:
+    signal = candidate(
+        "objective:signal",
+        "match.first_squad_tactical_signal_actor_id",
+        "equals",
+        "player:mei",
+        assigned_player_id="player:mei",
+    )
+    selected = affordance([signal]).model_copy(
+        update={"parameters": {"signal_player_id": "player:mei"}}
+    )
+
+    descriptions = compile_mission_objective_descriptions(selected, [signal], SAFE_NAMES)
+
+    assert descriptions["objective:signal"] == (
+        "Mei places the squad's first tactical signal."
+    )
+
+
+def test_compiles_full_squad_vehicle_extraction_with_a_bounded_window() -> None:
+    extraction = candidate(
+        "objective:extraction",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "equals",
+        True,
+    )
+    selected = affordance([extraction]).model_copy(
+        update={
+            "parameters": {
+                "invitation_player_ids": ["player:lee", "player:mei"],
+                "vehicle_escape_window_seconds": 60,
+            }
+        }
+    )
+
+    descriptions = compile_mission_objective_descriptions(
+        selected,
+        [extraction],
+        SAFE_NAMES,
+    )
+
+    assert descriptions["objective:extraction"] == (
+        "Board one vehicle with the invited squad and leave the danger zone together "
+        "within 60 seconds."
     )
 
 

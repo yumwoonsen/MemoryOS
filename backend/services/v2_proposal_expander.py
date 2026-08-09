@@ -393,6 +393,8 @@ class CompactProposalExpanderV2:
             ProposedMissionObjectiveV2(
                 candidate_id=candidate.candidate_id,
                 description=objective_descriptions[candidate.candidate_id],
+                objective_role=candidate.objective_role,
+                required=candidate.required,
             )
             for candidate in candidates
         ]

@@ -97,7 +97,7 @@ def test_provider_projection_uses_short_relational_w_a_o_references() -> None:
 def test_active_prompt_asks_ai_to_choose_story_continuity_without_positional_bias() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     affordances = MemoryInterpreterV2._provider_catalog(prepared).brief.affordances
-    prompt = load_prompt("memory_interpreter_v2_12.txt")
+    prompt = load_prompt("memory_interpreter_v2_13.txt")
 
     # The backend continues to offer the general reunion option first in its neutral catalogue.
     # Mission quality therefore comes from the AI selection rubric, not hidden list ordering.
@@ -106,25 +106,31 @@ def test_active_prompt_asks_ai_to_choose_story_continuity_without_positional_bia
         "return_to_place",
         "role_reversal",
     ]
-    assert MemoryInterpreterV2.prompt_version == "memory-interpreter-v2.12-richer-missions"
     assert (
-        "A# input order, reference number, objective count, and ease of wording "
-        "are not preference signals"
-    ) in prompt
+        MemoryInterpreterV2.prompt_version
+        == "memory-interpreter-v2.13-perspective-safe-variation"
+    )
+    flattened_prompt = " ".join(prompt.split())
+    assert "A# order, reference number, objective count, and wording ease" in flattened_prompt
+    assert "are not preference signals" in flattened_prompt
     assert "source_role_binding + event_actor" in prompt
     assert "repeated source_match_ids + placement_at_most" in prompt
     assert "duo_assist continues a supported assister" in prompt
     assert "landing_rendezvous returns the complete invited roster" in prompt
     assert "Treat reunion as the general fallback" in prompt
-    assert "Never invent meaning merely to avoid reunion" in prompt
+    assert "Never invent meaning merely to avoid reunion" in flattened_prompt
     assert "story_bridge" in prompt
     assert "objective_descriptions" not in prompt
-    assert "other source_match_ids are\n  selection context only" in prompt
-    assert "at least one event ID from that W#" in prompt
-    assert "Perspectives\n  must differ" in prompt
-    assert "Keep perspectives category-free" in prompt
+    assert "other source_match_ids are selection context only" in flattened_prompt
+    assert "assign exactly one permitted linked-W# event to each narrator" in flattened_prompt
+    assert "Prefer unused event IDs and actor/target evidence" in flattened_prompt
+    assert 'actor -> "I <supported action>"' in flattened_prompt
+    assert "Never use we for actor/target evidence or I for full_squad evidence" in flattened_prompt
+    assert "Normalized messages must be unique" in flattened_prompt
+    assert "game/mode/map/result/placement metadata" in flattened_prompt
+    assert 'write "secured an elimination", never bare "eliminated"' in flattened_prompt
     assert (
-        "unsupported_categorical_detail: remove every exact categorical or zone value"
+        "unsupported_categorical_detail: remove every categorical/zone value"
         in " ".join(prompt.split())
     )
 
@@ -189,6 +195,34 @@ def test_provider_exposes_typed_landing_and_duo_objectives() -> None:
     assert duo.teammate_player_id == "ff-player-mei"
     assert duo.minimum_count == 1
     assert duo.required_terms == ["Lee", "assists", "Mei", "an elimination"]
+
+
+def test_provider_exposes_role_aware_signal_and_vehicle_extraction_capabilities() -> None:
+    story_brief = MemoryInterpreterV2._provider_catalog(
+        TelemetryPreparerV2().prepare(parsed_batch())
+    ).brief
+    objectives = [
+        objective
+        for affordance in story_brief.affordances
+        for objective in affordance.objectives
+    ]
+    signal = next(
+        item for item in objectives if item.kind == MissionObjectiveKindV2.TACTICAL_SIGNAL
+    )
+    extraction = next(
+        item
+        for item in objectives
+        if item.kind == MissionObjectiveKindV2.FULL_SQUAD_VEHICLE_EXTRACTION
+    )
+
+    assert signal.assigned_player_id == "ff-player-amir"
+    assert signal.ordinal == "first"
+    assert signal.objective_role == "bonus"
+    assert signal.required is False
+    assert extraction.roster_ref == "invitation_player_ids"
+    assert extraction.maximum_seconds == 60
+    assert extraction.objective_role == "bonus"
+    assert extraction.required is False
 
 
 def test_provider_mission_output_contains_selection_and_story_bridge_only() -> None:
@@ -307,7 +341,7 @@ def test_provider_handle_decision_round_trips_to_canonical_delivery_controls() -
     assert result.validation.correction_attempted is False
     assert generator.calls == 1
     assert generator.requests[0]["response_model"] is ProviderInterpretationDecisionV2
-    assert generator.requests[0]["prompt_name"] == "memory_interpreter_v2_12.txt"
+    assert generator.requests[0]["prompt_name"] == "memory_interpreter_v2_13.txt"
     assert result.studio_trace.mission_selection is not None
     assert (
         result.studio_trace.mission_selection.selected_affordance_id
@@ -330,6 +364,9 @@ def test_provider_handle_decision_round_trips_to_canonical_delivery_controls() -
         "match.first_squad_revive_actor_id": "Lee completes the squad's first revive.",
         "match.invited_squad_visits_location": (
             "Return to Clock Tower with the invited squad."
+        ),
+        "match.first_squad_tactical_signal_actor_id": (
+            "Amir places the squad's first tactical signal."
         ),
     }
 
@@ -360,6 +397,7 @@ def test_story_bridge_can_paraphrase_role_reversal_without_repeating_mission_rul
     assert [item.description for item in result.next_chapter.objectives] == [
         "Queue into a match with the invited squad.",
         "Return to Clock Tower with the invited squad.",
+        "Amir places the squad's first tactical signal.",
         "Lee completes the squad's first revive.",
         "Complete at least 1 match.",
     ]

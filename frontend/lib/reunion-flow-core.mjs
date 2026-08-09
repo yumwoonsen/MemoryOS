@@ -34,7 +34,9 @@ export function areInviteesJoined(invitees, recipients) {
 
 export function createPrototypeMatchOutcome(family, invitees, objectives) {
   const currentPlayer = invitees.find((invitee) => invitee.is_current_player);
-  const assignedRecipientRef = objectives.find((objective) => objective.assigned_recipient_ref)?.assigned_recipient_ref;
+  const assignedRecipientRef = objectives.find(
+    (objective) => objective.required && objective.assigned_recipient_ref,
+  )?.assigned_recipient_ref;
   const roleReversalPlayer = invitees.find((invitee) => invitee.recipient_ref === assignedRecipientRef)
     ?? currentPlayer;
   const completionCopy = family === "role_reversal"
@@ -48,18 +50,26 @@ export function createPrototypeMatchOutcome(family, invitees, objectives) {
           : family === "duo_assist"
             ? "The assigned duo combined for one elimination."
             : "The full squad completed one match together.";
+  const firstBonusIndex = objectives.findIndex(
+    (objective) => objective.objective_role === "bonus",
+  );
+  const objectiveResults = objectives.map((objective, index) => ({
+    objective_ref: objective.objective_ref,
+    description: objective.description,
+    objective_role: objective.objective_role,
+    required: objective.required,
+    // The static demo guarantees required rules and scripts at most one bonus success.
+    // Bonuses remain optional and never gate completion of the selected Next Chapter.
+    completed: objective.required || index === firstBonusIndex,
+  }));
+  const requiredResults = objectiveResults.filter((objective) => objective.required);
   return {
     simulation_id: "prototype-match-simulation-001",
     family,
     completion_copy: completionCopy,
-    objective_results: objectives
-      .filter((objective) => objective.required)
-      .map((objective) => ({
-        objective_ref: objective.objective_ref,
-        description: objective.description,
-        completed: true,
-      })),
-    complete: true,
+    objective_results: objectiveResults,
+    complete: requiredResults.length > 0
+      && requiredResults.every((objective) => objective.completed),
   };
 }
 

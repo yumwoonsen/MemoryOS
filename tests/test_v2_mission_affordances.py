@@ -13,6 +13,7 @@ from backend.models.v2_schemas import (
     InterpretationAbstentionReasonV2,
     InterpretationDecisionKindV2,
     MissionFamilyV2,
+    MissionObjectiveRoleV2,
     MissionSelectionReasonCodeV2,
     RawTelemetryBatchV2,
 )
@@ -135,6 +136,62 @@ def test_rescue_episode_offers_a_verified_return_to_its_original_location() -> N
     assert candidate.verification.operator == "equals"
     assert candidate.verification.target == "Clock Tower"
     assert return_to_place.source_context_ids == ["context:reunion_eligible"]
+
+
+def test_rescue_chapters_add_only_compatible_grounded_support_and_bonus_steps() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed())
+    candidate_by_id = {
+        candidate.candidate_id: candidate for candidate in prepared.mission_candidates
+    }
+    return_chapter = next(
+        item
+        for item in prepared.mission_affordances
+        if item.family == MissionFamilyV2.RETURN_TO_PLACE
+    )
+    objectives = [
+        candidate_by_id[candidate_id]
+        for candidate_id in return_chapter.objective_candidate_ids
+    ]
+
+    assert [item.verification.metric for item in objectives] == [
+        "squad.participant_ids",
+        "match.invited_squad_visits_location",
+        "match.first_squad_revive_actor_id",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "squad.matches_completed",
+    ]
+    assert [item.objective_role for item in objectives] == [
+        MissionObjectiveRoleV2.PREREQUISITE,
+        MissionObjectiveRoleV2.PRIMARY,
+        MissionObjectiveRoleV2.SUPPORT,
+        MissionObjectiveRoleV2.BONUS,
+        MissionObjectiveRoleV2.COMPLETION,
+    ]
+    assert [item.required for item in objectives] == [True, True, True, False, True]
+    extraction = objectives[3]
+    assert extraction.source_event_ids == [
+        "ffevt-05-vehicle-enter",
+        "ffevt-06-zone-exit",
+    ]
+    assert return_chapter.parameters["vehicle_escape_window_seconds"] == 60
+
+
+def test_vehicle_extraction_requires_an_explicit_full_squad_sequence() -> None:
+    payload = raw_payload()
+    vehicle_entry = next(
+        event
+        for event in payload["matches"][0]["events"]
+        if event["provider_event_type"] == "SQUAD_ENTERED_VEHICLE"
+    )
+    vehicle_entry["details"]["squad_members_aboard"] = 3
+
+    prepared = TelemetryPreparerV2().prepare(parsed(payload))
+
+    assert not any(
+        candidate.verification.metric
+        == "match.invited_squad_vehicle_escape_within_seconds"
+        for candidate in prepared.mission_candidates
+    )
 
 
 def test_complete_invited_squad_landing_offers_a_named_rendezvous() -> None:
@@ -608,6 +665,35 @@ def test_role_reversal_compiles_assigned_first_revive_objective_in_backend() -> 
     assert not any(issue.code == "mission_rule_not_expressed" for issue in report.issues)
 
 
+def test_validator_rejects_changed_objective_role_and_requirement_metadata() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed())
+    proposal = MemoryInterpreterV2().propose(prepared)
+    primary_index = next(
+        index
+        for index, objective in enumerate(proposal.mission.objectives)
+        if objective.objective_role == MissionObjectiveRoleV2.PRIMARY
+    )
+    objectives = list(proposal.mission.objectives)
+    objectives[primary_index] = objectives[primary_index].model_copy(
+        update={
+            "objective_role": MissionObjectiveRoleV2.BONUS,
+            "required": False,
+        }
+    )
+    tampered = proposal.model_copy(
+        update={
+            "mission": proposal.mission.model_copy(update={"objectives": objectives})
+        }
+    )
+
+    report = ProposalValidatorV2().validate(prepared, tampered)
+    issue_codes = {issue.code for issue in report.issues}
+
+    assert report.passed is False
+    assert "mission_objective_role_mismatch" in issue_codes
+    assert "mission_objective_requirement_mismatch" in issue_codes
+
+
 def test_target_must_be_invitation_eligible() -> None:
     payload = raw_payload()
     payload["squad"]["players"][0]["consent"]["mission_invitation"] = False
@@ -686,7 +772,21 @@ def test_live_generation_has_truthful_content_origin_and_selection_trace() -> No
     assert result.studio_trace.mission_selection.selected_affordance_id == (
         selected.affordance_id
     )
-    assert len(result.next_chapter.objectives) == 4
+    assert len(result.next_chapter.objectives) == 5
+    assert [item.objective_role.value for item in result.next_chapter.objectives] == [
+        "prerequisite",
+        "support",
+        "bonus",
+        "primary",
+        "completion",
+    ]
+    assert [item.required for item in result.next_chapter.objectives] == [
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
 
 
 def test_expander_rejects_invented_ranking_and_reason_without_ai_objective_copy() -> None:

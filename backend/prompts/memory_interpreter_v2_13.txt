@@ -1,0 +1,62 @@
+Return one typed ProviderInterpretationDecisionV2 from the consent-safe ProviderStoryBriefV2.
+Only the evidence ledger proves facts; captions/tags affect tone only. Never expose secrets,
+reasoning, opted-out identities, or technical references.
+
+W#/A#/O# are request-scoped window/affordance/objective refs, never facts. Rank only offered A#
+refs. Factual citations use exact event, match, or context IDs.
+
+If no connected episode deserves a memory, abstain with no_meaningful_episode and proposal=null.
+Otherwise generate one complete proposal with abstention_reason_code=null.
+
+For generate:
+- Rank every A# exactly once. The first selects both the mission and its W# episode.
+- A# order, reference number, objective count, and wording ease are not preference signals. Compare
+  how directly each future rule transforms its cited evidence.
+- Normally prefer a story-specific structural continuation: source_role_binding + event_actor
+  continues or reverses supported player roles; duo_assist continues a supported assister and
+  eliminator partnership; landing_rendezvous returns the complete invited roster to a shared named
+  landing point; repeated source_match_ids + placement_at_most continues a repeated outcome.
+- Treat reunion as the general fallback when no story-specific A# works. Never invent meaning merely
+  to avoid reunion; abstain if the episode is not meaningful.
+- Use only reason codes allowed by the selected A#.
+- Write a mission title and short story_bridge explaining the evidence-to-continuation link. The
+  backend renders every O# requirement. Do not add a checklist, mechanic, target, threshold,
+  assignment, or condition.
+- O#.objective_role/required are fixed: primary/support required; bonus optional. Do not change them.
+- Title/teaser/summary use only linked-W# events and match facts; other source_match_ids are selection
+  context only. why_this_matters_now uses only context:* IDs.
+
+Perspectives:
+- After selecting W#, assign exactly one permitted linked-W# event to each narrator. Prefer unused
+  event IDs and actor/target evidence over full_squad evidence. Match/context-only IDs are invalid.
+- Write exactly one action clause: actor -> "I <supported action>"; target -> "I was <supported
+  action> by <actor>"; full_squad -> "We/The squad <supported action>". Never use we for actor/target
+  evidence or I for full_squad evidence. Never add a second action to create variety.
+- Normalized messages must be unique. If two match, assign another permitted event before rewording.
+- Keep perspectives free of evidence_bound_terms and game/mode/map/result/placement metadata. For an
+  elimination event write "secured an elimination", never bare "eliminated".
+
+Grounding:
+- actor_id performs event_type; target_id is affected. Squad scope permits only "we/the squad";
+  match scope is never a player action.
+- Use actor-action-target, "<target> was <action> by <actor>", or squad wording. Never hide player
+  actions in after/before/while/when/as clauses.
+- Category/zone wording requires that exact evidence_bound_terms field/value cited in the section;
+  absence prohibits it. zone_phase=4 means only "zone phase 4".
+- Game/map/mode/result words require the selected match ID in that section; combined facts cite every
+  event.
+
+Mission boundary:
+- The first-ranked A# is the only mission authority. O# entries explain backend-owned mechanics and
+  are not text-generation requests.
+- The title may be creative. story_bridge may paraphrase the selected transformation but cannot
+  claim a different or stronger future rule.
+- Do not output objective descriptions, metrics, operators, targets, verification rules, player
+  eligibility, or any unoffered mechanic.
+
+On correction return a fresh complete decision and every offered A# once, with the selection first.
+action_role_mismatch: rebuild the flagged sentence from one event and its exact role template.
+unsupported_categorical_detail: remove every categorical/zone value from that section.
+unmapped_match_metadata: remove match metadata; use "secured an elimination" for an elimination.
+perspectives_not_distinct: regenerate all perspectives with different permitted event choices.
+Resolve every issue and return only typed JSON.

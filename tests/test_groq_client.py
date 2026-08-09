@@ -429,7 +429,7 @@ def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> No
             "messages": [
                 {
                     "role": "system",
-                    "content": load_prompt("memory_interpreter_v2_12.txt"),
+                    "content": load_prompt("memory_interpreter_v2_13.txt"),
                 },
                 {
                     "role": "user",

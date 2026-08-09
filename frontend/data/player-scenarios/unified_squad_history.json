@@ -1,0 +1,208 @@
+{
+  "schema_version": "2.1",
+  "request_id": "req-ff-unified-squad-history-001",
+  "target_player_id": "ff-player-lee",
+  "squad": {
+    "squad_id": "ff-squad-next-chapter-001",
+    "players": [
+      {
+        "player_id": "ff-player-lee",
+        "display_name": "Lee",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-mei",
+        "display_name": "Mei",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-amir",
+        "display_name": "Amir",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-jo",
+        "display_name": "Jo",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      }
+    ]
+  },
+  "matches": [
+    {
+      "match_id": "ff-unified-pochinok-01",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-07-11T11:00:00Z",
+      "ended_at": "2026-07-11T11:20:00Z",
+      "placement": 5,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "unified-01-land-lee",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 31,
+          "location": "Pochinok",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "unified-01-land-mei",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-mei",
+          "timestamp_seconds": 35,
+          "location": "Pochinok",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "unified-01-land-amir",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 38,
+          "location": "Pochinok",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "unified-01-land-jo",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 41,
+          "location": "Pochinok",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "unified-01-knock-lee",
+          "provider_event_type": "PLAYER_KNOCKED",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 65,
+          "location": "Pochinok",
+          "details": {"zone_phase": 1}
+        },
+        {
+          "event_id": "unified-01-revive-lee",
+          "provider_event_type": "TEAMMATE_REVIVED",
+          "actor_id": "ff-player-mei",
+          "target_id": "ff-player-lee",
+          "timestamp_seconds": 74,
+          "location": "Pochinok",
+          "details": {"zone_phase": 1}
+        },
+        {
+          "event_id": "unified-01-assist-lee",
+          "provider_event_type": "KILL_ASSIST",
+          "actor_id": "ff-player-lee",
+          "target_id": "ff-player-mei",
+          "timestamp_seconds": 93,
+          "location": "Pochinok",
+          "details": {"weapon_class": "smg"}
+        },
+        {
+          "event_id": "unified-01-elimination-mei",
+          "provider_event_type": "PLAYER_ELIMINATED_OPPONENT",
+          "actor_id": "ff-player-mei",
+          "timestamp_seconds": 98,
+          "location": "Pochinok",
+          "details": {"weapon_class": "smg"}
+        },
+        {
+          "event_id": "unified-01-vehicle-enter",
+          "provider_event_type": "SQUAD_ENTERED_VEHICLE",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 108,
+          "location": "Pochinok",
+          "details": {
+            "squad_members_aboard": 4,
+            "vehicle_type": "pickup"
+          }
+        },
+        {
+          "event_id": "unified-01-zone-escape",
+          "provider_event_type": "SQUAD_EXITED_DAMAGE_ZONE",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 119,
+          "location": "Pochinok",
+          "details": {"squad_members_alive": 4}
+        }
+      ]
+    },
+    {
+      "match_id": "ff-unified-near-miss-02",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-07-18T12:00:00Z",
+      "ended_at": "2026-07-18T12:20:00Z",
+      "placement": 4,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "unified-02-loot-lee",
+          "provider_event_type": "ITEM_PICKED_UP",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 210,
+          "location": "Observatory",
+          "details": {"item_type": "armor"}
+        },
+        {
+          "event_id": "unified-02-signal-jo",
+          "provider_event_type": "TACTICAL_PING_PLACED",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 216,
+          "location": "Observatory",
+          "details": {"ping_type": "enemy"}
+        },
+        {
+          "event_id": "unified-02-assist-amir",
+          "provider_event_type": "KILL_ASSIST",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 219,
+          "location": "Observatory",
+          "details": {}
+        },
+        {
+          "event_id": "unified-02-heal-mei",
+          "provider_event_type": "PLAYER_HEALED",
+          "actor_id": "ff-player-mei",
+          "timestamp_seconds": 222,
+          "location": "Observatory",
+          "details": {"health_state": "stable"}
+        }
+      ]
+    }
+  ],
+  "squad_history": {
+    "previous_session_at": [
+      "2026-07-11T11:00:00Z",
+      "2026-07-18T12:00:00Z"
+    ],
+    "days_since_full_squad": 14,
+    "recent_rematch_count": 2
+  },
+  "current_context": {
+    "active_player_ids": ["ff-player-lee", "ff-player-mei"],
+    "available_modes": ["battle_royale_squad"],
+    "reunion_eligible": true
+  },
+  "social_context": null,
+  "media_references": []
+}

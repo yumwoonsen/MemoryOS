@@ -87,6 +87,11 @@ evidence, exact objective descriptions, and verification rules. Deterministic co
 primary family mechanic, adds only compatible capabilities from the same neutral window, and never
 pads a chapter with fabricated actions. The player still receives one clear Next Chapter rather than an
 internal candidate menu.
+The ordered grammar is explicit: an invitation-safe prerequisite, one primary family mechanic,
+zero to two compatible support or optional bonus mechanics, and match completion. Bonus objectives
+are the only optional steps and never decide whether the chapter completes. Current grounded bonus
+capabilities include the first tactical signal and a full-squad vehicle escape within 60 seconds;
+both require their exact source events in the selected window.
 The model is instructed to choose the strongest direct evidence-linked continuation, not the first
 serialized candidate. Role reversal can continue a rescue episode, redemption can continue a
 repeated near miss, return to place can call back to a named rescue site, landing rendezvous can
@@ -126,7 +131,7 @@ This smaller structured output is intended to reduce malformed or internally inc
 responses without moving authority from deterministic code to AI. A historical telemetry-only
 smoke run passed on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
 `memory-interpreter-v2.4-grounded-controls` prompt. The current v2.1 mission-affordance contract uses
-`memory-interpreter-v2.12-richer-missions` from `memory_interpreter_v2_12.txt`; the historical
+`memory-interpreter-v2.13-perspective-safe-variation` from `memory_interpreter_v2_13.txt`; the historical
 result is not evidence for the newer prompt or for the default 20B model.
 
 Two controlled historical live smokes on 9 August 2026 used Gemini `gemini-3.6-flash` and
@@ -136,13 +141,22 @@ Both passed validation without correction. These are two successful paths, not a
 reliability, reunion-counterfactual, or abstention matrix, and not evidence for the active V2.12
 prompt.
 
-The v2 API boundary is `POST /v2/memories/interpret-delivery`, followed by
+The general v2 API boundary is `POST /v2/memories/interpret-delivery`. The player prototype uses
+`POST /v2/memories/interpret-varied-delivery`, followed by
 `POST /v2/deliveries/{delivery_id}/decision`. A live provider failure, refusal, malformed output,
 or failed correction returns no player-facing proposal. A validated AI abstention instead returns
 `not_generated` with no artifacts. Gemini `gemini-3.6-flash` is the preferred hosted prototype v2
 provider. Groq GPT-OSS and OpenAI remain available as alternatives. Deterministic narrative
 generation remains useful for tests, but the current Studio checkpoint produces no deterministic
 narrative and is not a live-AI fallback.
+
+The player route holds one coherent synthetic squad history on the server. For each new chapter it
+generates a private nonce, removes the last two successfully delivered mission families when other
+grounded choices exist, and gives Gemini at most three distinct specialized affordances to compare.
+Gemini still selects the episode-and-mission pair and authors its narrative; deterministic
+preparation, objective compilation, and validation remain authoritative. `reunion` is used only
+when no specialized family is available. A rerun consumes provider quota and resets the prior
+player-flow state before generation.
 
 Developer Studio now compares five backend-owned, versioned scenarios: rescue to role reversal,
 landing together to landing rendezvous, an assist-to-elimination pair to duo assist, repeated near

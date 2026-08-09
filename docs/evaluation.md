@@ -229,7 +229,7 @@ The automated checks below cover the current contract. A configured historical s
 telemetry-only fixture, Groq `openai/gpt-oss-120b`, and
 `memory-interpreter-v2.4-grounded-controls`; it ended as a validated pending delivery without a
 correction. That result is retained only as V2.4 history. It is not evidence for the active
-`memory-interpreter-v2.12-richer-missions` prompt, its generate/abstain behavior, mission
+`memory-interpreter-v2.13-perspective-safe-variation` prompt, its generate/abstain behavior, mission
 selection behavior, or current model reliability. V2.12 requires a new labelled provider/model
 sample.
 

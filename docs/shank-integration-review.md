@@ -77,7 +77,7 @@ Garena telemetry integration, and post-match objective verification remain defer
 The public `next_chapter.mission` carries the AI-authored story bridge and its `objectives` carry the
 backend-compiled exact steps. Validation still rejects contradictory targets/operators, unoffered
 mechanics, unsupported facts, privacy violations, and unsafe content. The active prompt is
-`memory-interpreter-v2.12-richer-missions`, loaded from `memory_interpreter_v2_12.txt`; the
+`memory-interpreter-v2.13-perspective-safe-variation`, loaded from `memory_interpreter_v2_13.txt`; the
 historical V2.4/120B and V2.10/Gemini smokes do not validate this prompt.
 
 ## Next implementation order

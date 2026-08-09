@@ -18,7 +18,9 @@ from backend.models.v2_schemas import (
     MediaReferenceV2,
     MissionAffordanceV2,
     MissionCapabilityCandidate,
+    MissionCompatibilityTagV2,
     MissionFamilyV2,
+    MissionObjectiveRoleV2,
     MissionSelectionReasonCodeV2,
     NormalizedEventV2,
     NormalizedMatchV2,
@@ -219,13 +221,60 @@ _CHAPTER_EXTRA_PRIORITY = {
     "match.assigned_player_assisted_elimination_player_ids": 1,
     "match.first_squad_revive_actor_id": 2,
     "match.invited_squad_visits_location": 3,
+    "match.first_squad_tactical_signal_actor_id": 4,
+    "match.invited_squad_vehicle_escape_within_seconds": 5,
+    "match.top_three_reached": 6,
+}
+_CHAPTER_FAMILY_EXTRA_PRIORITY = {
+    MissionFamilyV2.ROLE_REVERSAL: (
+        "match.invited_squad_lands_at_location",
+        "match.invited_squad_visits_location",
+        "match.assigned_player_assisted_elimination_player_ids",
+        "match.first_squad_tactical_signal_actor_id",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "match.top_three_reached",
+    ),
+    MissionFamilyV2.RETURN_TO_PLACE: (
+        "match.first_squad_revive_actor_id",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "match.first_squad_tactical_signal_actor_id",
+        "match.assigned_player_assisted_elimination_player_ids",
+        "match.invited_squad_lands_at_location",
+        "match.top_three_reached",
+    ),
+    MissionFamilyV2.LANDING_RENDEZVOUS: (
+        "match.assigned_player_assisted_elimination_player_ids",
+        "match.first_squad_revive_actor_id",
+        "match.first_squad_tactical_signal_actor_id",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "match.invited_squad_visits_location",
+        "match.top_three_reached",
+    ),
+    MissionFamilyV2.DUO_ASSIST: (
+        "match.invited_squad_lands_at_location",
+        "match.first_squad_revive_actor_id",
+        "match.first_squad_tactical_signal_actor_id",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "match.invited_squad_visits_location",
+        "match.top_three_reached",
+    ),
+    MissionFamilyV2.REDEMPTION: (
+        "match.first_squad_tactical_signal_actor_id",
+        "match.invited_squad_vehicle_escape_within_seconds",
+        "match.first_squad_revive_actor_id",
+        "match.assigned_player_assisted_elimination_player_ids",
+        "match.invited_squad_visits_location",
+        "match.invited_squad_lands_at_location",
+    ),
 }
 _CHAPTER_EXECUTION_ORDER = {
     "match.invited_squad_lands_at_location": 0,
     "match.invited_squad_visits_location": 1,
-    "match.first_squad_revive_actor_id": 2,
-    "match.assigned_player_assisted_elimination_player_ids": 3,
-    "match.top_three_reached": 4,
+    "match.first_squad_tactical_signal_actor_id": 2,
+    "match.first_squad_revive_actor_id": 3,
+    "match.assigned_player_assisted_elimination_player_ids": 4,
+    "match.invited_squad_vehicle_escape_within_seconds": 5,
+    "match.top_three_reached": 6,
 }
 _CHAPTER_FAMILY_RECIPE = {
     MissionFamilyV2.REUNION: QuestRecipe.RECREATE,
@@ -236,6 +285,61 @@ _CHAPTER_FAMILY_RECIPE = {
     MissionFamilyV2.DUO_ASSIST: QuestRecipe.REMIX,
 }
 MAX_PROVIDER_CORE_BYTES = 80_000
+
+_MISSION_COMPATIBILITY_TAGS = {
+    "squad.participant_ids": [MissionCompatibilityTagV2.SQUAD_ENTRY],
+    "squad.matches_completed": [MissionCompatibilityTagV2.MATCH_COMPLETION],
+    "match.first_squad_revive_actor_id": [
+        MissionCompatibilityTagV2.INDIVIDUAL_ASSIGNMENT,
+        MissionCompatibilityTagV2.SUPPORT_ACTION,
+    ],
+    "match.top_three_reached": [MissionCompatibilityTagV2.PLACEMENT],
+    "match.invited_squad_visits_location": [
+        MissionCompatibilityTagV2.LOCATION,
+        MissionCompatibilityTagV2.SQUAD_COORDINATION,
+    ],
+    "match.invited_squad_lands_at_location": [
+        MissionCompatibilityTagV2.LOCATION,
+        MissionCompatibilityTagV2.SQUAD_COORDINATION,
+    ],
+    "match.assigned_player_assisted_elimination_player_ids": [
+        MissionCompatibilityTagV2.INDIVIDUAL_ASSIGNMENT,
+        MissionCompatibilityTagV2.COMBAT,
+    ],
+    "match.first_squad_tactical_signal_actor_id": [
+        MissionCompatibilityTagV2.INDIVIDUAL_ASSIGNMENT,
+        MissionCompatibilityTagV2.TACTICAL,
+    ],
+    "match.invited_squad_vehicle_escape_within_seconds": [
+        MissionCompatibilityTagV2.SQUAD_COORDINATION,
+        MissionCompatibilityTagV2.VEHICLE,
+    ],
+}
+
+
+def _mission_objective_metadata(
+    metric: str,
+    role: MissionObjectiveRoleV2,
+) -> dict[str, object]:
+    """Return strict backend-owned role and compatibility metadata for a metric."""
+
+    tags = _MISSION_COMPATIBILITY_TAGS.get(metric)
+    if tags is None:
+        raise ValueError(f"unsupported chapter metric metadata: {metric}")
+    return {
+        "objective_role": role,
+        "required": role != MissionObjectiveRoleV2.BONUS,
+        "compatibility_tags": tags,
+    }
+
+
+@dataclass(frozen=True)
+class _ChapterMechanicSource:
+    candidate: MissionCapabilityCandidate
+    source_event_ids: list[str]
+    source_match_ids: list[str]
+    source_context_ids: list[str]
+    parameters: dict[str, object]
 
 COLLECTIVE_MEMBERSHIP_DETAIL = {
     CanonicalEventType.VEHICLE_ENTER: "squad_members_aboard",
@@ -849,6 +953,7 @@ class TelemetryPreparerV2:
             return [], []
         candidates: list[MissionCapabilityCandidate] = []
         affordances: list[MissionAffordanceV2] = []
+        secondary_sources: list[_ChapterMechanicSource] = []
         all_events = {
             event.event_id: event for match in normalized.matches for event in match.events
         }
@@ -879,6 +984,10 @@ class TelemetryPreparerV2:
                     candidate_id=f"objective:reunion:participants:{suffix}",
                     window_id=window.window_id,
                     recipe=QuestRecipe.RECREATE,
+                    **_mission_objective_metadata(
+                        "squad.participant_ids",
+                        MissionObjectiveRoleV2.PREREQUISITE,
+                    ),
                     source_event_ids=source_ids,
                     verification=VerificationRule(
                         metric="squad.participant_ids",
@@ -890,6 +999,10 @@ class TelemetryPreparerV2:
                     candidate_id=f"objective:reunion:match:{suffix}",
                     window_id=window.window_id,
                     recipe=QuestRecipe.RECREATE,
+                    **_mission_objective_metadata(
+                        "squad.matches_completed",
+                        MissionObjectiveRoleV2.COMPLETION,
+                    ),
                     source_event_ids=source_ids,
                     verification=VerificationRule(
                         metric="squad.matches_completed",
@@ -917,6 +1030,101 @@ class TelemetryPreparerV2:
                     ],
                 )
             )
+
+            ordered_window_events = sorted(
+                (all_events[event_id] for event_id in source_ids),
+                key=lambda item: (item.timestamp_seconds, item.event_id),
+            )
+            tactical_signal = next(
+                (
+                    event
+                    for event in ordered_window_events
+                    if event.event_type == CanonicalEventType.SIGNAL
+                    and event.actor_id in invited_ids
+                ),
+                None,
+            )
+            if tactical_signal is not None:
+                assert tactical_signal.actor_id is not None
+                signal_candidate = MissionCapabilityCandidate(
+                    candidate_id=f"objective:tactical_signal:first_actor:{suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.REMIX,
+                    **_mission_objective_metadata(
+                        "match.first_squad_tactical_signal_actor_id",
+                        MissionObjectiveRoleV2.SUPPORT,
+                    ),
+                    assigned_player_id=tactical_signal.actor_id,
+                    source_event_ids=[tactical_signal.event_id],
+                    verification=VerificationRule(
+                        metric="match.first_squad_tactical_signal_actor_id",
+                        operator="equals",
+                        target=tactical_signal.actor_id,
+                    ),
+                )
+                candidates.append(signal_candidate)
+                secondary_sources.append(
+                    _ChapterMechanicSource(
+                        candidate=signal_candidate,
+                        source_event_ids=[tactical_signal.event_id],
+                        source_match_ids=[window.match_id],
+                        source_context_ids=[],
+                        parameters={"signal_player_id": tactical_signal.actor_id},
+                    )
+                )
+
+            vehicle_escape_pair: tuple[NormalizedEventV2, NormalizedEventV2] | None = None
+            for vehicle_entry in ordered_window_events:
+                if (
+                    vehicle_entry.event_type != CanonicalEventType.VEHICLE_ENTER
+                    or not vehicle_entry.location
+                    or not collective_event_includes_full_squad(vehicle_entry, normalized)
+                ):
+                    continue
+                escape = next(
+                    (
+                        event
+                        for event in ordered_window_events
+                        if event.event_type == CanonicalEventType.ESCAPE
+                        and event.location == vehicle_entry.location
+                        and 0 < event.timestamp_seconds - vehicle_entry.timestamp_seconds <= 60
+                        and collective_event_includes_full_squad(event, normalized)
+                    ),
+                    None,
+                )
+                if escape is not None:
+                    vehicle_escape_pair = (vehicle_entry, escape)
+                    break
+            if vehicle_escape_pair is not None:
+                vehicle_entry, escape = vehicle_escape_pair
+                extraction_candidate = MissionCapabilityCandidate(
+                    candidate_id=f"objective:vehicle_extraction:full_squad:{suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.RECREATE,
+                    **_mission_objective_metadata(
+                        "match.invited_squad_vehicle_escape_within_seconds",
+                        MissionObjectiveRoleV2.SUPPORT,
+                    ),
+                    source_event_ids=[vehicle_entry.event_id, escape.event_id],
+                    verification=VerificationRule(
+                        metric="match.invited_squad_vehicle_escape_within_seconds",
+                        operator="equals",
+                        target=True,
+                    ),
+                )
+                candidates.append(extraction_candidate)
+                secondary_sources.append(
+                    _ChapterMechanicSource(
+                        candidate=extraction_candidate,
+                        source_event_ids=[vehicle_entry.event_id, escape.event_id],
+                        source_match_ids=[window.match_id],
+                        source_context_ids=[],
+                        parameters={
+                            "invitation_player_ids": invited_ids,
+                            "vehicle_escape_window_seconds": 60,
+                        },
+                    )
+                )
 
             first_landing_by_player: dict[str, NormalizedEventV2] = {}
             for event in sorted(
@@ -956,6 +1164,10 @@ class TelemetryPreparerV2:
                     candidate_id=f"objective:landing_rendezvous:location:{suffix}",
                     window_id=window.window_id,
                     recipe=QuestRecipe.RECREATE,
+                    **_mission_objective_metadata(
+                        "match.invited_squad_lands_at_location",
+                        MissionObjectiveRoleV2.PRIMARY,
+                    ),
                     source_event_ids=landing_source_ids,
                     verification=VerificationRule(
                         metric="match.invited_squad_lands_at_location",
@@ -1010,6 +1222,10 @@ class TelemetryPreparerV2:
                     candidate_id=f"objective:return_to_place:location:{suffix}",
                     window_id=window.window_id,
                     recipe=QuestRecipe.RECREATE,
+                    **_mission_objective_metadata(
+                        "match.invited_squad_visits_location",
+                        MissionObjectiveRoleV2.PRIMARY,
+                    ),
                     source_event_ids=return_source_ids,
                     verification=VerificationRule(
                         metric="match.invited_squad_visits_location",
@@ -1059,6 +1275,10 @@ class TelemetryPreparerV2:
                         candidate_id=f"objective:role_reversal:participants:{role_suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.REMIX,
+                        **_mission_objective_metadata(
+                            "squad.participant_ids",
+                            MissionObjectiveRoleV2.PREREQUISITE,
+                        ),
                         source_event_ids=source_ids,
                         verification=VerificationRule(
                             metric="squad.participant_ids",
@@ -1070,6 +1290,10 @@ class TelemetryPreparerV2:
                         candidate_id=f"objective:role_reversal:match:{role_suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.REMIX,
+                        **_mission_objective_metadata(
+                            "squad.matches_completed",
+                            MissionObjectiveRoleV2.COMPLETION,
+                        ),
                         source_event_ids=source_ids,
                         verification=VerificationRule(
                             metric="squad.matches_completed",
@@ -1081,6 +1305,10 @@ class TelemetryPreparerV2:
                         candidate_id=f"objective:role_reversal:first_revive:{role_suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.REMIX,
+                        **_mission_objective_metadata(
+                            "match.first_squad_revive_actor_id",
+                            MissionObjectiveRoleV2.PRIMARY,
+                        ),
                         assigned_player_id=revive.target_id,
                         source_event_ids=[revive.event_id],
                         verification=VerificationRule(
@@ -1151,6 +1379,10 @@ class TelemetryPreparerV2:
                     candidate_id=f"objective:duo_assist:pair:{duo_suffix}",
                     window_id=window.window_id,
                     recipe=QuestRecipe.REMIX,
+                    **_mission_objective_metadata(
+                        "match.assigned_player_assisted_elimination_player_ids",
+                        MissionObjectiveRoleV2.PRIMARY,
+                    ),
                     assigned_player_id=assist.actor_id,
                     source_event_ids=[assist.event_id, elimination.event_id],
                     verification=VerificationRule(
@@ -1191,6 +1423,10 @@ class TelemetryPreparerV2:
                         candidate_id=f"objective:redemption:participants:{suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.RESOLVE,
+                        **_mission_objective_metadata(
+                            "squad.participant_ids",
+                            MissionObjectiveRoleV2.PREREQUISITE,
+                        ),
                         source_event_ids=source_ids,
                         verification=VerificationRule(
                             metric="squad.participant_ids",
@@ -1202,6 +1438,10 @@ class TelemetryPreparerV2:
                         candidate_id=f"objective:redemption:match:{suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.RESOLVE,
+                        **_mission_objective_metadata(
+                            "squad.matches_completed",
+                            MissionObjectiveRoleV2.COMPLETION,
+                        ),
                         source_event_ids=source_ids,
                         verification=VerificationRule(
                             metric="squad.matches_completed",
@@ -1213,6 +1453,10 @@ class TelemetryPreparerV2:
                         candidate_id=f"objective:redemption:top_three:{suffix}",
                         window_id=window.window_id,
                         recipe=QuestRecipe.RESOLVE,
+                        **_mission_objective_metadata(
+                            "match.top_three_reached",
+                            MissionObjectiveRoleV2.PRIMARY,
+                        ),
                         source_event_ids=source_ids,
                         verification=VerificationRule(
                             metric="match.top_three_reached",
@@ -1248,12 +1492,17 @@ class TelemetryPreparerV2:
                         ],
                     )
                 )
-        return TelemetryPreparerV2._compose_chapter_objectives(candidates, affordances)
+        return TelemetryPreparerV2._compose_chapter_objectives(
+            candidates,
+            affordances,
+            secondary_sources,
+        )
 
     @staticmethod
     def _compose_chapter_objectives(
         candidates: list[MissionCapabilityCandidate],
         affordances: list[MissionAffordanceV2],
+        secondary_sources: list[_ChapterMechanicSource],
     ) -> tuple[list[MissionCapabilityCandidate], list[MissionAffordanceV2]]:
         """Turn atomic capabilities into ordered, evidence-safe 2-to-5 step chapters.
 
@@ -1292,10 +1541,7 @@ class TelemetryPreparerV2:
             if set(baseline_by_metric) != _CHAPTER_BASE_METRICS:
                 continue
 
-            mechanic_sources: dict[
-                str,
-                tuple[MissionCapabilityCandidate, MissionAffordanceV2],
-            ] = {}
+            mechanic_sources: dict[str, _ChapterMechanicSource] = {}
             for source_affordance in sorted(
                 window_affordances,
                 key=lambda item: item.affordance_id,
@@ -1312,10 +1558,22 @@ class TelemetryPreparerV2:
                     None,
                 )
                 if primary_candidate is not None:
-                    mechanic_sources[primary_metric] = (
-                        primary_candidate,
-                        source_affordance,
+                    mechanic_sources[primary_metric] = _ChapterMechanicSource(
+                        candidate=primary_candidate,
+                        source_event_ids=source_affordance.source_event_ids,
+                        source_match_ids=source_affordance.source_match_ids,
+                        source_context_ids=source_affordance.source_context_ids,
+                        parameters=dict(source_affordance.parameters),
                     )
+            for source in sorted(
+                (
+                    item
+                    for item in secondary_sources
+                    if item.candidate.window_id == reunion.window_id
+                ),
+                key=lambda item: item.candidate.candidate_id,
+            ):
+                mechanic_sources.setdefault(source.candidate.verification.metric, source)
 
             for affordance in window_affordances:
                 if affordance.family == MissionFamilyV2.REUNION:
@@ -1340,32 +1598,58 @@ class TelemetryPreparerV2:
                 primary_metric = _CHAPTER_PRIMARY_METRIC.get(affordance.family)
                 if primary_metric is None or primary_metric not in mechanic_sources:
                     continue
-                chosen_metrics = [primary_metric]
-                if affordance.family != MissionFamilyV2.REDEMPTION:
-                    for metric in sorted(
-                        mechanic_sources,
-                        key=lambda item: (
-                            _CHAPTER_EXTRA_PRIORITY.get(item, 100),
-                            item,
-                        ),
+                selected_sources = [mechanic_sources[primary_metric]]
+                merged_parameters = dict(affordance.parameters)
+                family_priority = _CHAPTER_FAMILY_EXTRA_PRIORITY.get(affordance.family, ())
+                priority_index = {
+                    metric: index for index, metric in enumerate(family_priority)
+                }
+                for metric in sorted(
+                    mechanic_sources,
+                    key=lambda item: (
+                        priority_index.get(item, len(priority_index)),
+                        _CHAPTER_EXTRA_PRIORITY.get(item, 100),
+                        item,
+                    ),
+                ):
+                    if metric == primary_metric:
+                        continue
+                    source = mechanic_sources[metric]
+                    if not all(
+                        TelemetryPreparerV2._chapter_mechanics_compatible(
+                            source.candidate,
+                            selected.candidate,
+                        )
+                        for selected in selected_sources
                     ):
-                        if metric in chosen_metrics or metric == "match.top_three_reached":
-                            continue
-                        if {
-                            metric,
-                            primary_metric,
-                        } == {
-                            "match.invited_squad_lands_at_location",
-                            "match.invited_squad_visits_location",
-                        }:
-                            continue
-                        chosen_metrics.append(metric)
-                        if len(chosen_metrics) == MAX_CHAPTER_OBJECTIVES - len(
-                            _CHAPTER_BASE_METRICS
-                        ):
-                            break
-                chosen_metrics.sort(
-                    key=lambda item: (_CHAPTER_EXECUTION_ORDER.get(item, 100), item)
+                        continue
+                    if not TelemetryPreparerV2._chapter_parameters_compatible(
+                        merged_parameters,
+                        source.parameters,
+                    ):
+                        continue
+                    selected_sources.append(source)
+                    merged_parameters.update(source.parameters)
+                    if len(selected_sources) == MAX_CHAPTER_OBJECTIVES - len(
+                        _CHAPTER_BASE_METRICS
+                    ):
+                        break
+
+                role_by_metric = {primary_metric: MissionObjectiveRoleV2.PRIMARY}
+                for index, source in enumerate(selected_sources[1:]):
+                    role_by_metric[source.candidate.verification.metric] = (
+                        MissionObjectiveRoleV2.SUPPORT
+                        if index == 0
+                        else MissionObjectiveRoleV2.BONUS
+                    )
+                selected_sources.sort(
+                    key=lambda item: (
+                        _CHAPTER_EXECUTION_ORDER.get(
+                            item.candidate.verification.metric,
+                            100,
+                        ),
+                        item.candidate.verification.metric,
+                    )
                 )
 
                 recipe = _CHAPTER_FAMILY_RECIPE[affordance.family]
@@ -1379,16 +1663,22 @@ class TelemetryPreparerV2:
                         affordance,
                         recipe,
                         "participants",
+                        MissionObjectiveRoleV2.PREREQUISITE,
                     )
                 ]
-                for metric in chosen_metrics:
-                    template, source_affordance = mechanic_sources[metric]
+                for source in selected_sources:
+                    template = source.candidate
+                    metric = template.verification.metric
                     token = {
                         "match.first_squad_revive_actor_id": "first_revive",
                         "match.top_three_reached": "top_three",
                         "match.invited_squad_visits_location": "return_location",
                         "match.invited_squad_lands_at_location": "landing",
                         "match.assigned_player_assisted_elimination_player_ids": "duo_assist",
+                        "match.first_squad_tactical_signal_actor_id": "tactical_signal",
+                        "match.invited_squad_vehicle_escape_within_seconds": (
+                            "vehicle_extraction"
+                        ),
                     }[metric]
                     chapter_candidates.append(
                         TelemetryPreparerV2._clone_chapter_candidate(
@@ -1396,24 +1686,26 @@ class TelemetryPreparerV2:
                             affordance,
                             recipe,
                             token,
+                            role_by_metric[metric],
                         )
                     )
-                    for key, value in source_affordance.parameters.items():
+                    for key, value in source.parameters.items():
                         existing = chapter_parameters.get(key)
                         if existing is not None and existing != value:
                             raise ValueError(
                                 f"chapter parameter {key!r} conflicts within one event window"
                             )
                         chapter_parameters[key] = value
-                    chapter_source_event_ids.extend(source_affordance.source_event_ids)
-                    chapter_source_match_ids.extend(source_affordance.source_match_ids)
-                    chapter_source_context_ids.extend(source_affordance.source_context_ids)
+                    chapter_source_event_ids.extend(source.source_event_ids)
+                    chapter_source_match_ids.extend(source.source_match_ids)
+                    chapter_source_context_ids.extend(source.source_context_ids)
                 chapter_candidates.append(
                     TelemetryPreparerV2._clone_chapter_candidate(
                         baseline_by_metric["squad.matches_completed"],
                         affordance,
                         recipe,
                         "complete_match",
+                        MissionObjectiveRoleV2.COMPLETION,
                     )
                 )
                 if not MIN_CHAPTER_OBJECTIVES <= len(chapter_candidates) <= MAX_CHAPTER_OBJECTIVES:
@@ -1441,6 +1733,7 @@ class TelemetryPreparerV2:
         affordance: MissionAffordanceV2,
         recipe: QuestRecipe,
         token: str,
+        objective_role: MissionObjectiveRoleV2,
     ) -> MissionCapabilityCandidate:
         suffix = affordance.affordance_id.removeprefix("affordance:").replace(":", "_")
         candidate_id = f"objective:chapter:{suffix}:{token}"
@@ -1454,8 +1747,46 @@ class TelemetryPreparerV2:
                 "candidate_id": candidate_id,
                 "window_id": affordance.window_id,
                 "recipe": recipe,
+                "objective_role": objective_role,
+                "required": objective_role != MissionObjectiveRoleV2.BONUS,
             }
         )
+
+    @staticmethod
+    def _chapter_parameters_compatible(
+        existing: dict[str, object],
+        candidate: dict[str, object],
+    ) -> bool:
+        return all(
+            key not in existing or existing[key] == value
+            for key, value in candidate.items()
+        )
+
+    @staticmethod
+    def _chapter_mechanics_compatible(
+        left: MissionCapabilityCandidate,
+        right: MissionCapabilityCandidate,
+    ) -> bool:
+        """Reject duplicates and redundant location callbacks; allow grounded chains."""
+
+        if left.verification.metric == right.verification.metric:
+            return False
+        boundary_tags = {
+            MissionCompatibilityTagV2.SQUAD_ENTRY,
+            MissionCompatibilityTagV2.MATCH_COMPLETION,
+        }
+        if boundary_tags & set(left.compatibility_tags + right.compatibility_tags):
+            return False
+        location_metrics = {
+            "match.invited_squad_lands_at_location",
+            "match.invited_squad_visits_location",
+        }
+        if {
+            left.verification.metric,
+            right.verification.metric,
+        } == location_metrics:
+            return left.verification.target != right.verification.target
+        return True
 
     @staticmethod
     def _ledger(normalized: NormalizedTelemetryV2) -> ConsentSafeEvidenceLedgerV2:

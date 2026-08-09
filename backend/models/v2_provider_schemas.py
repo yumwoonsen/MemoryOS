@@ -24,6 +24,7 @@ from backend.models.v2_schemas import (
     InterpretationDecisionKindV2,
     MediaReferenceV2,
     MissionFamilyV2,
+    MissionObjectiveRoleV2,
     MissionSelectionReasonCodeV2,
     NormalizedPlayerV2,
     SquadHistoryV2,
@@ -56,11 +57,15 @@ class MissionObjectiveKindV2(StrEnum):
     RETURN_TO_LOCATION = "return_to_location"
     LANDING_RENDEZVOUS = "landing_rendezvous"
     DUO_ASSIST = "duo_assist"
+    TACTICAL_SIGNAL = "tactical_signal"
+    FULL_SQUAD_VEHICLE_EXTRACTION = "full_squad_vehicle_extraction"
 
 
 class ProviderMissionObjectiveV2(StrictModel):
     objective_ref: ProviderReference
     kind: MissionObjectiveKindV2
+    objective_role: MissionObjectiveRoleV2
+    required: bool
     required_terms: list[str] = Field(
         min_length=1,
         max_length=6,
@@ -78,6 +83,7 @@ class ProviderMissionObjectiveV2(StrictModel):
     placement_at_most: int | None = Field(default=None, ge=1, le=100)
     location: str | None = Field(default=None, min_length=1, max_length=100)
     teammate_player_id: str | None = Field(default=None, min_length=1, max_length=128)
+    maximum_seconds: int | None = Field(default=None, ge=1, le=300)
 
     @model_validator(mode="after")
     def fields_match_kind(self) -> ProviderMissionObjectiveV2:
@@ -95,6 +101,7 @@ class ProviderMissionObjectiveV2(StrictModel):
             "placement_at_most": self.placement_at_most is not None,
             "location": self.location is not None,
             "teammate_player_id": self.teammate_player_id is not None,
+            "maximum_seconds": self.maximum_seconds is not None,
         }
         expected = {
             MissionObjectiveKindV2.REQUIRED_PARTICIPANTS: {"roster_ref"},
@@ -112,9 +119,31 @@ class ProviderMissionObjectiveV2(StrictModel):
                 "minimum_count",
                 "teammate_player_id",
             },
+            MissionObjectiveKindV2.TACTICAL_SIGNAL: {
+                "assigned_player_id",
+                "ordinal",
+            },
+            MissionObjectiveKindV2.FULL_SQUAD_VEHICLE_EXTRACTION: {
+                "roster_ref",
+                "maximum_seconds",
+            },
         }[self.kind]
         if {field for field, present in supplied.items() if present} != expected:
             raise ValueError("mission objective capability fields must match its kind")
+        if self.required != (self.objective_role != MissionObjectiveRoleV2.BONUS):
+            raise ValueError("only bonus provider objectives may be optional")
+        expected_boundary_role = {
+            MissionObjectiveKindV2.REQUIRED_PARTICIPANTS: MissionObjectiveRoleV2.PREREQUISITE,
+            MissionObjectiveKindV2.COMPLETED_MATCHES: MissionObjectiveRoleV2.COMPLETION,
+        }.get(self.kind)
+        if expected_boundary_role is not None and self.objective_role != expected_boundary_role:
+            raise ValueError("provider prerequisite and completion kinds require matching roles")
+        if (
+            expected_boundary_role is None
+            and self.objective_role
+            in {MissionObjectiveRoleV2.PREREQUISITE, MissionObjectiveRoleV2.COMPLETION}
+        ):
+            raise ValueError("gameplay objective kinds cannot use boundary roles")
         return self
 
 
@@ -145,6 +174,17 @@ class ProviderMissionAffordanceV2(StrictModel):
         objective_refs = [objective.objective_ref for objective in self.objectives]
         if len(objective_refs) != len(set(objective_refs)):
             raise ValueError("provider objective references must be unique per affordance")
+        roles = [objective.objective_role for objective in self.objectives]
+        if (
+            roles[0] != MissionObjectiveRoleV2.PREREQUISITE
+            or roles[-1] != MissionObjectiveRoleV2.COMPLETION
+            or roles.count(MissionObjectiveRoleV2.PREREQUISITE) != 1
+            or roles.count(MissionObjectiveRoleV2.COMPLETION) != 1
+        ):
+            raise ValueError("provider affordances require boundary objective roles")
+        expected_primary_count = 0 if self.family == MissionFamilyV2.REUNION else 1
+        if roles.count(MissionObjectiveRoleV2.PRIMARY) != expected_primary_count:
+            raise ValueError("provider affordance primary objective count does not match family")
         if self.family == MissionFamilyV2.ROLE_REVERSAL:
             if self.source_role_binding is None:
                 raise ValueError("role reversal requires one neutral source-role binding")

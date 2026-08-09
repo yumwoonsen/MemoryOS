@@ -83,6 +83,7 @@ ACTION_WORDS: dict[ClaimPredicate, tuple[str, ...]] = {
         "enters the vehicle",
         "entering a vehicle",
         "entering the vehicle",
+        "board",
         "boarded",
         "boards",
         "boarding",
@@ -118,6 +119,12 @@ ACTION_WORDS: dict[ClaimPredicate, tuple[str, ...]] = {
         "getting out",
         "got out",
         "made it out",
+        "leave the danger zone",
+        "leaves the danger zone",
+        "left the danger zone",
+        "leave the damage zone",
+        "leaves the damage zone",
+        "left the damage zone",
     ),
     ClaimPredicate.MOVED_ZONE: (
         "rotate",
@@ -232,6 +239,11 @@ MISSION_METRIC_PREDICATES = {
         ClaimPredicate.ASSISTED,
         ClaimPredicate.ELIMINATED,
     },
+    "match.first_squad_tactical_signal_actor_id": {ClaimPredicate.SIGNALLED},
+    "match.invited_squad_vehicle_escape_within_seconds": {
+        ClaimPredicate.ENTERED_VEHICLE,
+        ClaimPredicate.ESCAPED,
+    },
 }
 
 KNOWN_UNSUPPORTED_VEHICLES = {
@@ -253,6 +265,11 @@ MISSION_METRIC_ALLOWED_ACTIONS = {
     "match.assigned_player_assisted_elimination_player_ids": {
         ClaimPredicate.ASSISTED,
         ClaimPredicate.ELIMINATED,
+    },
+    "match.first_squad_tactical_signal_actor_id": {ClaimPredicate.SIGNALLED},
+    "match.invited_squad_vehicle_escape_within_seconds": {
+        ClaimPredicate.ENTERED_VEHICLE,
+        ClaimPredicate.ESCAPED,
     },
 }
 
@@ -314,6 +331,7 @@ MISSION_METRIC_NOUNS = {
         "kill",
         "kills",
     ),
+    "match.invited_squad_vehicle_escape_within_seconds": ("second", "seconds"),
 }
 
 MISSION_UNOFFERED_CONDITION_PATTERN = re.compile(
@@ -377,6 +395,32 @@ def assigned_player_performs_first_revive(text: str, display_name: str) -> bool:
             active_revive_first,
             passive_assignment,
         )
+    )
+
+
+def assigned_player_performs_first_signal(text: str, display_name: str) -> bool:
+    """Bind the backend-owned first tactical signal to its assigned player."""
+
+    player = identity_pattern(display_name.casefold())
+    signal = r"(?:tactical\s+)?(?:signal|ping)\w*"
+    first_signal = (
+        r"(?:(?:the|a)\s+)?(?:(?:squad|team)(?:['\u2019]s)?\s+)?"
+        rf"first\s+{signal}"
+    )
+    auxiliary = (
+        r"(?:(?:must|should|will|can|could|needs?\s+to|has\s+to|"
+        r"is\s+to|is\s+assigned\s+to)\s+)?"
+    )
+    active = (
+        rf"{player}\s+{auxiliary}"
+        rf"(?:places?|sends?|makes?|sets?|calls?|pings?)\s+{first_signal}"
+    )
+    passive = (
+        rf"{first_signal}\s+(?:(?:must|should|will|can)\s+)?"
+        rf"(?:be\s+)?(?:placed|sent|made|set|called|pinged)\s+by\s+{player}"
+    )
+    return bool(re.search(active, text, flags=re.IGNORECASE)) or bool(
+        re.search(passive, text, flags=re.IGNORECASE)
     )
 
 
@@ -685,6 +729,28 @@ class ProposalValidatorV2:
                 self._issue(
                     "mission_objective_set_mismatch",
                     "Mission objectives must exactly match the selected affordance.",
+                )
+            )
+        if any(
+            item.candidate_id in candidate_map
+            and item.objective_role != candidate_map[item.candidate_id].objective_role
+            for item in proposal.mission.objectives
+        ):
+            issues.append(
+                self._issue(
+                    "mission_objective_role_mismatch",
+                    "Mission objective roles must exactly match the backend-owned affordance.",
+                )
+            )
+        if any(
+            item.candidate_id in candidate_map
+            and item.required != candidate_map[item.candidate_id].required
+            for item in proposal.mission.objectives
+        ):
+            issues.append(
+                self._issue(
+                    "mission_objective_requirement_mismatch",
+                    "Mission objective requirement flags must match the backend-owned affordance.",
                 )
             )
         if any(
@@ -1209,6 +1275,16 @@ class ProposalValidatorV2:
             and candidate.verification.metric == "match.first_squad_revive_actor_id"
             and isinstance(candidate.verification.target, str)
         )
+        candidate_player_ids.update(
+            str(candidate.verification.target)
+            for claim in claims
+            for candidate_id in claim.supporting_mission_candidate_ids
+            for candidate in prepared.mission_candidates
+            if candidate.candidate_id == candidate_id
+            and candidate.verification.metric
+            == "match.first_squad_tactical_signal_actor_id"
+            and isinstance(candidate.verification.target, str)
+        )
         context_player_ids = {
             player_id
             for claim in claims
@@ -1270,10 +1346,19 @@ class ProposalValidatorV2:
             == "match.assigned_player_assisted_elimination_player_ids"
             for candidate in selected_candidates.values()
         )
+        supports_vehicle_extraction = any(
+            candidate.verification.metric
+            == "match.invited_squad_vehicle_escape_within_seconds"
+            for candidate in selected_candidates.values()
+        )
         extra_capability_language = bool(
             re.search(
-                r"\b(?:alive|surviv\w*|safe zone|damage zone|pickup|vehicle)\b",
+                r"\b(?:alive|surviv\w*|safe zone|pickup)\b",
                 normalized,
+            )
+            or (
+                not supports_vehicle_extraction
+                and re.search(r"\b(?:damage zone|danger zone|vehicle)\b", normalized)
             )
             or (
                 not supports_top_three
@@ -1536,6 +1621,93 @@ class ProposalValidatorV2:
                         self._issue(
                             "mission_rule_not_expressed",
                             f"Section {section} does not state the assigned duo-assist rule.",
+                        )
+                    )
+            elif metric == "match.first_squad_tactical_signal_actor_id" and isinstance(
+                target, str
+            ):
+                player_map = {
+                    player.player_id: player for player in prepared.normalized.players
+                }
+                player = player_map.get(target)
+                wrong_assignee = any(
+                    player_id != target
+                    and assigned_player_performs_first_signal(text, item.display_name)
+                    for player_id, item in player_map.items()
+                    if item.memory_eligible
+                )
+                if wrong_assignee:
+                    issues.append(
+                        self._issue(
+                            "mission_target_mismatch",
+                            f"Section {section} assigns the tactical signal to another player.",
+                        )
+                    )
+                elif requires_literal_rule and (
+                    player is None
+                    or not assigned_player_performs_first_signal(
+                        text,
+                        player.display_name,
+                    )
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the assigned first-signal rule.",
+                        )
+                    )
+            elif metric == "match.invited_squad_vehicle_escape_within_seconds":
+                affordance = selected_affordance_by_candidate.get(candidate.candidate_id)
+                maximum_seconds = (
+                    affordance.parameters.get("vehicle_escape_window_seconds")
+                    if affordance
+                    else None
+                )
+                mentioned_seconds = mission_metric_count_mentions(normalized, metric)
+                if any(value is None or value != maximum_seconds for value in mentioned_seconds):
+                    issues.append(
+                        self._issue(
+                            "mission_target_mismatch",
+                            f"Section {section} changes the vehicle-extraction time window.",
+                        )
+                    )
+                boarding_stated = bool(
+                    re.search(
+                        r"\b(?:board|boards|enter|enters|get|gets|hop|hops|pile|piles)\w*"
+                        r"(?:\s+\w+){0,3}\s+vehicle\b",
+                        normalized,
+                    )
+                )
+                escape_stated = bool(
+                    re.search(
+                        r"\b(?:leave|leaves|escape|escapes|get|gets|make|makes)\w*\b",
+                        normalized,
+                    )
+                    and re.search(r"\b(?:danger|damage)\s+zone\b", normalized)
+                )
+                invited_group_stated = bool(
+                    re.search(
+                        r"\b(?:invited|listed)\s+(?:squad|team|players?|squad members?)\b",
+                        normalized,
+                    )
+                )
+                time_window_stated = bool(
+                    isinstance(maximum_seconds, int)
+                    and re.search(
+                        rf"\bwithin\s+{maximum_seconds}\s+seconds?\b",
+                        normalized,
+                    )
+                )
+                if requires_literal_rule and not (
+                    boarding_stated
+                    and escape_stated
+                    and invited_group_stated
+                    and time_window_stated
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the full-squad extraction rule.",
                         )
                     )
             operator = candidate.verification.operator
@@ -1847,6 +2019,21 @@ class ProposalValidatorV2:
                         for placement in [affordance.parameters.get("target_placement_max")]
                         if type(placement) is int
                     )
+                if (
+                    candidate
+                    and candidate.verification.metric
+                    == "match.invited_squad_vehicle_escape_within_seconds"
+                ):
+                    supported_numbers.add(1)
+                    supported_numbers.update(
+                        seconds
+                        for affordance in prepared.mission_affordances
+                        if candidate.candidate_id in affordance.objective_candidate_ids
+                        for seconds in [
+                            affordance.parameters.get("vehicle_escape_window_seconds")
+                        ]
+                        if type(seconds) is int
+                    )
         if numeric_values - supported_numbers:
             issues.append(
                 self._issue(
@@ -1882,6 +2069,18 @@ class ProposalValidatorV2:
             if candidate.verification.metric == "match.first_squad_revive_actor_id"
             and isinstance(candidate.verification.target, str)
         }
+        authorized_signal_actors = {
+            str(candidate.verification.target)
+            for candidate in mission_candidates
+            if candidate.verification.metric
+            == "match.first_squad_tactical_signal_actor_id"
+            and isinstance(candidate.verification.target, str)
+        }
+        authorized_vehicle_extraction = any(
+            candidate.verification.metric
+            == "match.invited_squad_vehicle_escape_within_seconds"
+            for candidate in mission_candidates
+        )
         authorized_match_players = {
             player_id
             for candidate in mission_candidates
@@ -2073,6 +2272,18 @@ class ProposalValidatorV2:
                                     and bool(authorized_future_landers)
                                 )
                             )
+                        )
+                        or (
+                            predicate == ClaimPredicate.SIGNALLED
+                            and target_id is None
+                            and actor_id in authorized_signal_actors
+                        )
+                        or (
+                            predicate
+                            in {ClaimPredicate.ENTERED_VEHICLE, ClaimPredicate.ESCAPED}
+                            and target_id is None
+                            and actor_id == "squad"
+                            and authorized_vehicle_extraction
                         )
                     )
                 )

@@ -1,5 +1,6 @@
 import type {
   MissionFamilyV2,
+  MissionObjectiveRoleV2,
   PendingDeliveryV2,
   RawSquadPlayerV2,
   RawTelemetryBatchV2,
@@ -67,6 +68,7 @@ export type PlayerPendingDeliveryProjectionV2 = {
     objectives: Array<{
       objective_ref: string;
       description: string;
+      objective_role: MissionObjectiveRoleV2;
       required: boolean;
       assigned_recipient_ref?: string;
     }>;
@@ -171,7 +173,7 @@ function verifiedMomentLabel(event: RawTelemetryEventV2, players: RawSquadPlayer
     case "TEAMMATE_REVIVED":
       return `${actor} revived ${target}`;
     case "TACTICAL_PING_PLACED":
-      return `${actor} placed a retreat ping`;
+      return `${actor} placed a tactical signal`;
     case "SQUAD_ENTERED_VEHICLE":
       return "The squad entered a vehicle";
     case "SQUAD_EXITED_DAMAGE_ZONE":
@@ -224,6 +226,7 @@ function projectPlayerMissionObjectives(
   return delivery.next_chapter.objectives.map((objective, index) => ({
     objective_ref: `objective-${index + 1}`,
     description: objective.description,
+    objective_role: objective.objective_role,
     required: objective.required,
     ...(objective.assigned_player_id && refByPlayerId.has(objective.assigned_player_id)
       ? { assigned_recipient_ref: refByPlayerId.get(objective.assigned_player_id) }
@@ -376,10 +379,31 @@ export function projectNotGeneratedForPlayer(requestId: string): PlayerNotGenera
 
 function isRosterMember(value: unknown): value is PlayerRosterMemberV2 {
   return isRecord(value)
+    && hasOnlyKeys(value, ["recipient_ref", "display_name", "activity", "is_current_player"])
     && typeof value.recipient_ref === "string"
     && typeof value.display_name === "string"
     && ["online", "away"].includes(String(value.activity))
     && typeof value.is_current_player === "boolean";
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: readonly string[]) {
+  const allowed = new Set(allowedKeys);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function hasValidProjectedObjectiveGrammar(
+  objectives: PlayerPendingDeliveryProjectionV2["next_chapter"]["objectives"],
+  family: MissionFamilyV2,
+) {
+  const roles = objectives.map((objective) => objective.objective_role);
+  const expectedPrimaryCount = family === "reunion" ? 0 : 1;
+  return roles[0] === "prerequisite"
+    && roles.at(-1) === "completion"
+    && roles.filter((role) => role === "prerequisite").length === 1
+    && roles.filter((role) => role === "completion").length === 1
+    && roles.filter((role) => role === "primary").length === expectedPrimaryCount
+    && roles.filter((role) => role === "support").length <= 2
+    && roles.filter((role) => role === "bonus").length <= 2;
 }
 
 export function parsePlayerDeliveryResultV2(value: unknown): PlayerDeliveryResultV2 | null {
@@ -398,27 +422,32 @@ export function parsePlayerDeliveryResultV2(value: unknown): PlayerDeliveryResul
 
   if (typeof value.delivery_id !== "string"
     || !isRecord(value.memory)
+    || !hasOnlyKeys(value.memory, ["title", "memory_type", "summary", "notification_teaser", "why_this_matters_now"])
     || typeof value.memory.title !== "string"
     || typeof value.memory.memory_type !== "string"
     || typeof value.memory.summary !== "string"
     || typeof value.memory.notification_teaser !== "string"
     || typeof value.memory.why_this_matters_now !== "string"
     || !isRecord(value.source)
+    || !hasOnlyKeys(value.source, ["game", "mode", "map_name"])
     || typeof value.source.game !== "string"
     || typeof value.source.mode !== "string"
     || (value.source.map_name !== null && typeof value.source.map_name !== "string")
     || !Array.isArray(value.verified_moments)
     || value.verified_moments.length === 0
     || !value.verified_moments.every((moment) => isRecord(moment)
+      && hasOnlyKeys(moment, ["sequence", "label", "location", "timestamp_seconds"])
       && Number.isInteger(moment.sequence)
       && typeof moment.label === "string"
       && (moment.location === null || typeof moment.location === "string")
       && Number.isFinite(moment.timestamp_seconds))
     || !isRecord(value.perspective)
+    || !hasOnlyKeys(value.perspective, ["recipient_ref", "display_name", "message"])
     || typeof value.perspective.recipient_ref !== "string"
     || typeof value.perspective.display_name !== "string"
     || typeof value.perspective.message !== "string"
     || !isRecord(value.next_chapter)
+    || !hasOnlyKeys(value.next_chapter, ["title", "mission", "family", "objectives"])
     || typeof value.next_chapter.title !== "string"
     || typeof value.next_chapter.mission !== "string"
     || ![
@@ -433,14 +462,25 @@ export function parsePlayerDeliveryResultV2(value: unknown): PlayerDeliveryResul
     || value.next_chapter.objectives.length < 2
     || value.next_chapter.objectives.length > 5
     || !value.next_chapter.objectives.every((objective) => isRecord(objective)
+      && hasOnlyKeys(objective, [
+        "objective_ref",
+        "description",
+        "objective_role",
+        "required",
+        "assigned_recipient_ref",
+      ])
       && typeof objective.objective_ref === "string"
       && typeof objective.description === "string"
+      && ["prerequisite", "primary", "support", "bonus", "completion"]
+        .includes(String(objective.objective_role))
       && typeof objective.required === "boolean"
+      && (objective.objective_role === "bonus" ? objective.required === false : objective.required === true)
       && (objective.assigned_recipient_ref === undefined || typeof objective.assigned_recipient_ref === "string"))
     || !Array.isArray(value.invitation_roster)
     || value.invitation_roster.length < 2
     || !value.invitation_roster.every(isRosterMember)
     || !isRecord(value.metadata)
+    || !hasOnlyKeys(value.metadata, ["provider", "model", "prompt_version", "content_origin"])
     || typeof value.metadata.provider !== "string"
     || typeof value.metadata.model !== "string"
     || typeof value.metadata.prompt_version !== "string"
@@ -462,6 +502,10 @@ export function parsePlayerDeliveryResultV2(value: unknown): PlayerDeliveryResul
   if (Object.keys(value).some((key) => !allowedTopLevel.has(key))) return null;
   if (new Set(value.invitation_roster.map((member) => member.recipient_ref)).size !== value.invitation_roster.length) return null;
   const recipientRefs = new Set(value.invitation_roster.map((member) => member.recipient_ref));
+  if (!hasValidProjectedObjectiveGrammar(
+    value.next_chapter.objectives as PlayerPendingDeliveryProjectionV2["next_chapter"]["objectives"],
+    value.next_chapter.family as MissionFamilyV2,
+  )) return null;
   if (value.next_chapter.objectives.some((objective) =>
     objective.assigned_recipient_ref && !recipientRefs.has(objective.assigned_recipient_ref))) return null;
   const currentPlayers = value.invitation_roster.filter((member) => member.is_current_player);

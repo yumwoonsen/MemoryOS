@@ -1,55 +1,43 @@
-import rescueTelemetryFixture from "@/data/raw_telemetry_v2.json";
-import duoAssistTelemetryFixture from "@/data/player-scenarios/duo_assist.json";
-import landingRendezvousTelemetryFixture from "@/data/player-scenarios/landing_rendezvous.json";
-import repeatedNearMissTelemetryFixture from "@/data/player-scenarios/repeated_near_miss.json";
+import unifiedSquadHistoryFixture from "@/data/player-scenarios/unified_squad_history.json";
 import {
   parseRawTelemetryBatchV2,
   type RawTelemetryBatchV2,
 } from "@/lib/ai-memory-contract";
-import {
-  isPlayerExperienceRef,
-  playerExperienceRefs,
-  type PlayerExperienceRef,
-} from "@/lib/player-scenarios";
+import type { PlayerExperienceRef } from "@/lib/player-scenarios";
 import {
   projectTelemetryForPlayerStart,
   type PlayerExperienceSeedV2,
 } from "@/lib/player-delivery";
 
-const fixtureByExperience: Record<PlayerExperienceRef, unknown> = {
-  "memory-01": rescueTelemetryFixture,
-  "memory-02": landingRendezvousTelemetryFixture,
-  "memory-03": duoAssistTelemetryFixture,
-  "memory-04": repeatedNearMissTelemetryFixture,
-};
+const PLAYER_EXPERIENCE_REF: PlayerExperienceRef = "squad-signal-01";
 
-function requirePlayerTelemetryFixture(
-  experienceRef: PlayerExperienceRef,
-): RawTelemetryBatchV2 {
-  const telemetry = parseRawTelemetryBatchV2(fixtureByExperience[experienceRef]);
+function requirePlayerTelemetryFixture(): RawTelemetryBatchV2 {
+  const telemetry = parseRawTelemetryBatchV2(unifiedSquadHistoryFixture);
   if (!telemetry) {
-    throw new Error(`Invalid player demo telemetry fixture: ${experienceRef}`);
+    throw new Error("Invalid unified player squad-history fixture.");
   }
   return telemetry;
 }
 
-const telemetryByExperience = Object.fromEntries(
-  playerExperienceRefs.map((experienceRef) => [
-    experienceRef,
-    requirePlayerTelemetryFixture(experienceRef),
-  ]),
-) as Record<PlayerExperienceRef, RawTelemetryBatchV2>;
+const unifiedTelemetry = requirePlayerTelemetryFixture();
 
-export function playerExperienceSeeds(): PlayerExperienceSeedV2[] {
-  return playerExperienceRefs.map((experienceRef) =>
-    projectTelemetryForPlayerStart(telemetryByExperience[experienceRef], experienceRef));
+// This is the only raw-telemetry registry for the player app. It stays in a
+// server-only module and is resolved only after an exact opaque-ref/request-id
+// binding check.
+const playerExperienceRegistry = new Map<PlayerExperienceRef, RawTelemetryBatchV2>([
+  [PLAYER_EXPERIENCE_REF, unifiedTelemetry],
+]);
+
+export function playerExperienceSeed(): PlayerExperienceSeedV2 {
+  return projectTelemetryForPlayerStart(unifiedTelemetry, PLAYER_EXPERIENCE_REF);
 }
 
 export function playerExperienceTelemetry(
   experienceRef: unknown,
   requestId: unknown,
 ): RawTelemetryBatchV2 | null {
-  if (!isPlayerExperienceRef(experienceRef) || typeof requestId !== "string") return null;
-  const telemetry = telemetryByExperience[experienceRef];
+  if (experienceRef !== PLAYER_EXPERIENCE_REF || typeof requestId !== "string") return null;
+  const telemetry = playerExperienceRegistry.get(PLAYER_EXPERIENCE_REF);
+  if (!telemetry) return null;
   return telemetry.request_id === requestId ? telemetry : null;
 }

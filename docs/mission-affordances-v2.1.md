@@ -41,9 +41,14 @@ An affordance remains one selectable continuation, not a bag of unrelated quests
 capabilities for one neutral window are known, deterministic preparation composes each offered
 chapter into **two to five ordered objectives**:
 
-1. queue with the invitation-safe squad;
-2. perform one to three compatible, evidence-backed mechanics from that same window; and
-3. complete the match.
+1. one required invitation-safe squad prerequisite;
+2. one required primary mechanic for every specialized family;
+3. zero to two compatible support or optional bonus mechanics from the same window; and
+4. one required match-completion objective.
+
+Only the `bonus` role is optional. Prerequisite, primary, support, and completion objectives are
+required and determine chapter completion. The player and Studio preserve the same complete order;
+the UI labels each role instead of collapsing lifecycle rules into a single step.
 
 The primary family mechanic is always retained. Secondary mechanics are added only when their
 typed source events belong to the same window and do not create a conflicting landing/return
@@ -64,6 +69,14 @@ assist actor and target must be distinct invitation-ready players; the target mu
 later elimination at the same named location, zero to 30 seconds after the assist. The backend owns
 the assigned assister, finishing teammate, source pair, minimum count of one, and
 `match.assigned_player_assisted_elimination_player_ids contains_all [teammate]` verification rule.
+
+A tactical-signal mechanic is grounded only by the first consent-safe `SIGNAL` event in the window;
+the backend assigns its actor and owns
+`match.first_squad_tactical_signal_actor_id equals <player>`. A vehicle-extraction mechanic requires
+a full-roster collective `VEHICLE_ENTER` followed at the same named location by a full-roster
+collective `ESCAPE` within 60 seconds. Its rule is
+`match.invited_squad_vehicle_escape_within_seconds equals true`. These mechanics can become support
+or bonus steps only when compatibility and the two-to-five-step grammar permit them.
 
 ## Story-linked selection
 
@@ -91,6 +104,20 @@ objectives by default.
 Current activity is context, not invitation authority. An inactive original squad member remains
 invitation-eligible when the required consent is present. Activity may be shown as Online or Away,
 while invitation acceptance is represented separately as Invited or Joined.
+
+## Controlled mission variation
+
+The consumer prototype uses one coherent server-owned synthetic squad history rather than exposing
+four fixtures for the player to choose. A trusted same-origin proxy generates a fresh opaque nonce
+for each request. Before provider authoring, deterministic policy excludes the last two successfully
+delivered families when alternatives exist, selects at most one affordance per family, and narrows
+the provider input to at most three specialized grounded choices. The provider ranks and authors
+only inside that pool; it cannot select a hidden or unsupported affordance. `reunion` remains the
+fallback only when no specialized family is feasible.
+
+This gives reruns real variety without making model temperature a safety mechanism. The nonce and
+raw telemetry remain server-side, successful-family history is process-local prototype state, and
+each rerun may consume provider quota.
 
 ## Backend-compiled objective copy
 
@@ -131,10 +158,10 @@ reunion, **The Favour Returned** for role reversal, **The Comeback Complete** fo
 title. This is deterministic presentation copy, not another provider call or a claim that new match
 telemetry was interpreted.
 
-The player projection combines the roster-participation rule and the completed-match rule into one
-clear step when they describe the same action, such as **Complete one match with the invited
-squad**. This is a presentation simplification only. Developer Studio retains and displays the
-separate backend-owned participant and completion rules for auditability.
+The player projection preserves every ordered backend objective and labels its role. Prerequisite
+and completion remain separate lifecycle steps around the selected primary, support, and bonus
+mechanics. Developer Studio displays the same objective count plus the backend-owned controls for
+auditability.
 
 ## Failure and provenance
 
@@ -180,6 +207,6 @@ them to canonical window, affordance, and objective IDs before authoritative exp
 validation. Typed capabilities communicate feasible mechanics without supplying finished mission
 story or narrative meaning; the backend, not the provider, supplies the finished objective copy.
 
-The current prompt contract is `memory-interpreter-v2.12-richer-missions`, loaded from
-`memory_interpreter_v2_12.txt`. Historical V2.4 and V2.10 smoke results remain historical evidence
+The current prompt contract is `memory-interpreter-v2.13-perspective-safe-variation`, loaded from
+`memory_interpreter_v2_13.txt`. Historical V2.4 and V2.10 smoke results remain historical evidence
 and must not be described as validation of the current prompt.

@@ -1915,6 +1915,21 @@ def test_correction_feedback_drops_unrecognized_generated_section_scope() -> Non
     assert feedback == [{"code": "unmapped_player_identity"}]
 
 
+def test_duplicate_perspective_feedback_targets_the_safe_group() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    issue = V2ValidationIssue(
+        code="perspectives_not_distinct",
+        severity="error",
+        message="Player perspectives must be distinct.",
+    )
+
+    feedback = MemoryInterpretationPipelineV2._safe_correction_feedback(prepared, [issue])
+
+    assert feedback == [
+        {"code": "perspectives_not_distinct", "section": "perspectives"}
+    ]
+
+
 def test_live_interpreter_propagates_second_malformed_output_after_one_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

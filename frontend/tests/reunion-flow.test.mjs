@@ -16,8 +16,18 @@ const roster = [
 ];
 
 const objectives = [
-  { objective_ref: "objective-1", description: "Bring the original squad back.", required: true },
-  { objective_ref: "objective-2", description: "Complete the selected Next Chapter.", required: true },
+  {
+    objective_ref: "objective-1",
+    description: "Bring the original squad back.",
+    objective_role: "prerequisite",
+    required: true,
+  },
+  {
+    objective_ref: "objective-2",
+    description: "Complete the selected Next Chapter.",
+    objective_role: "completion",
+    required: true,
+  },
 ];
 
 test("keeps invitation eligibility separate from online activity", () => {
@@ -99,6 +109,45 @@ test("uses a distinct fallback when AI mission copy matches the completed title"
 
   assert.ok(chapter);
   assert.equal(chapter.title, "Roles Reversed");
+});
+
+test("reports all five objectives but lets only required objectives determine completion", () => {
+  const invitees = buildInvitees(roster);
+  const compoundObjectives = [
+    objectives[0],
+    {
+      objective_ref: "objective-2",
+      description: "Land together at Pochinok.",
+      objective_role: "primary",
+      required: true,
+    },
+    {
+      objective_ref: "objective-3",
+      description: "Lee assists Mei's elimination.",
+      objective_role: "support",
+      required: true,
+    },
+    {
+      objective_ref: "objective-4",
+      description: "Leave the zone in the same vehicle.",
+      objective_role: "bonus",
+      required: false,
+    },
+    {
+      ...objectives[1],
+      objective_ref: "objective-5",
+    },
+  ];
+
+  const outcome = createPrototypeMatchOutcome("landing_rendezvous", invitees, compoundObjectives);
+
+  assert.equal(outcome.objective_results.length, 5);
+  assert.deepEqual(
+    outcome.objective_results.map((objective) => objective.objective_role),
+    ["prerequisite", "primary", "support", "bonus", "completion"],
+  );
+  assert.equal(outcome.objective_results.find((objective) => objective.objective_role === "bonus")?.completed, true);
+  assert.equal(outcome.complete, true);
 });
 
 test("withholds a continuation chapter for an incomplete outcome", () => {

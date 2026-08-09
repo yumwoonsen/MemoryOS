@@ -16,6 +16,41 @@ import { playerExperienceTelemetry } from "@/lib/player-scenario.server";
 
 const privateHeaders = { "cache-control": "no-store", "x-memoryos-mode": "live" };
 
+const safeUpstreamFailures = new Map<string, { retryable: boolean; message: string }>([
+  ["provider_rate_limited", { retryable: true, message: "The live memory service has reached its current rate limit." }],
+  ["provider_quota_exhausted", { retryable: true, message: "The live memory service has reached its current usage limit." }],
+  ["provider_authentication_failed", { retryable: false, message: "The live memory service is not configured correctly." }],
+  ["missing_api_key", { retryable: false, message: "The live memory service is not configured correctly." }],
+  ["provider_timeout", { retryable: true, message: "The live memory service took too long to finish." }],
+  ["generation_timeout", { retryable: true, message: "The live memory service took too long to finish." }],
+  ["provider_unavailable", { retryable: true, message: "The live AI service is temporarily unavailable." }],
+  ["backend_unavailable", { retryable: true, message: "The MemoryOS service is not reachable right now." }],
+  ["provider_output_limit", { retryable: true, message: "The AI response was incomplete and was withheld safely." }],
+  ["provider_invalid_response", { retryable: true, message: "The AI response was invalid and was withheld safely." }],
+]);
+
+async function safeUpstreamFailure(upstream: Response) {
+  let payload: unknown;
+  try {
+    payload = await upstream.json();
+  } catch {
+    payload = null;
+  }
+  const suppliedCode = isRecord(payload) && typeof payload.code === "string"
+    ? payload.code
+    : null;
+  const safeFailure = suppliedCode ? safeUpstreamFailures.get(suppliedCode) : null;
+  return Response.json(
+    {
+      stage: "memory_interpretation",
+      code: safeFailure ? suppliedCode : "memory_generation_failed",
+      retryable: safeFailure?.retryable ?? upstream.status >= 500,
+      message: safeFailure?.message ?? "MemoryOS could not prepare another grounded chapter.",
+    },
+    { status: upstream.status, headers: privateHeaders },
+  );
+}
+
 export async function POST(request: Request) {
   if (!isTrustedLocalBrowserRequest(request)) {
     return Response.json(
@@ -55,8 +90,12 @@ export async function POST(request: Request) {
       { status: 422, headers: privateHeaders },
     );
   }
-  const upstream = await proxyMemoryOsPayload(telemetry, "/v2/memories/interpret-delivery");
-  if (!upstream.ok) return upstream;
+  const generationNonce = crypto.randomUUID();
+  const upstream = await proxyMemoryOsPayload(
+    { telemetry, generation_nonce: generationNonce },
+    "/v2/memories/interpret-varied-delivery",
+  );
+  if (!upstream.ok) return safeUpstreamFailure(upstream);
 
   let payload: unknown;
   try {

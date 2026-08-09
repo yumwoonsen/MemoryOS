@@ -236,100 +236,6 @@ summary:focus-visible {
   text-transform: uppercase;
 }
 
-.player-experience-picker {
-  margin-bottom: 6px;
-  padding: 12px;
-  border: 1px solid #c6cdc0;
-  border-radius: 11px;
-  background: rgba(255, 254, 249, .78);
-}
-
-.player-experience-heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.player-experience-heading h2 {
-  margin: 4px 0 0;
-  font-size: 16px;
-  line-height: 1.1;
-  letter-spacing: -.025em;
-}
-
-.player-experience-heading > span {
-  flex: 0 0 auto;
-  color: #6d7569;
-  font: 750 7px var(--font-mono);
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-
-.player-experience-options {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.player-experience-option {
-  min-width: 0;
-  padding: 8px;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 2px 7px;
-  text-align: left;
-  color: #252a23;
-  border: 1px solid #d2d8cd;
-  border-radius: 7px;
-  background: #fffef9;
-  cursor: pointer;
-  transition: border-color .16s ease, background-color .16s ease, transform .16s ease;
-}
-
-.player-experience-option:hover:not(:disabled) {
-  border-color: #8ea232;
-  transform: translateY(-1px);
-}
-
-.player-experience-option[aria-pressed="true"] {
-  border-color: #8ca000;
-  background: #f2f8d9;
-  box-shadow: inset 3px 0 0 var(--lime);
-}
-
-.player-experience-option:focus-visible {
-  outline: 3px solid rgba(93, 112, 0, .22);
-  outline-offset: 1px;
-}
-
-.player-experience-option:disabled {
-  cursor: wait;
-  opacity: .58;
-}
-
-.player-experience-option > span {
-  grid-row: 1 / span 2;
-  color: #657700;
-  font: 800 8px var(--font-mono);
-  letter-spacing: .05em;
-}
-
-.player-experience-option strong {
-  overflow: hidden;
-  font-size: 9px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.player-experience-option small {
-  color: #72796e;
-  font-size: 7.5px;
-  line-height: 1.3;
-}
-
 .demo-input-card,
 .demo-processing-card {
   overflow: hidden;
@@ -821,6 +727,38 @@ summary:focus-visible {
   line-height: 1.35;
 }
 
+.mission-objective-copy {
+  min-width: 0;
+}
+
+.mission-objective-role {
+  display: block;
+  margin: 0 0 1px;
+  color: #6b7564;
+  font: 800 8px/1.25 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.player-objectives .mission-objective.is-bonus {
+  margin: 2px 0;
+  padding: 5px 7px;
+  border: 1px dashed #a5b165;
+  border-radius: 7px;
+  background: rgba(246, 255, 216, .72);
+}
+
+.player-objectives .mission-objective.is-bonus > .mission-objective-number,
+.mission-objective-list .mission-objective.is-bonus > .mission-objective-number {
+  color: #765600;
+  border-color: #d0a23a;
+  background: #fff1bd;
+}
+
+.mission-objective.is-bonus .mission-objective-role {
+  color: #7e5e00;
+}
+
 .player-next > .chapter-landmark {
   position: absolute;
   z-index: 0;
@@ -1026,6 +964,24 @@ summary:focus-visible {
   background: var(--lime);
   font-weight: 800;
   cursor: pointer;
+}
+
+.grounded-rerun {
+  width: min(100%, 430px);
+  margin-top: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.grounded-rerun p {
+  color: #5d665a;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.grounded-rerun .reveal-memory-button {
+  width: 100%;
+  margin-top: 0;
 }
 
 .player-footer {
@@ -1351,6 +1307,11 @@ summary:focus-visible {
   cursor: pointer;
 }
 
+a.history-text-action {
+  display: inline-flex;
+  align-items: center;
+}
+
 .mission-start-card,
 .invitation-card,
 .history-completion {
@@ -1398,6 +1359,12 @@ summary:focus-visible {
   color: #343c31;
   font-size: 10.5px;
   line-height: 1.4;
+}
+
+.mission-objective-list li.is-bonus {
+  border-style: dashed;
+  border-color: #c9b16c;
+  background: #fffaf0;
 }
 
 .safe-squad-block {
@@ -1587,6 +1554,14 @@ summary:focus-visible {
   text-transform: uppercase;
 }
 
+.bonus-result-summary {
+  margin: 8px 0 0 !important;
+  color: #746326 !important;
+  font: 800 9px/1.4 var(--font-mono) !important;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
 .verification-list {
   margin: 12px 0 0;
   padding: 0;
@@ -1618,6 +1593,24 @@ summary:focus-visible {
 .verification-list li.passed > span {
   color: #405300;
   background: #dfff7c;
+}
+
+.verification-list li.is-bonus {
+  border-style: dashed;
+  border-color: #c9b16c;
+  background: #fffaf0;
+}
+
+.verification-list li.optional-open > span {
+  color: #806519;
+  background: #fff0b9;
+}
+
+.verification-list small {
+  color: #6f765f;
+  font: 800 8px/1.25 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
 .verification-list p {
@@ -1830,14 +1823,6 @@ summary:focus-visible {
 
   .player-page {
     padding: 5px;
-  }
-
-  .player-experience-heading > span {
-    display: none;
-  }
-
-  .player-experience-options {
-    grid-template-columns: 1fr;
   }
 
   .demo-input-copy {
@@ -3040,6 +3025,12 @@ summary:focus-visible {
 
 .result-quest {
   background: linear-gradient(135deg, rgba(255, 189, 69, .15), #fbfcf8 54%);
+}
+
+.result-bonus {
+  border-style: dashed;
+  border-color: #c9b16c;
+  background: linear-gradient(135deg, rgba(255, 214, 116, .2), #fffdf7 54%);
 }
 
 .studio-perspective-list,

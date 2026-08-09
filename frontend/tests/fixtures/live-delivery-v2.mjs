@@ -1,11 +1,3 @@
-const selectedEventIds = [
-  "ffevt-02-knock-lee",
-  "ffevt-03-ping-retreat",
-  "ffevt-04-revive-lee",
-  "ffevt-05-vehicle-enter",
-  "ffevt-06-zone-exit",
-];
-
 function safePlayer(player, index) {
   const identityVisible = player.consent.identity_display && player.display_name;
   return {
@@ -17,6 +9,16 @@ function safePlayer(player, index) {
 
 export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {}) {
   const match = telemetry.matches[0];
+  const connectedEvents = match.events.filter(
+    (event) => event.provider_event_type !== "SQUAD_MEMBER_LANDED",
+  );
+  const selectedEvents = (connectedEvents.length ? connectedEvents : match.events).slice(0, 5);
+  const selectedEventIds = selectedEvents.map((event) => event.event_id);
+  const reviveEvent = match.events.find(
+    (event) => event.provider_event_type === "TEAMMATE_REVIVED",
+  ) ?? selectedEvents[0];
+  const missionEventId = reviveEvent?.event_id ?? selectedEventIds[0];
+  const returnLocation = reviveEvent?.location ?? match.map_name ?? "the original location";
   const players = telemetry.squad.players
     .map(safePlayer)
     .filter((player) => player.consent.memory_appearance);
@@ -31,12 +33,13 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
   const reviveId = "test:first-revive";
   const returnId = "test:return-location";
   const affordanceId = "test:role-reversal";
-  const objectiveIds = [participantId, matchId, reviveId, returnId];
-  const objectives = [
+  const objectiveIds = [participantId, reviveId, returnId, matchId];
+  const objectiveDefinitions = [
     {
       objective_id: participantId,
       description: "Play a match with the invited squad.",
       assigned_player_id: null,
+      objective_role: "prerequisite",
       required: true,
       verification: {
         metric: "squad.participant_ids",
@@ -49,6 +52,7 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
       objective_id: matchId,
       description: "Complete at least 1 match.",
       assigned_player_id: null,
+      objective_role: "completion",
       required: true,
       verification: { metric: "squad.matches_completed", operator: "at_least", target: 1 },
       source_event_ids: [],
@@ -57,31 +61,48 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
       objective_id: reviveId,
       description: `${target.display_name} completes the squad's first revive.`,
       assigned_player_id: target.player_id,
+      objective_role: "primary",
       required: true,
       verification: {
         metric: "match.first_squad_revive_actor_id",
         operator: "equals",
         target: target.player_id,
       },
-      source_event_ids: ["ffevt-04-revive-lee"],
+      source_event_ids: [missionEventId],
     },
     {
       objective_id: returnId,
-      description: "Visit Clock Tower with the invited squad.",
+      description: `Visit ${returnLocation} with the invited squad.`,
       assigned_player_id: null,
+      objective_role: "support",
       required: true,
       verification: {
         metric: "match.invited_squad_visits_location",
         operator: "equals",
-        target: "Clock Tower",
+        target: returnLocation,
       },
-      source_event_ids: ["ffevt-04-revive-lee"],
+      source_event_ids: [missionEventId],
     },
+  ];
+  const objectives = [
+    objectiveDefinitions[0],
+    objectiveDefinitions[2],
+    objectiveDefinitions[3],
+    objectiveDefinitions[1],
   ];
   const candidates = objectives.map((objective) => ({
     candidate_id: objective.objective_id,
     window_id: windowId,
     recipe: "remix",
+    objective_role: objective.objective_role,
+    required: objective.required,
+    compatibility_tags: objective.objective_role === "prerequisite"
+      ? ["squad_entry"]
+      : objective.objective_role === "completion"
+        ? ["match_completion"]
+        : objective.objective_id === returnId
+          ? ["location", "squad_coordination"]
+          : ["support_action", "individual_assignment"],
     assigned_player_id: objective.assigned_player_id,
     source_event_ids: objective.source_event_ids,
     verification: objective.verification,
@@ -90,12 +111,12 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
     affordance_id: affordanceId,
     family: "role_reversal",
     window_id: windowId,
-    source_event_ids: ["ffevt-04-revive-lee"],
+    source_event_ids: [missionEventId],
     source_match_ids: [match.match_id],
     source_context_ids: ["context:reunion_eligible"],
     parameters: {
       saved_player_id: target.player_id,
-      return_location: "Clock Tower",
+      return_location: returnLocation,
     },
     objective_candidate_ids: objectiveIds,
     allowed_reason_codes: ["directly_inverts_original_roles"],
@@ -161,8 +182,8 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
         match_id: match.match_id,
         event_ids: [...selectedEventIds],
         participant_ids: players.map((player) => player.player_id),
-        start_seconds: 1088,
-        end_seconds: 1120,
+        start_seconds: selectedEvents[0]?.timestamp_seconds ?? 0,
+        end_seconds: selectedEvents.at(-1)?.timestamp_seconds ?? 0,
       }],
       mission_candidates: candidates,
       mission_affordances: [affordance],
