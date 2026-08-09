@@ -29,8 +29,9 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
   const participantId = "test:participants";
   const matchId = "test:complete-match";
   const reviveId = "test:first-revive";
+  const returnId = "test:return-location";
   const affordanceId = "test:role-reversal";
-  const objectiveIds = [participantId, matchId, reviveId];
+  const objectiveIds = [participantId, matchId, reviveId, returnId];
   const objectives = [
     {
       objective_id: participantId,
@@ -64,6 +65,18 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
       },
       source_event_ids: ["ffevt-04-revive-lee"],
     },
+    {
+      objective_id: returnId,
+      description: "Visit Clock Tower with the invited squad.",
+      assigned_player_id: null,
+      required: true,
+      verification: {
+        metric: "match.invited_squad_visits_location",
+        operator: "equals",
+        target: "Clock Tower",
+      },
+      source_event_ids: ["ffevt-04-revive-lee"],
+    },
   ];
   const candidates = objectives.map((objective) => ({
     candidate_id: objective.objective_id,
@@ -80,7 +93,10 @@ export function createTestLiveDelivery(telemetry, { studioOrigin = false } = {})
     source_event_ids: ["ffevt-04-revive-lee"],
     source_match_ids: [match.match_id],
     source_context_ids: ["context:reunion_eligible"],
-    parameters: { saved_player_id: target.player_id },
+    parameters: {
+      saved_player_id: target.player_id,
+      return_location: "Clock Tower",
+    },
     objective_candidate_ids: objectiveIds,
     allowed_reason_codes: ["directly_inverts_original_roles"],
   };

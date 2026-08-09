@@ -17,6 +17,20 @@
       "mission_variation_group": "mission-family-demo"
     },
     {
+      "case_id": "landing-rendezvous",
+      "fixture": "landing_rendezvous.json",
+      "expected_status": "pending_player_decision",
+      "expected_mission_family": "landing_rendezvous",
+      "mission_variation_group": "richer-mission-demo"
+    },
+    {
+      "case_id": "duo-assist",
+      "fixture": "duo_assist.json",
+      "expected_status": "pending_player_decision",
+      "expected_mission_family": "duo_assist",
+      "mission_variation_group": "richer-mission-demo"
+    },
+    {
       "case_id": "repeated-near-miss",
       "fixture": "repeated_near_miss.json",
       "expected_status": "pending_player_decision",

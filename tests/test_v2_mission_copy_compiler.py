@@ -79,6 +79,12 @@ def test_compiles_all_supported_rules_in_affordance_order() -> None:
             assigned_player_id="player:lee",
         ),
         candidate("objective:top-three", "match.top_three_reached", "equals", True),
+        candidate(
+            "objective:return-to-place",
+            "match.invited_squad_visits_location",
+            "equals",
+            "Clock Tower",
+        ),
     ]
 
     descriptions = compile_mission_objective_descriptions(
@@ -87,10 +93,11 @@ def test_compiles_all_supported_rules_in_affordance_order() -> None:
 
     assert list(descriptions) == [item.candidate_id for item in candidates]
     assert descriptions == {
-        "objective:participants": "Play a match with the invited squad.",
+        "objective:participants": "Queue into a match with the invited squad.",
         "objective:matches": "Complete at least 2 matches.",
         "objective:first-revive": "Lee completes the squad's first revive.",
         "objective:top-three": "Reach the top 3 in the new match.",
+        "objective:return-to-place": "Return to Clock Tower with the invited squad.",
     }
 
 
@@ -104,6 +111,56 @@ def test_compiles_singular_match_copy() -> None:
     )
 
     assert descriptions["objective:matches"] == "Complete at least 1 match."
+
+
+def test_compiles_landing_rendezvous_from_backend_location_and_roster() -> None:
+    landing = candidate(
+        "objective:landing",
+        "match.invited_squad_lands_at_location",
+        "equals",
+        "Peak",
+    )
+    selected = affordance([landing]).model_copy(
+        update={
+            "family": MissionFamilyV2.LANDING_RENDEZVOUS,
+            "parameters": {
+                "landing_location": "Peak",
+                "invitation_player_ids": ["player:lee", "player:mei"],
+            },
+        }
+    )
+
+    descriptions = compile_mission_objective_descriptions(
+        selected, [landing], SAFE_NAMES
+    )
+
+    assert descriptions["objective:landing"] == "Land at Peak with the invited squad."
+
+
+def test_compiles_duo_assist_with_both_invitation_safe_players() -> None:
+    duo = candidate(
+        "objective:duo-assist",
+        "match.assigned_player_assisted_elimination_player_ids",
+        "contains_all",
+        ["player:mei"],
+        assigned_player_id="player:lee",
+    )
+    selected = affordance([duo]).model_copy(
+        update={
+            "family": MissionFamilyV2.DUO_ASSIST,
+            "parameters": {
+                "assister_player_id": "player:lee",
+                "elimination_player_id": "player:mei",
+                "invitation_player_ids": ["player:lee", "player:mei"],
+            },
+        }
+    )
+
+    descriptions = compile_mission_objective_descriptions(selected, [duo], SAFE_NAMES)
+
+    assert descriptions["objective:duo-assist"] == (
+        "Lee assists Mei with an elimination."
+    )
 
 
 @pytest.mark.parametrize(

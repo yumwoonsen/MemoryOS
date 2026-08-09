@@ -185,7 +185,7 @@ def test_full_provider_v2_contract_passes_through_gemini_adapter(
     assert len(result.player_perspectives) == 4
     assert result.next_chapter is not None
     assert result.next_chapter.family == "role_reversal"
-    assert len(result.next_chapter.objectives) == 3
+    assert len(result.next_chapter.objectives) == 4
     assert responses.calls[0]["response_format"]["json_schema"]["name"] == (
         ProviderInterpretationDecisionV2.__name__
     )

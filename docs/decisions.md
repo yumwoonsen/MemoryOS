@@ -267,11 +267,19 @@ schema or equivalent behavior from the default 20B model.
 
 **Status:** accepted for v2.1
 
-The player receives one Next Chapter. Internally, deterministic preparation may offer three
-mission families: reunion, role reversal, and redemption. An affordance groups the backend-owned
-objective capabilities that together form one complete mission. AI ranks the offered affordances,
-selects one, and authors its title and story bridge; it cannot introduce a fourth family, new
-assignments, or new verification rules. ADR-021 assigns exact objective copy to the backend.
+The player receives one Next Chapter. Internally, deterministic preparation may offer six
+mission families: reunion, role reversal, redemption, return to place, landing rendezvous, and duo
+assist. An affordance groups the backend-owned objective capabilities that together form one
+complete mission. AI ranks the offered affordances, selects one, and authors its title and story
+bridge; it cannot introduce an unoffered family, new assignments, or new verification rules.
+ADR-021 assigns exact objective copy to the backend.
+
+The richer families remain evidence-gated. Return to place requires a named revive location.
+Landing rendezvous requires a landing for every invitation-ready player at the same named location,
+using the first such event per player with at most a 30-second span. Duo assist requires distinct
+invitation-ready players and an explicit assist whose named teammate performs the same-location
+elimination zero to 30 seconds later. Deterministic code owns those source pairs, locations, player
+assignments, operators, and targets.
 
 Invitation eligibility depends on memory-appearance and mission-invitation consent, not current
 activity. Active status is a current-context signal and optional Online/Away presentation detail.
@@ -316,10 +324,10 @@ remain historical context rather than evidence about Gemini or the current promp
 
 ## ADR-021 — Backend-compiled objective copy, AI-authored story bridge
 
-**Status:** accepted and implemented for the V2.11 prompt boundary
+**Status:** accepted and implemented for the V2.12 prompt boundary
 
-The active prompt is `memory-interpreter-v2.11-backend-mission-copy`, loaded from
-`memory_interpreter_v2_11.txt`. AI still performs the meaningful interpretation: it ranks the
+The active prompt is `memory-interpreter-v2.12-richer-missions`, loaded from
+`memory_interpreter_v2_12.txt`. AI still performs the meaningful interpretation: it ranks the
 offered episode-and-affordance combinations, selects one, and authors the memory language,
 perspectives, mission title, and a short narrative bridge connecting the source episode to the next
 chapter.
@@ -340,14 +348,15 @@ the clearly labelled scripted sequence: invitations, lobby assembly, game start,
 mission completion. It does not ingest an authenticated result or claim real objective verification.
 
 Historical V2.4 and V2.10 provider results remain labelled historical and are not evidence for the
-active V2.11 prompt.
+active V2.12 prompt.
 
 ## ADR-022 — Backend-owned Studio scenarios and separated provenance
 
 **Status:** accepted and implemented for the prototype
 
-Developer Studio uses three backend-owned, versioned synthetic scenarios:
-`rescue-role-reversal`, `repeated-near-miss`, and `ordinary-sparse-telemetry`. The backend catalog
+Developer Studio uses five backend-owned, versioned synthetic scenarios:
+`rescue-role-reversal`, `landing-rendezvous`, `duo-assist`, `repeated-near-miss`, and
+`ordinary-sparse-telemetry`. The backend catalog
 loads their expected status/family labels from the offline evaluation manifest and publishes a safe
 descriptor containing the scenario ID, purpose, fixture SHA-256, and fixture revision. Those labels
 are evaluation metadata only. They never enter `RawTelemetryBatchV2`, `StoryBriefV2`, or the
@@ -378,3 +387,26 @@ The post-accept sequence remains local and scripted. Its completed chapter title
 deterministically from the mission family: **Together Again**, **The Favour Returned**, or
 **The Comeback Complete**, with a fixed collision-safe alternative when necessary. This is not a
 second AI generation or telemetry-backed completion claim.
+
+## ADR-023 — Compound chapters with two to five grounded objectives
+
+**Status:** accepted and implemented for the prototype
+
+The apparent two-step ceiling was a presentation artifact: the canonical role-reversal affordance
+already had three rules, while the player projection merged squad participation and match
+completion. Specialized landing, return, and duo affordances could also contain only one atomic
+mechanic. The player page therefore made a complete continuation look thinner than its backend
+controls and could not combine compatible mechanics from one episode.
+
+An affordance remains one AI-selectable continuation and one mission family. Deterministic
+preparation now composes that affordance into two to five ordered objectives: invitation-safe squad
+entry, one to three compatible mechanics grounded in the same neutral event window, and match
+completion. The primary family mechanic is always kept; redemption remains focused on its
+cross-match placement arc; landing and return targets are not combined. Every composed objective
+has an affordance-local ID and the selected family's recipe, preventing ambiguous provider
+references or cross-affordance control reuse.
+
+The player projection preserves the complete ordered list. AI still ranks and selects the chapter
+and authors its title and story bridge, but cannot add, remove, reorder, or strengthen its rules.
+The backend never invents a filler mechanic to reach five. Real result ingestion and objective
+verification remain deferred, so prototype completion is still explicitly simulated.

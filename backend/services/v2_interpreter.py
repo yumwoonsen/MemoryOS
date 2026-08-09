@@ -95,7 +95,7 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
 
-    prompt_version = "memory-interpreter-v2.11-backend-mission-copy"
+    prompt_version = "memory-interpreter-v2.12-richer-missions"
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
@@ -204,7 +204,7 @@ class MemoryInterpreterV2:
         if encoded_size > MAX_PROVIDER_PAYLOAD_BYTES:
             raise ProviderInputLimitError("sanitized provider payload exceeds its byte limit")
         decision = self._generator.generate(
-            prompt_name="memory_interpreter_v2_11.txt",
+            prompt_name="memory_interpreter_v2_12.txt",
             payload=payload,
             response_model=ProviderInterpretationDecisionV2,
             stage=stage,
@@ -365,7 +365,7 @@ class MemoryInterpreterV2:
             return ProviderMissionObjectiveV2(
                 objective_ref=objective_ref,
                 kind=MissionObjectiveKindV2.REQUIRED_PARTICIPANTS,
-                required_terms=["invited squad", "play", "match"],
+                required_terms=["invited squad", "queue", "match"],
                 roster_ref="invitation_player_ids",
             )
         if metric == "squad.matches_completed":
@@ -401,6 +401,65 @@ class MemoryInterpreterV2:
                 kind=MissionObjectiveKindV2.PLACEMENT_AT_MOST,
                 required_terms=[f"top {placement}"],
                 placement_at_most=placement,
+            )
+        if metric == "match.invited_squad_visits_location":
+            if (
+                candidate.assigned_player_id is not None
+                or candidate.verification.operator != "equals"
+                or not isinstance(target, str)
+                or not target.strip()
+            ):
+                raise ValueError("squad-location capability requires one non-empty location")
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.RETURN_TO_LOCATION,
+                required_terms=["return", target, "invited squad"],
+                location=target,
+            )
+        if metric == "match.invited_squad_lands_at_location":
+            invitation_ids = affordance.parameters.get("invitation_player_ids")
+            if (
+                candidate.assigned_player_id is not None
+                or candidate.verification.operator != "equals"
+                or not isinstance(target, str)
+                or not target.strip()
+                or affordance.parameters.get("landing_location") != target
+                or invitation_ids != invitation_player_ids
+            ):
+                raise ValueError("landing capability requires the safe roster and one location")
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.LANDING_RENDEZVOUS,
+                required_terms=["land", target, "invited squad"],
+                roster_ref="invitation_player_ids",
+                location=target,
+            )
+        if metric == "match.assigned_player_assisted_elimination_player_ids":
+            assister_id = affordance.parameters.get("assister_player_id")
+            teammate_id = affordance.parameters.get("elimination_player_id")
+            if (
+                candidate.verification.operator != "contains_all"
+                or target != [teammate_id]
+                or candidate.assigned_player_id != assister_id
+                or not isinstance(assister_id, str)
+                or not isinstance(teammate_id, str)
+                or assister_id == teammate_id
+                or assister_id not in invitation_player_ids
+                or teammate_id not in invitation_player_ids
+            ):
+                raise ValueError("duo-assist capability requires one invitation-safe pair")
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.DUO_ASSIST,
+                required_terms=[
+                    display_name_by_id[assister_id],
+                    "assists",
+                    display_name_by_id[teammate_id],
+                    "an elimination",
+                ],
+                assigned_player_id=assister_id,
+                teammate_player_id=teammate_id,
+                minimum_count=1,
             )
         raise ValueError(f"unsupported mission capability metric: {metric}")
 
@@ -726,7 +785,10 @@ class MemoryInterpreterV2:
             if direct and direct.actor_id == player.player_id:
                 predicate, language = EVENT_LANGUAGE[direct.event_type]
                 direct_place = f" at {direct.location}" if direct.location else ""
-                message = f"You {language}{direct_place}; that action became part of this moment."
+                message = (
+                    f"{player.display_name}, you {language}{direct_place}; "
+                    "that action became part of this moment."
+                )
                 target_id = direct.target_id
             else:
                 predicate = ClaimPredicate.PARTICIPATED_MATCH
@@ -762,8 +824,11 @@ class MemoryInterpreterV2:
         ]
         family_priority = {
             MissionFamilyV2.ROLE_REVERSAL: 0,
-            MissionFamilyV2.REDEMPTION: 1,
-            MissionFamilyV2.REUNION: 2,
+            MissionFamilyV2.DUO_ASSIST: 1,
+            MissionFamilyV2.RETURN_TO_PLACE: 2,
+            MissionFamilyV2.LANDING_RENDEZVOUS: 3,
+            MissionFamilyV2.REDEMPTION: 4,
+            MissionFamilyV2.REUNION: 5,
         }
         selected_affordance = min(
             available_affordances,
@@ -822,6 +887,15 @@ class MemoryInterpreterV2:
         elif selected_affordance.family == MissionFamilyV2.REDEMPTION:
             mission_title = "Finish the Final Circle"
             mission_text = "Turn those near misses into a top-three comeback."
+        elif selected_affordance.family == MissionFamilyV2.RETURN_TO_PLACE:
+            mission_title = "Return to the Rescue"
+            mission_text = "Go back to the place where the squad recovered together."
+        elif selected_affordance.family == MissionFamilyV2.LANDING_RENDEZVOUS:
+            mission_title = "Same Drop, New Chapter"
+            mission_text = "Bring the squad back together at its shared landing point."
+        elif selected_affordance.family == MissionFamilyV2.DUO_ASSIST:
+            mission_title = "Set Up the Finish"
+            mission_text = "Turn the original assist partnership into the next shared finish."
         else:
             mission_title = "Return Together"
             mission_text = "Bring the original squad back together for the next chapter."

@@ -51,9 +51,11 @@ complete raw-input-to-decision-to-projection contract, not only generated-prose 
   but receives no perspective, media identity, invitation, or mission assignment.
 - Mission affordances are derived dynamically from evidence and deterministic feasibility and
   verifiability checks, and belong to exactly
-  three families: `reunion`, `role_reversal`, and `redemption`. Removing the supporting revive
-  removes role reversal; repeated places four through six enable redemption; reunion remains only
-  when its consent, target, mode, and context conditions hold.
+  six families: `reunion`, `role_reversal`, `redemption`, `return_to_place`,
+  `landing_rendezvous`, and `duo_assist`. Removing the supporting revive removes role reversal and
+  return to place; repeated places four through six enable redemption; a roster-complete shared
+  landing enables landing rendezvous; an ordered invitation-safe assist-to-elimination pair enables
+  duo assist; reunion remains only when its consent, target, mode, and context conditions hold.
 - Invitation eligibility is independent of `active_player_ids`. Inactive but memory- and
   invitation-consented players remain invitation-ready; `online`/`away` is presentation only.
 - AI returns `ProviderInterpretationDecisionV2`: either `generate` with a complete ranking of
@@ -128,7 +130,7 @@ The typed v2 offline evaluator reports:
 | Deliverability and abstention correctness | Delivered/rejected/not-generated outcome matches optional labels; abstention has only `no_meaningful_episode` and no artifacts | 100% for labelled cases |
 | Correction outcome | Attempted correction and successful corrected delivery are counted separately | Report baseline |
 | Provider usage | Safe observability totals for request count, latency, and input/output tokens | Report baseline |
-| Player-projection minimization | Player projection contains request-scoped refs and no raw player/event/backend-objective IDs, claims, verification controls, source references, or Studio trace; overlapping roster-participation and match-completion mechanics appear as one clear player step | 100% |
+| Player-projection minimization | Player projection contains request-scoped refs and no raw player/event/backend-objective IDs, claims, verification controls, source references, or Studio trace; the complete ordered two-to-five-step chapter is preserved | 100% |
 | Feedback outcome | Accepted and declined decisions, reasons, and source-quality flags grouped by prompt/model version | Report baseline |
 
 `summarize_v2_evaluation` consumes typed `V2OfflineEvaluationCase` values. Expected labels and
@@ -144,25 +146,28 @@ python -m backend.evaluate_v2
 ```
 
 Its labelled cases cover rescue → `role_reversal`, the same rescue with the revive removed → no
-`role_reversal` plus `reunion`, repeated near misses → `redemption`, and ordinary sparse telemetry
-→ `not_generated`. The report separates delivered, abstained, and rejected results and audits that
-the affordance ranking is unique, contains exactly the offered IDs, puts the selected ID first, and
-matches the selected family, reason codes, and backend objective set.
+`role_reversal` plus `reunion`, a complete invited-squad drop → `landing_rendezvous`, a proven
+assist-to-elimination pair → `duo_assist`, repeated near misses → `redemption`, and ordinary sparse
+telemetry → `not_generated`. The report separates delivered, abstained, and rejected results and
+audits that the affordance ranking is unique, contains exactly the offered IDs, puts the selected ID
+first, and matches the selected family, reason codes, and backend objective set.
 
 The offline deterministic evaluator/test interpreter does not decide semantic abstention and currently
 generates for the ordinary case, so the default baseline intentionally reports typed-abstention
-accuracy `0`. That failed label is useful: only a labelled V2.11 live run can supply current evidence
+accuracy `0`. That failed label is useful: only a labelled V2.12 live run can supply current evidence
 that the model uses `no_meaningful_episode` appropriately.
 
 ### Registered Studio scenario checks
 
-Developer Studio exposes three of the manifest cases through backend-owned descriptors:
+Developer Studio exposes five of the manifest cases through backend-owned descriptors:
 
 1. `rescue-role-reversal` — expected pending delivery with `role_reversal`;
-2. `repeated-near-miss` — expected pending delivery with `redemption`; and
-3. `ordinary-sparse-telemetry` — expected `not_generated`.
+2. `landing-rendezvous` — expected pending delivery with `landing_rendezvous`;
+3. `duo-assist` — expected pending delivery with `duo_assist`;
+4. `repeated-near-miss` — expected pending delivery with `redemption`; and
+5. `ordinary-sparse-telemetry` — expected `not_generated`.
 
-The no-revive rescue remains an offline counterfactual and is not a fourth Studio selection. The
+The no-revive rescue remains an offline counterfactual and is not a sixth Studio selection. The
 expectations are labels, not prompt inputs: contract tests recursively verify that `scenario_id`,
 fixture provenance, expected status/family, and `label_source` are absent from raw telemetry,
 `StoryBriefV2`, and the provider payload.
@@ -218,14 +223,14 @@ terminally invalid result still fails closed after final Pydantic and determinis
 The provider Story Brief omits null placeholders only—concrete false consent/capability values and
 all actual evidence remain present.
 
-## V2.11 backend-mission-copy verification gate
+## V2.12 richer-missions verification gate
 
 The automated checks below cover the current contract. A configured historical smoke used the
 telemetry-only fixture, Groq `openai/gpt-oss-120b`, and
 `memory-interpreter-v2.4-grounded-controls`; it ended as a validated pending delivery without a
 correction. That result is retained only as V2.4 history. It is not evidence for the active
-`memory-interpreter-v2.11-backend-mission-copy` prompt, its generate/abstain behavior, mission
-selection behavior, or current model reliability. V2.11 requires a new labelled provider/model
+`memory-interpreter-v2.12-richer-missions` prompt, its generate/abstain behavior, mission
+selection behavior, or current model reliability. V2.12 requires a new labelled provider/model
 sample.
 
 Two controlled V2.10 smokes were recorded historically on 9 August 2026 with Gemini
@@ -234,7 +239,7 @@ synthetic rescue selected `role_reversal` and completed in 4.74 seconds; the rep
 selected `redemption` and completed in 4.81 seconds. Both passed deterministic validation without
 correction. These successful paths do not replace the labelled no-revive and ordinary-telemetry
 cases or repeated runs required for a provider reliability claim, and they are not evidence for the
-active V2.11 prompt.
+active V2.12 prompt.
 
 Automated verification must cover:
 
@@ -245,15 +250,20 @@ Automated verification must cover:
   fact/capability references, and fail-closed validation of unknown, ambiguous, or cross-affordance
   references and conservatively added literal candidate evidence;
 - deterministic objective-description compilation for participant, completed-match, first-revive,
-  and placement capabilities; public mission/objective shape stability; and rejection of story
-  bridges that contradict targets/operators, add unoffered mechanics, assert unsupported facts, or
-  violate privacy or safety, without requiring the bridge to restate every rule;
-- dynamic coverage of the `reunion`, `role_reversal`, and `redemption` families, including exact
-  reason-code and objective-set compilation;
-- labelled rescue, repeated-near-miss, reunion-only, ordinary, and counterfactual cases that assess
-  whether AI selects the strongest direct evidence-linked continuation without treating serialized
-  `A#` order/reference number or `O#` count as preference; validator tests must separately prove
-  that there is no deterministic family-priority rule;
+  placement, return-location, landing-location, and assigned-duo capabilities; public
+  mission/objective shape stability; and rejection of story bridges that contradict
+  targets/operators, add unoffered mechanics, assert unsupported facts, or violate privacy or safety,
+  without requiring the bridge to restate every rule;
+- dynamic coverage of the `reunion`, `role_reversal`, `redemption`, `return_to_place`,
+  `landing_rendezvous`, and `duo_assist` families, including exact reason-code and objective-set
+  compilation;
+- labelled rescue, landing-rendezvous, duo-assist, repeated-near-miss, reunion-only, ordinary, and
+  counterfactual cases that assess whether AI selects the strongest direct evidence-linked
+  continuation without treating serialized `A#` order/reference number or `O#` count as preference;
+  validator tests must separately prove that there is no deterministic family-priority rule;
+- explicit grounding tests that landing rendezvous requires the complete invitation roster at one
+  named location within 30 seconds, and duo assist requires the named finishing teammate to perform
+  the same-location elimination zero to 30 seconds after the assigned player's assist;
 - deterministic derivation of selected match/event IDs, complete claims, media, recipe, objective
   IDs, assignments, metrics/operators/targets, source references, ordered/exact-set perspectives,
   public delivery, and Studio trace;
@@ -270,7 +280,7 @@ Automated verification must cover:
 - proof that the player projection replaces raw player and backend-objective IDs with request-scoped
   refs, omits raw event IDs, claims, rules, source references, and Studio trace, and collapses
   overlapping participant-plus-match-completion mechanics into one player-facing step;
-- Studio coverage for the three exact registered scenarios, zero-provider preparation, fixture
+- Studio coverage for the five exact registered scenarios, zero-provider preparation, fixture
   version binding, expected-label isolation, sanitized affordances, ranking/selection reasons,
   active versus invitation-ready counts, the separate backend participant/completion rules,
   validation/correction, abstention, exact saved-replay provenance, and absence of a generic

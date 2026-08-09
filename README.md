@@ -76,19 +76,23 @@ a unique semantic proof and the complete tuple, prose, and claim validators stil
 claim set bounded, expansion retains lexically selected candidate events for a section, or at most
 one cited fallback event when no event evidence is inferred.
 
-Each mission affordance groups backend-owned objective capabilities and an `authoring_scope`
+Each mission affordance groups two to five ordered backend-owned objective capabilities and an `authoring_scope`
 containing only its permitted intent, player IDs, and targets. At the provider boundary, neutral
 windows, feasible affordances, and their nested typed objectives receive request-scoped `W#`, `A#`,
 and `O#` references. The provider ranks the `A#` choices and writes the selected mission title and
 short story bridge; each `A#` is an episode-and-mission pair, so the first ranked `A#` selects both the
 continuation and its linked episode without a redundant selected-window output field. The backend
 then resolves those short references to the authoritative window, family, recipe, assignments, source
-evidence, exact objective descriptions, and verification rules. The player still receives one clear Next Chapter rather than an
+evidence, exact objective descriptions, and verification rules. Deterministic composition keeps the
+primary family mechanic, adds only compatible capabilities from the same neutral window, and never
+pads a chapter with fabricated actions. The player still receives one clear Next Chapter rather than an
 internal candidate menu.
 The model is instructed to choose the strongest direct evidence-linked continuation, not the first
 serialized candidate. Role reversal can continue a rescue episode, redemption can continue a
-repeated near miss, and reunion remains the general fallback when no more coherent specific
-continuation is supported. `A#` order and reference number, and the number of nested `O#`
+repeated near miss, return to place can call back to a named rescue site, landing rendezvous can
+continue a complete invited-squad drop, and duo assist can continue a proven assist-to-elimination
+pair. Reunion remains the general fallback when no more coherent specific continuation is
+supported. `A#` order and reference number, and the number of nested `O#`
 objectives, are deliberately not preference signals. This is AI selection guidance rather than a
 deterministic family ranking: final validation checks grounding, consent, feasibility, and rule
 consistency without automatically preferring one mission family. The provider's story bridge does
@@ -122,14 +126,14 @@ This smaller structured output is intended to reduce malformed or internally inc
 responses without moving authority from deterministic code to AI. A historical telemetry-only
 smoke run passed on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
 `memory-interpreter-v2.4-grounded-controls` prompt. The current v2.1 mission-affordance contract uses
-`memory-interpreter-v2.11-backend-mission-copy` from `memory_interpreter_v2_11.txt`; the historical
+`memory-interpreter-v2.12-richer-missions` from `memory_interpreter_v2_12.txt`; the historical
 result is not evidence for the newer prompt or for the default 20B model.
 
 Two controlled historical live smokes on 9 August 2026 used Gemini `gemini-3.6-flash` and
 `memory-interpreter-v2.10.1-category-safe-perspectives`. The synthetic rescue selected `role_reversal` and
 completed in 4.74 seconds; repeated near misses selected `redemption` and completed in 4.81 seconds.
 Both passed validation without correction. These are two successful paths, not a complete provider
-reliability, reunion-counterfactual, or abstention matrix, and not evidence for the active V2.11
+reliability, reunion-counterfactual, or abstention matrix, and not evidence for the active V2.12
 prompt.
 
 The v2 API boundary is `POST /v2/memories/interpret-delivery`, followed by
@@ -140,9 +144,10 @@ provider. Groq GPT-OSS and OpenAI remain available as alternatives. Deterministi
 generation remains useful for tests, but the current Studio checkpoint produces no deterministic
 narrative and is not a live-AI fallback.
 
-Developer Studio now compares three backend-owned, versioned scenarios: rescue to role reversal,
-repeated near misses to redemption, and ordinary sparse telemetry to a possible abstention. It
-loads their safe descriptors through `GET /v2/studio/scenarios`, inspects deterministic preparation
+Developer Studio now compares five backend-owned, versioned scenarios: rescue to role reversal,
+landing together to landing rendezvous, an assist-to-elimination pair to duo assist, repeated near
+misses to redemption, and ordinary sparse telemetry to a possible abstention. It loads their safe
+descriptors through `GET /v2/studio/scenarios`, inspects deterministic preparation
 through `POST /v2/studio/scenarios/{scenario_id}/prepare`, and starts a live interpretation through
 `POST /v2/studio/scenarios/{scenario_id}/interpret`. Preparation performs normalization, privacy
 filtering, neutral-window construction, and affordance compilation with **zero provider calls**.

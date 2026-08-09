@@ -19,6 +19,10 @@ import {
 } from "@/lib/delivery-flow";
 import type { DecisionRequest, PendingDelivery } from "@/lib/delivery-flow";
 import type { PlayerExperienceSeedV2 } from "@/lib/player-delivery";
+import {
+  playerExperienceDescriptor,
+  type PlayerExperienceRef,
+} from "@/lib/player-scenarios";
 
 type View =
   | { kind: "unrevealed" }
@@ -44,6 +48,50 @@ function formatClock(seconds?: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function PlayerExperiencePicker({
+  seeds,
+  selectedExperienceRef,
+  disabled,
+  onSelect,
+}: {
+  seeds: PlayerExperienceSeedV2[];
+  selectedExperienceRef: PlayerExperienceRef;
+  disabled: boolean;
+  onSelect: (experienceRef: PlayerExperienceRef) => void;
+}) {
+  return (
+    <section className="player-experience-picker" aria-labelledby="demo-memory-picker-title">
+      <div className="player-experience-heading">
+        <div>
+          <p className="demo-kicker">Synthetic demo histories</p>
+          <h2 id="demo-memory-picker-title">Choose a squad signal to open.</h2>
+        </div>
+        <span>{seeds.length} safe fixtures</span>
+      </div>
+      <div className="player-experience-options">
+        {seeds.map((candidate, index) => {
+          const descriptor = playerExperienceDescriptor(candidate.experience_ref);
+          const selected = candidate.experience_ref === selectedExperienceRef;
+          return (
+            <button
+              className="player-experience-option"
+              type="button"
+              aria-pressed={selected}
+              disabled={disabled}
+              onClick={() => onSelect(candidate.experience_ref)}
+              key={candidate.experience_ref}
+            >
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{descriptor.label}</strong>
+              <small>{descriptor.teaser}</small>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function MatchArtwork({ members }: { members: PlayerExperienceSeedV2["display_roster"] }) {
   return (
     <div className="player-memory-art" aria-hidden="true">
@@ -62,7 +110,44 @@ function MatchArtwork({ members }: { members: PlayerExperienceSeedV2["display_ro
   );
 }
 
-export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
+export function MemoryExperience({ seeds }: { seeds: PlayerExperienceSeedV2[] }) {
+  const { flow, resetPlayerFlow } = usePlayerFlow();
+  const [selectedExperienceRef, setSelectedExperienceRef] = useState<PlayerExperienceRef>(() =>
+    seeds.find((candidate) => candidate.request_id === flow.delivery?.request_id)?.experience_ref
+      ?? seeds[0]?.experience_ref
+      ?? "memory-01");
+  const seed = seeds.find((candidate) => candidate.experience_ref === selectedExperienceRef)
+    ?? seeds[0];
+
+  if (!seed) {
+    throw new Error("No player demo experiences are configured.");
+  }
+
+  const selectExperience = (experienceRef: PlayerExperienceRef) => {
+    if (experienceRef === selectedExperienceRef) return;
+    resetPlayerFlow();
+    setSelectedExperienceRef(experienceRef);
+  };
+
+  return (
+    <ScenarioMemoryExperience
+      key={seed.experience_ref}
+      seed={seed}
+      seeds={seeds}
+      onSelectExperience={selectExperience}
+    />
+  );
+}
+
+function ScenarioMemoryExperience({
+  seed,
+  seeds,
+  onSelectExperience,
+}: {
+  seed: PlayerExperienceSeedV2;
+  seeds: PlayerExperienceSeedV2[];
+  onSelectExperience: (experienceRef: PlayerExperienceRef) => void;
+}) {
   const router = useRouter();
   const {
     flow,
@@ -70,13 +155,18 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
     acceptMission,
     declineMission,
   } = usePlayerFlow();
-  const [view, setView] = useState<View>(() => flow.declineReason
-    ? { kind: "declined", reason: flow.declineReason }
-    : flow.delivery
-      ? (flow.missionAccepted
-        ? { kind: "accepted", delivery: flow.delivery }
-        : { kind: "ready", delivery: flow.delivery })
-      : { kind: "unrevealed" });
+  const [view, setView] = useState<View>(() => {
+    const restoredDelivery = flow.delivery && isDeliveryBoundToSeed(flow.delivery, seed)
+      ? flow.delivery
+      : null;
+    return restoredDelivery && flow.declineReason
+      ? { kind: "declined", reason: flow.declineReason }
+      : restoredDelivery
+        ? (flow.missionAccepted
+          ? { kind: "accepted", delivery: restoredDelivery }
+          : { kind: "ready", delivery: restoredDelivery })
+        : { kind: "unrevealed" };
+  });
   const [announcement, setAnnouncement] = useState("A squad memory is waiting to be opened.");
   const requestSequence = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
@@ -104,7 +194,10 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
       const response = await fetch("/api/delivery/prepare", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ request_id: seed.request_id }),
+        body: JSON.stringify({
+          experience_ref: seed.experience_ref,
+          request_id: seed.request_id,
+        }),
         signal: controller.signal,
       });
       const payload: unknown = await response.json();
@@ -166,7 +259,7 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
       if (request.decision === "accepted") {
         acceptMission(delivery);
         setView({ kind: "accepted", delivery });
-        setAnnouncement("Mission accepted. Your reunion mission is ready.");
+        setAnnouncement("Mission accepted. Your Next Chapter is ready.");
         router.push("/mission");
       } else {
         declineMission(request.decline_reason);
@@ -212,6 +305,13 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
       modeLabel={modeLabel}
       modeHeading="Battle Royale"
     >
+      <PlayerExperiencePicker
+        seeds={seeds}
+        selectedExperienceRef={seed.experience_ref}
+        disabled={busy}
+        onSelect={onSelectExperience}
+      />
+
       {view.kind === "unrevealed" ? (
         <section className="demo-input-card" aria-labelledby="current-memory-title">
           <MatchArtwork members={featuredMembers} />
@@ -278,7 +378,7 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
         <ProcessingCard
           kicker="Saving your choice"
           title={view.request.decision === "accepted"
-            ? "Opening the reunion path."
+            ? "Opening your Next Chapter."
             : "Closing this mission respectfully."}
           message="MemoryOS is confirming one clear player decision."
         />
@@ -380,11 +480,11 @@ function MemoryDetail({
         </details>
       ) : null}
 
-      <section className="player-section player-next" aria-labelledby="reunion-idea-title">
-        <div className="next-chapter-label">Reunion idea / {formatWords(delivery.next_chapter.family)}</div>
-        <h2 id="reunion-idea-title">{challengeTitle(delivery.next_chapter.title)}</h2>
+      <section className="player-section player-next" aria-labelledby="next-chapter-title">
+        <div className="next-chapter-label">Next Chapter / {formatWords(delivery.next_chapter.family)}</div>
+        <h2 id="next-chapter-title">{challengeTitle(delivery.next_chapter.title)}</h2>
         <p className="player-next-mission">{delivery.next_chapter.mission}</p>
-        <ol className="player-objectives" aria-label="Reunion mission steps">
+        <ol className="player-objectives" aria-label="Next Chapter mission steps">
           {requiredObjectives.map((objective, index) => (
             <li key={objective.objective_ref}>
               <span>{index + 1}</span>
@@ -392,24 +492,26 @@ function MemoryDetail({
             </li>
           ))}
         </ol>
-        {/* This local WebP is already optimized for the fixed decorative landmark treatment. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          className="chapter-landmark"
-          src="/art/landmarks/clock-tower-town-v2.webp"
-          alt=""
-          width="760"
-          height="448"
-          loading="lazy"
-          aria-hidden="true"
-        />
+        {(delivery.next_chapter.family === "role_reversal"
+          || delivery.next_chapter.family === "return_to_place") ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            className="chapter-landmark"
+            src="/art/landmarks/clock-tower-town-v2.webp"
+            alt=""
+            width="760"
+            height="448"
+            loading="lazy"
+            aria-hidden="true"
+          />
+        ) : null}
       </section>
 
       {accepted ? (
         <section className="mission-handoff-card" aria-labelledby="accepted-title">
-          <h2 id="accepted-title">Your reunion path is open.</h2>
+          <h2 id="accepted-title">Your Next Chapter is open.</h2>
           <p>The memory stays here for review. Continue when your squad is ready.</p>
-          <Link className="reveal-memory-button history-home-action" href="/mission">Open reunion mission</Link>
+          <Link className="reveal-memory-button history-home-action" href="/mission">Open mission</Link>
         </section>
       ) : (
         <div className="review-actions history-decision-actions">
@@ -442,7 +544,7 @@ function DeclineCard({
   return (
     <section className="history-intro history-choice-card" aria-labelledby="decline-title">
       <p className="demo-kicker">Decline mission</p>
-      <h1 id="decline-title">Why are you passing on this reunion?</h1>
+      <h1 id="decline-title">Why are you passing on this mission?</h1>
       <p>Choose one reason. The mission will be suppressed, and your trusted match history will not be edited.</p>
       <div className="review-actions history-choice-actions">
         <button className="secondary-action" type="button" onClick={() => onReason("not_relevant")}>Not relevant to me</button>

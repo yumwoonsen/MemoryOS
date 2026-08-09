@@ -53,6 +53,18 @@ _SCENARIO_CONFIGS = (
         fixture_path=DATA_DIR / "raw_telemetry_v2.json",
     ),
     _ScenarioConfig(
+        scenario_id=StudioScenarioIdV2.LANDING_RENDEZVOUS,
+        title="Landing rendezvous",
+        purpose=("Inspect a complete invited squad landing together at one named drop point."),
+        fixture_path=EVALUATION_DIR / "landing_rendezvous.json",
+    ),
+    _ScenarioConfig(
+        scenario_id=StudioScenarioIdV2.DUO_ASSIST,
+        title="Duo assist",
+        purpose=("Inspect a consent-safe assist followed by the teammate's elimination."),
+        fixture_path=EVALUATION_DIR / "duo_assist.json",
+    ),
+    _ScenarioConfig(
         scenario_id=StudioScenarioIdV2.REPEATED_NEAR_MISS,
         title="Repeated near misses",
         purpose=("Inspect several squad matches with placements close to a stronger result."),
@@ -68,7 +80,7 @@ _SCENARIO_CONFIGS = (
 
 
 class StudioScenarioRegistryV2:
-    """Load three exact fixtures and their evaluation-only labels from the manifest."""
+    """Load five exact fixtures and their evaluation-only labels from the manifest."""
 
     def __init__(self, *, preparer: TelemetryPreparerV2 | None = None) -> None:
         self.preparer = preparer or TelemetryPreparerV2()

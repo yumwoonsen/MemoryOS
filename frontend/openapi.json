@@ -385,6 +385,8 @@
             "items": {
               "$ref": "#/components/schemas/DeliveryMissionObjectiveV2"
             },
+            "maxItems": 5,
+            "minItems": 2,
             "title": "Objectives",
             "type": "array"
           },
@@ -2081,10 +2083,11 @@
             "$ref": "#/components/schemas/MissionFamilyV2"
           },
           "objective_candidate_ids": {
+            "description": "Ordered backend-owned chapter requirements: squad entry, one to three compatible grounded mechanics, and match completion.",
             "items": {
               "type": "string"
             },
-            "maxItems": 10,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Objective Candidate Ids",
             "type": "array"
@@ -2213,7 +2216,10 @@
         "enum": [
           "reunion",
           "role_reversal",
-          "redemption"
+          "redemption",
+          "return_to_place",
+          "landing_rendezvous",
+          "duo_assist"
         ],
         "title": "MissionFamilyV2",
         "type": "string"
@@ -2225,7 +2231,10 @@
           "player_specific",
           "repeated_near_miss",
           "measurable_improvement",
-          "deterministically_verifiable"
+          "deterministically_verifiable",
+          "shared_location_callback",
+          "shared_landing_point",
+          "proven_assist_pair"
         ],
         "title": "MissionSelectionReasonCodeV2",
         "type": "string"
@@ -3436,8 +3445,8 @@
             "items": {
               "$ref": "#/components/schemas/StudioScenarioDescriptorV2"
             },
-            "maxItems": 3,
-            "minItems": 3,
+            "maxItems": 5,
+            "minItems": 5,
             "title": "Scenarios",
             "type": "array"
           },
@@ -3516,6 +3525,8 @@
       "StudioScenarioIdV2": {
         "enum": [
           "rescue-role-reversal",
+          "landing-rendezvous",
+          "duo-assist",
           "repeated-near-miss",
           "ordinary-sparse-telemetry"
         ],
@@ -3665,7 +3676,7 @@
             "items": {
               "$ref": "#/components/schemas/MissionCapabilityCandidate"
             },
-            "maxItems": 80,
+            "maxItems": 120,
             "title": "Mission Candidates",
             "type": "array"
           },

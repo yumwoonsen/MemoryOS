@@ -52,6 +52,9 @@ test("uses a scripted successful outcome with mission-family-specific copy", () 
     reunion: { completion: /full squad completed one match/i, chapter: "Together Again" },
     role_reversal: { completion: /Lee completed the squad's first revival/i, chapter: "The Favour Returned" },
     redemption: { completion: /squad reached the top three/i, chapter: "The Comeback Complete" },
+    return_to_place: { completion: /invited squad returned to the original location/i, chapter: "Back Where It Began" },
+    landing_rendezvous: { completion: /invited squad landed together/i, chapter: "Same Drop, Same Squad" },
+    duo_assist: { completion: /assigned duo combined for one elimination/i, chapter: "The Setup and the Finish" },
   };
 
   for (const [family, expectedResult] of Object.entries(expected)) {

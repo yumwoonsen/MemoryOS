@@ -1,9 +1,7 @@
-import rawTelemetry from "@/data/raw_telemetry_v2.json";
 import {
   consentSafeTelemetryView,
   isDeliveryBoundToTelemetryV2,
   parseInterpretDeliveryV2,
-  parseRawTelemetryBatchV2,
 } from "@/lib/ai-memory-contract";
 import {
   isRecord,
@@ -14,8 +12,8 @@ import {
   projectNotGeneratedForPlayer,
   projectPendingDeliveryForPlayer,
 } from "@/lib/player-delivery";
+import { playerExperienceTelemetry } from "@/lib/player-scenario.server";
 
-const prototypeTelemetry = parseRawTelemetryBatchV2(rawTelemetry as unknown);
 const privateHeaders = { "cache-control": "no-store", "x-memoryos-mode": "live" };
 
 export async function POST(request: Request) {
@@ -40,18 +38,20 @@ export async function POST(request: Request) {
     );
   }
 
-  const submittedTelemetry = parseRawTelemetryBatchV2(body);
-  const telemetry = submittedTelemetry ?? (
-    isRecord(body)
-      && typeof body.request_id === "string"
-      && prototypeTelemetry
-      && body.request_id === prototypeTelemetry.request_id
-      ? prototypeTelemetry
-      : null
-  );
+  const allowedBodyKeys = new Set(["experience_ref", "request_id"]);
+  const telemetry = isRecord(body)
+    && Object.keys(body).length === allowedBodyKeys.size
+    && Object.keys(body).every((key) => allowedBodyKeys.has(key))
+    ? playerExperienceTelemetry(body.experience_ref, body.request_id)
+    : null;
   if (!telemetry) {
     return Response.json(
-      { stage: "frontend_proxy", code: "invalid_raw_telemetry_v2", retryable: false, message: "A valid v2 telemetry request is required." },
+      {
+        stage: "frontend_proxy",
+        code: "invalid_player_experience",
+        retryable: false,
+        message: "A valid local player experience reference is required.",
+      },
       { status: 422, headers: privateHeaders },
     );
   }

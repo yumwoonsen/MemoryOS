@@ -5,8 +5,13 @@ labels evaluate the pipeline; they are never included in the interpreter prompt.
 
 The set covers:
 
-- a rescue episode expected to select `role_reversal`;
+- a named-location rescue episode expected to select `role_reversal`, while also exercising the
+  grounded `return_to_place` offer;
 - the same scenario with the revive removed, where `role_reversal` must not be offered;
+- a complete invitation-ready roster landing at one named location within 30 seconds, expected to
+  select `landing_rendezvous`;
+- a consent-safe assist actor whose distinct teammate performs the same-location elimination within
+  30 seconds, expected to select `duo_assist`;
 - repeated fourth/fifth-place finishes expected to select `redemption`;
 - ordinary sparse telemetry where live AI is expected to return the typed `not_generated` result.
 

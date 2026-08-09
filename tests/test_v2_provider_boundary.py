@@ -19,6 +19,7 @@ from backend.services.v2_preparation import TelemetryPreparerV2
 from backend.v2_pipeline import MemoryInterpretationPipelineV2
 
 DATA_PATH = Path(__file__).resolve().parents[1] / "backend" / "data" / "raw_telemetry_v2.json"
+EVALUATION_DATA = DATA_PATH.parent / "v2_evaluation"
 
 
 def parsed_batch() -> RawTelemetryBatchV2:
@@ -27,6 +28,12 @@ def parsed_batch() -> RawTelemetryBatchV2:
 
 def raw_payload() -> dict[str, Any]:
     return json.loads(DATA_PATH.read_text(encoding="utf-8"))
+
+
+def parsed_evaluation_fixture(filename: str) -> RawTelemetryBatchV2:
+    return RawTelemetryBatchV2.model_validate_json(
+        (EVALUATION_DATA / filename).read_text(encoding="utf-8")
+    )
 
 
 class ProviderDecisionSequence:
@@ -90,18 +97,24 @@ def test_provider_projection_uses_short_relational_w_a_o_references() -> None:
 def test_active_prompt_asks_ai_to_choose_story_continuity_without_positional_bias() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     affordances = MemoryInterpreterV2._provider_catalog(prepared).brief.affordances
-    prompt = load_prompt("memory_interpreter_v2_11.txt")
+    prompt = load_prompt("memory_interpreter_v2_12.txt")
 
     # The backend continues to offer the general reunion option first in its neutral catalogue.
     # Mission quality therefore comes from the AI selection rubric, not hidden list ordering.
-    assert [item.family.value for item in affordances] == ["reunion", "role_reversal"]
-    assert MemoryInterpreterV2.prompt_version == "memory-interpreter-v2.11-backend-mission-copy"
+    assert [item.family.value for item in affordances] == [
+        "reunion",
+        "return_to_place",
+        "role_reversal",
+    ]
+    assert MemoryInterpreterV2.prompt_version == "memory-interpreter-v2.12-richer-missions"
     assert (
         "A# input order, reference number, objective count, and ease of wording "
         "are not preference signals"
     ) in prompt
     assert "source_role_binding + event_actor" in prompt
     assert "repeated source_match_ids + placement_at_most" in prompt
+    assert "duo_assist continues a supported assister" in prompt
+    assert "landing_rendezvous returns the complete invited roster" in prompt
     assert "Treat reunion as the general fallback" in prompt
     assert "Never invent meaning merely to avoid reunion" in prompt
     assert "story_bridge" in prompt
@@ -131,16 +144,51 @@ def test_provider_objectives_expose_complete_backend_owned_required_terms() -> N
     first_reviver = next(
         item for item in objectives if item.kind == MissionObjectiveKindV2.EVENT_ACTOR
     )
+    return_to_location = next(
+        item for item in objectives if item.kind == MissionObjectiveKindV2.RETURN_TO_LOCATION
+    )
 
-    assert participants.required_terms == ["invited squad", "play", "match"]
+    assert participants.required_terms == ["invited squad", "queue", "match"]
     assert completed_match.required_terms == ["complete", "at least 1", "match"]
     assert first_reviver.required_terms == ["Lee", "completes", "first", "revive"]
     assert first_reviver.assigned_player_id == "ff-player-lee"
+    assert return_to_location.required_terms == ["return", "Clock Tower", "invited squad"]
+    assert return_to_location.location == "Clock Tower"
     assert all(
         not term.startswith("ff-player-")
         for objective in objectives
         for term in objective.required_terms
     )
+
+
+def test_provider_exposes_typed_landing_and_duo_objectives() -> None:
+    landing_brief = MemoryInterpreterV2._provider_catalog(
+        TelemetryPreparerV2().prepare(parsed_evaluation_fixture("landing_rendezvous.json"))
+    ).brief
+    duo_brief = MemoryInterpreterV2._provider_catalog(
+        TelemetryPreparerV2().prepare(parsed_evaluation_fixture("duo_assist.json"))
+    ).brief
+
+    landing = next(
+        objective
+        for affordance in landing_brief.affordances
+        for objective in affordance.objectives
+        if objective.kind == MissionObjectiveKindV2.LANDING_RENDEZVOUS
+    )
+    duo = next(
+        objective
+        for affordance in duo_brief.affordances
+        for objective in affordance.objectives
+        if objective.kind == MissionObjectiveKindV2.DUO_ASSIST
+    )
+
+    assert landing.location == "Peak"
+    assert landing.roster_ref == "invitation_player_ids"
+    assert landing.required_terms == ["land", "Peak", "invited squad"]
+    assert duo.assigned_player_id == "ff-player-lee"
+    assert duo.teammate_player_id == "ff-player-mei"
+    assert duo.minimum_count == 1
+    assert duo.required_terms == ["Lee", "assists", "Mei", "an elimination"]
 
 
 def test_provider_mission_output_contains_selection_and_story_bridge_only() -> None:
@@ -259,7 +307,7 @@ def test_provider_handle_decision_round_trips_to_canonical_delivery_controls() -
     assert result.validation.correction_attempted is False
     assert generator.calls == 1
     assert generator.requests[0]["response_model"] is ProviderInterpretationDecisionV2
-    assert generator.requests[0]["prompt_name"] == "memory_interpreter_v2_11.txt"
+    assert generator.requests[0]["prompt_name"] == "memory_interpreter_v2_12.txt"
     assert result.studio_trace.mission_selection is not None
     assert (
         result.studio_trace.mission_selection.selected_affordance_id
@@ -277,9 +325,12 @@ def test_provider_handle_decision_round_trips_to_canonical_delivery_controls() -
         for item in result.next_chapter.objectives
     }
     assert descriptions_by_metric == {
-        "squad.participant_ids": "Play a match with the invited squad.",
+        "squad.participant_ids": "Queue into a match with the invited squad.",
         "squad.matches_completed": "Complete at least 1 match.",
         "match.first_squad_revive_actor_id": "Lee completes the squad's first revive.",
+        "match.invited_squad_visits_location": (
+            "Return to Clock Tower with the invited squad."
+        ),
     }
 
 
@@ -307,9 +358,10 @@ def test_story_bridge_can_paraphrase_role_reversal_without_repeating_mission_rul
     assert result.next_chapter is not None
     assert result.next_chapter.mission == paraphrased.proposal.mission.story_bridge
     assert [item.description for item in result.next_chapter.objectives] == [
-        "Play a match with the invited squad.",
-        "Complete at least 1 match.",
+        "Queue into a match with the invited squad.",
+        "Return to Clock Tower with the invited squad.",
         "Lee completes the squad's first revive.",
+        "Complete at least 1 match.",
     ]
 
 
@@ -425,7 +477,7 @@ def test_supported_reunion_choice_remains_valid_when_story_specific_option_is_of
         "The squad has been apart long enough. Bring everyone back together."
     )
     assert [item.description for item in result.next_chapter.objectives] == [
-        "Play a match with the invited squad.",
+        "Queue into a match with the invited squad.",
         "Complete at least 1 match.",
     ]
     assert result.studio_trace.mission_selection is not None

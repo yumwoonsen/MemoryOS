@@ -198,6 +198,43 @@ MAX_ELIGIBLE_WINDOWS = 6
 MAX_WINDOW_EVENTS = 10
 MAX_WINDOW_SPAN_SECONDS = 120
 MAX_PROVIDER_EVENTS = MAX_ELIGIBLE_WINDOWS * MAX_WINDOW_EVENTS
+MIN_CHAPTER_OBJECTIVES = 2
+MAX_CHAPTER_OBJECTIVES = 5
+
+_CHAPTER_BASE_METRICS = {
+    "squad.participant_ids",
+    "squad.matches_completed",
+}
+_CHAPTER_PRIMARY_METRIC = {
+    MissionFamilyV2.ROLE_REVERSAL: "match.first_squad_revive_actor_id",
+    MissionFamilyV2.REDEMPTION: "match.top_three_reached",
+    MissionFamilyV2.RETURN_TO_PLACE: "match.invited_squad_visits_location",
+    MissionFamilyV2.LANDING_RENDEZVOUS: "match.invited_squad_lands_at_location",
+    MissionFamilyV2.DUO_ASSIST: (
+        "match.assigned_player_assisted_elimination_player_ids"
+    ),
+}
+_CHAPTER_EXTRA_PRIORITY = {
+    "match.invited_squad_lands_at_location": 0,
+    "match.assigned_player_assisted_elimination_player_ids": 1,
+    "match.first_squad_revive_actor_id": 2,
+    "match.invited_squad_visits_location": 3,
+}
+_CHAPTER_EXECUTION_ORDER = {
+    "match.invited_squad_lands_at_location": 0,
+    "match.invited_squad_visits_location": 1,
+    "match.first_squad_revive_actor_id": 2,
+    "match.assigned_player_assisted_elimination_player_ids": 3,
+    "match.top_three_reached": 4,
+}
+_CHAPTER_FAMILY_RECIPE = {
+    MissionFamilyV2.REUNION: QuestRecipe.RECREATE,
+    MissionFamilyV2.ROLE_REVERSAL: QuestRecipe.REMIX,
+    MissionFamilyV2.REDEMPTION: QuestRecipe.RESOLVE,
+    MissionFamilyV2.RETURN_TO_PLACE: QuestRecipe.RECREATE,
+    MissionFamilyV2.LANDING_RENDEZVOUS: QuestRecipe.RECREATE,
+    MissionFamilyV2.DUO_ASSIST: QuestRecipe.REMIX,
+}
 MAX_PROVIDER_CORE_BYTES = 80_000
 
 COLLECTIVE_MEMBERSHIP_DETAIL = {
@@ -881,6 +918,129 @@ class TelemetryPreparerV2:
                 )
             )
 
+            first_landing_by_player: dict[str, NormalizedEventV2] = {}
+            for event in sorted(
+                (all_events[event_id] for event_id in source_ids),
+                key=lambda item: (item.timestamp_seconds, item.event_id),
+            ):
+                if (
+                    event.event_type == CanonicalEventType.LANDING
+                    and event.actor_id in invited_ids
+                ):
+                    assert event.actor_id is not None
+                    first_landing_by_player.setdefault(event.actor_id, event)
+            landing_events_by_location: dict[str, list[NormalizedEventV2]] = {}
+            for event in first_landing_by_player.values():
+                if event.location:
+                    landing_events_by_location.setdefault(event.location, []).append(event)
+            complete_landing_groups: list[tuple[str, list[NormalizedEventV2]]] = []
+            for location, landing_events in landing_events_by_location.items():
+                rendezvous_events = sorted(
+                    landing_events,
+                    key=lambda item: (item.timestamp_seconds, item.event_id),
+                )
+                if (
+                    {event.actor_id for event in rendezvous_events} == set(invited_ids)
+                    and max(event.timestamp_seconds for event in rendezvous_events)
+                    - min(event.timestamp_seconds for event in rendezvous_events)
+                    <= 30
+                ):
+                    complete_landing_groups.append((location, rendezvous_events))
+            if complete_landing_groups:
+                landing_location, landing_events = sorted(
+                    complete_landing_groups,
+                    key=lambda item: (item[0].casefold(), item[0]),
+                )[0]
+                landing_source_ids = [event.event_id for event in landing_events]
+                landing_candidate = MissionCapabilityCandidate(
+                    candidate_id=f"objective:landing_rendezvous:location:{suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.RECREATE,
+                    source_event_ids=landing_source_ids,
+                    verification=VerificationRule(
+                        metric="match.invited_squad_lands_at_location",
+                        operator="equals",
+                        target=landing_location,
+                    ),
+                )
+                candidates.append(landing_candidate)
+                affordances.append(
+                    MissionAffordanceV2(
+                        affordance_id=f"affordance:landing_rendezvous:{suffix}",
+                        family=MissionFamilyV2.LANDING_RENDEZVOUS,
+                        window_id=window.window_id,
+                        source_event_ids=landing_source_ids,
+                        source_match_ids=[window.match_id],
+                        source_context_ids=["context:reunion_eligible"],
+                        parameters={
+                            "landing_location": landing_location,
+                            "invitation_player_ids": invited_ids,
+                        },
+                        # The final composition pass replaces this shared bootstrap
+                        # reference with affordance-local 2-to-5 chapter candidates.
+                        objective_candidate_ids=[
+                            reunion_candidates[0].candidate_id,
+                            landing_candidate.candidate_id,
+                        ],
+                        allowed_reason_codes=[
+                            MissionSelectionReasonCodeV2.SHARED_LANDING_POINT,
+                            MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE,
+                        ],
+                    )
+                )
+
+            # A named rescue location can become a verifiable return point.  Keep this
+            # tied to an actual revive in the selected episode so a generic location
+            # never becomes a fabricated mission hook.
+            rescue_locations = [
+                event.location
+                for event_id in source_ids
+                for event in [all_events[event_id]]
+                if event.event_type == CanonicalEventType.REVIVE and event.location
+            ]
+            if rescue_locations:
+                return_location = rescue_locations[0]
+                assert return_location is not None
+                return_source_ids = [
+                    event_id
+                    for event_id in source_ids
+                    if all_events[event_id].location == return_location
+                ]
+                return_candidate = MissionCapabilityCandidate(
+                    candidate_id=f"objective:return_to_place:location:{suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.RECREATE,
+                    source_event_ids=return_source_ids,
+                    verification=VerificationRule(
+                        metric="match.invited_squad_visits_location",
+                        operator="equals",
+                        target=return_location,
+                    ),
+                )
+                candidates.append(return_candidate)
+                affordances.append(
+                    MissionAffordanceV2(
+                        affordance_id=f"affordance:return_to_place:{suffix}",
+                        family=MissionFamilyV2.RETURN_TO_PLACE,
+                        window_id=window.window_id,
+                        source_event_ids=return_source_ids,
+                        source_match_ids=[window.match_id],
+                        source_context_ids=["context:reunion_eligible"],
+                        parameters={
+                            "return_location": return_location,
+                            "invitation_player_ids": invited_ids,
+                        },
+                        objective_candidate_ids=[
+                            reunion_candidates[0].candidate_id,
+                            return_candidate.candidate_id,
+                        ],
+                        allowed_reason_codes=[
+                            MissionSelectionReasonCodeV2.SHARED_LOCATION_CALLBACK,
+                            MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE,
+                        ],
+                    )
+                )
+
             eligible_revives = [
                 all_events[event_id]
                 for event_id in source_ids
@@ -954,6 +1114,77 @@ class TelemetryPreparerV2:
                     )
                 )
 
+            assist_pairs: list[tuple[NormalizedEventV2, NormalizedEventV2]] = []
+            for event_id in source_ids:
+                assist = all_events[event_id]
+                if (
+                    assist.event_type != CanonicalEventType.ASSIST
+                    or assist.actor_id not in invited_ids
+                    or assist.target_id not in invited_ids
+                    or assist.actor_id == assist.target_id
+                    or not assist.location
+                ):
+                    continue
+                paired_elimination = next(
+                    (
+                        all_events[candidate_id]
+                        for candidate_id in source_ids
+                        if all_events[candidate_id].event_type
+                        == CanonicalEventType.ELIMINATION
+                        and all_events[candidate_id].actor_id == assist.target_id
+                        and all_events[candidate_id].location == assist.location
+                        and 0
+                        <= all_events[candidate_id].timestamp_seconds
+                        - assist.timestamp_seconds
+                        <= 30
+                    ),
+                    None,
+                )
+                if paired_elimination is not None:
+                    assist_pairs.append((assist, paired_elimination))
+            # One typed pair per episode keeps the provider catalogue bounded.
+            for pair_index, (assist, elimination) in enumerate(assist_pairs[:1], start=1):
+                assert assist.actor_id is not None
+                assert assist.target_id is not None
+                duo_suffix = f"{suffix}:{pair_index}"
+                duo_candidate = MissionCapabilityCandidate(
+                    candidate_id=f"objective:duo_assist:pair:{duo_suffix}",
+                    window_id=window.window_id,
+                    recipe=QuestRecipe.REMIX,
+                    assigned_player_id=assist.actor_id,
+                    source_event_ids=[assist.event_id, elimination.event_id],
+                    verification=VerificationRule(
+                        metric="match.assigned_player_assisted_elimination_player_ids",
+                        operator="contains_all",
+                        target=[assist.target_id],
+                    ),
+                )
+                candidates.append(duo_candidate)
+                affordances.append(
+                    MissionAffordanceV2(
+                        affordance_id=f"affordance:duo_assist:{duo_suffix}",
+                        family=MissionFamilyV2.DUO_ASSIST,
+                        window_id=window.window_id,
+                        source_event_ids=[assist.event_id, elimination.event_id],
+                        source_match_ids=[window.match_id],
+                        parameters={
+                            "assister_player_id": assist.actor_id,
+                            "elimination_player_id": assist.target_id,
+                            "assist_window_seconds": 30,
+                            "invitation_player_ids": invited_ids,
+                        },
+                        objective_candidate_ids=[
+                            reunion_candidates[0].candidate_id,
+                            duo_candidate.candidate_id,
+                        ],
+                        allowed_reason_codes=[
+                            MissionSelectionReasonCodeV2.PROVEN_ASSIST_PAIR,
+                            MissionSelectionReasonCodeV2.PLAYER_SPECIFIC,
+                            MissionSelectionReasonCodeV2.DETERMINISTICALLY_VERIFIABLE,
+                        ],
+                    )
+                )
+
             if len(near_miss_match_ids) >= 2 and window.match_id in near_miss_match_ids:
                 redemption_candidates = [
                     MissionCapabilityCandidate(
@@ -1017,7 +1248,214 @@ class TelemetryPreparerV2:
                         ],
                     )
                 )
-        return candidates, affordances
+        return TelemetryPreparerV2._compose_chapter_objectives(candidates, affordances)
+
+    @staticmethod
+    def _compose_chapter_objectives(
+        candidates: list[MissionCapabilityCandidate],
+        affordances: list[MissionAffordanceV2],
+    ) -> tuple[list[MissionCapabilityCandidate], list[MissionAffordanceV2]]:
+        """Turn atomic capabilities into ordered, evidence-safe 2-to-5 step chapters.
+
+        The interpreter still chooses exactly one affordance.  This pass makes that
+        affordance a complete chapter: invitation-safe entry, one to three compatible
+        mechanics from the same neutral event window, and match completion.  Candidate
+        IDs remain affordance-local because provider objective references are globally
+        unique within a Story Brief.
+        """
+
+        candidate_by_id = {candidate.candidate_id: candidate for candidate in candidates}
+        affordances_by_window: dict[str, list[MissionAffordanceV2]] = {}
+        for affordance in affordances:
+            affordances_by_window.setdefault(affordance.window_id, []).append(affordance)
+
+        composed_candidates: list[MissionCapabilityCandidate] = []
+        composed_affordances: list[MissionAffordanceV2] = []
+        for window_affordances in affordances_by_window.values():
+            reunion = next(
+                (
+                    affordance
+                    for affordance in window_affordances
+                    if affordance.family == MissionFamilyV2.REUNION
+                ),
+                None,
+            )
+            if reunion is None:
+                continue
+            reunion_candidates = [
+                candidate_by_id[candidate_id]
+                for candidate_id in reunion.objective_candidate_ids
+            ]
+            baseline_by_metric = {
+                candidate.verification.metric: candidate for candidate in reunion_candidates
+            }
+            if set(baseline_by_metric) != _CHAPTER_BASE_METRICS:
+                continue
+
+            mechanic_sources: dict[
+                str,
+                tuple[MissionCapabilityCandidate, MissionAffordanceV2],
+            ] = {}
+            for source_affordance in sorted(
+                window_affordances,
+                key=lambda item: item.affordance_id,
+            ):
+                primary_metric = _CHAPTER_PRIMARY_METRIC.get(source_affordance.family)
+                if primary_metric is None or primary_metric in mechanic_sources:
+                    continue
+                primary_candidate = next(
+                    (
+                        candidate_by_id[candidate_id]
+                        for candidate_id in source_affordance.objective_candidate_ids
+                        if candidate_by_id[candidate_id].verification.metric == primary_metric
+                    ),
+                    None,
+                )
+                if primary_candidate is not None:
+                    mechanic_sources[primary_metric] = (
+                        primary_candidate,
+                        source_affordance,
+                    )
+
+            for affordance in window_affordances:
+                if affordance.family == MissionFamilyV2.REUNION:
+                    chapter_candidates = [
+                        candidate.model_copy(
+                            update={"recipe": _CHAPTER_FAMILY_RECIPE[affordance.family]}
+                        )
+                        for candidate in reunion_candidates
+                    ]
+                    composed_candidates.extend(chapter_candidates)
+                    composed_affordances.append(
+                        affordance.model_copy(
+                            update={
+                                "objective_candidate_ids": [
+                                    candidate.candidate_id for candidate in chapter_candidates
+                                ]
+                            }
+                        )
+                    )
+                    continue
+
+                primary_metric = _CHAPTER_PRIMARY_METRIC.get(affordance.family)
+                if primary_metric is None or primary_metric not in mechanic_sources:
+                    continue
+                chosen_metrics = [primary_metric]
+                if affordance.family != MissionFamilyV2.REDEMPTION:
+                    for metric in sorted(
+                        mechanic_sources,
+                        key=lambda item: (
+                            _CHAPTER_EXTRA_PRIORITY.get(item, 100),
+                            item,
+                        ),
+                    ):
+                        if metric in chosen_metrics or metric == "match.top_three_reached":
+                            continue
+                        if {
+                            metric,
+                            primary_metric,
+                        } == {
+                            "match.invited_squad_lands_at_location",
+                            "match.invited_squad_visits_location",
+                        }:
+                            continue
+                        chosen_metrics.append(metric)
+                        if len(chosen_metrics) == MAX_CHAPTER_OBJECTIVES - len(
+                            _CHAPTER_BASE_METRICS
+                        ):
+                            break
+                chosen_metrics.sort(
+                    key=lambda item: (_CHAPTER_EXECUTION_ORDER.get(item, 100), item)
+                )
+
+                recipe = _CHAPTER_FAMILY_RECIPE[affordance.family]
+                chapter_parameters = dict(affordance.parameters)
+                chapter_source_event_ids = list(affordance.source_event_ids)
+                chapter_source_match_ids = list(affordance.source_match_ids)
+                chapter_source_context_ids = list(affordance.source_context_ids)
+                chapter_candidates = [
+                    TelemetryPreparerV2._clone_chapter_candidate(
+                        baseline_by_metric["squad.participant_ids"],
+                        affordance,
+                        recipe,
+                        "participants",
+                    )
+                ]
+                for metric in chosen_metrics:
+                    template, source_affordance = mechanic_sources[metric]
+                    token = {
+                        "match.first_squad_revive_actor_id": "first_revive",
+                        "match.top_three_reached": "top_three",
+                        "match.invited_squad_visits_location": "return_location",
+                        "match.invited_squad_lands_at_location": "landing",
+                        "match.assigned_player_assisted_elimination_player_ids": "duo_assist",
+                    }[metric]
+                    chapter_candidates.append(
+                        TelemetryPreparerV2._clone_chapter_candidate(
+                            template,
+                            affordance,
+                            recipe,
+                            token,
+                        )
+                    )
+                    for key, value in source_affordance.parameters.items():
+                        existing = chapter_parameters.get(key)
+                        if existing is not None and existing != value:
+                            raise ValueError(
+                                f"chapter parameter {key!r} conflicts within one event window"
+                            )
+                        chapter_parameters[key] = value
+                    chapter_source_event_ids.extend(source_affordance.source_event_ids)
+                    chapter_source_match_ids.extend(source_affordance.source_match_ids)
+                    chapter_source_context_ids.extend(source_affordance.source_context_ids)
+                chapter_candidates.append(
+                    TelemetryPreparerV2._clone_chapter_candidate(
+                        baseline_by_metric["squad.matches_completed"],
+                        affordance,
+                        recipe,
+                        "complete_match",
+                    )
+                )
+                if not MIN_CHAPTER_OBJECTIVES <= len(chapter_candidates) <= MAX_CHAPTER_OBJECTIVES:
+                    raise ValueError("composed chapter must contain two to five objectives")
+
+                composed_candidates.extend(chapter_candidates)
+                composed_affordances.append(
+                    affordance.model_copy(
+                        update={
+                            "source_event_ids": list(dict.fromkeys(chapter_source_event_ids)),
+                            "source_match_ids": list(dict.fromkeys(chapter_source_match_ids)),
+                            "source_context_ids": list(dict.fromkeys(chapter_source_context_ids)),
+                            "parameters": chapter_parameters,
+                            "objective_candidate_ids": [
+                                candidate.candidate_id for candidate in chapter_candidates
+                            ],
+                        }
+                    )
+                )
+        return composed_candidates, composed_affordances
+
+    @staticmethod
+    def _clone_chapter_candidate(
+        template: MissionCapabilityCandidate,
+        affordance: MissionAffordanceV2,
+        recipe: QuestRecipe,
+        token: str,
+    ) -> MissionCapabilityCandidate:
+        suffix = affordance.affordance_id.removeprefix("affordance:").replace(":", "_")
+        candidate_id = f"objective:chapter:{suffix}:{token}"
+        if len(candidate_id) > 128:
+            candidate_id = (
+                f"objective:chapter:{affordance.family.value}:{token}:"
+                f"{sha256(affordance.affordance_id.encode('utf-8')).hexdigest()[:12]}"
+            )
+        return template.model_copy(
+            update={
+                "candidate_id": candidate_id,
+                "window_id": affordance.window_id,
+                "recipe": recipe,
+            }
+        )
 
     @staticmethod
     def _ledger(normalized: NormalizedTelemetryV2) -> ConsentSafeEvidenceLedgerV2:

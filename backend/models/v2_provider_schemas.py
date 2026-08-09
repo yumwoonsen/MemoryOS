@@ -53,6 +53,9 @@ class MissionObjectiveKindV2(StrEnum):
     COMPLETED_MATCHES = "completed_matches"
     EVENT_ACTOR = "event_actor"
     PLACEMENT_AT_MOST = "placement_at_most"
+    RETURN_TO_LOCATION = "return_to_location"
+    LANDING_RENDEZVOUS = "landing_rendezvous"
+    DUO_ASSIST = "duo_assist"
 
 
 class ProviderMissionObjectiveV2(StrictModel):
@@ -73,6 +76,8 @@ class ProviderMissionObjectiveV2(StrictModel):
     ordinal: Literal["first"] | None = None
     minimum_count: int | None = Field(default=None, ge=1, le=100)
     placement_at_most: int | None = Field(default=None, ge=1, le=100)
+    location: str | None = Field(default=None, min_length=1, max_length=100)
+    teammate_player_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def fields_match_kind(self) -> ProviderMissionObjectiveV2:
@@ -88,6 +93,8 @@ class ProviderMissionObjectiveV2(StrictModel):
             "ordinal": self.ordinal is not None,
             "minimum_count": self.minimum_count is not None,
             "placement_at_most": self.placement_at_most is not None,
+            "location": self.location is not None,
+            "teammate_player_id": self.teammate_player_id is not None,
         }
         expected = {
             MissionObjectiveKindV2.REQUIRED_PARTICIPANTS: {"roster_ref"},
@@ -98,6 +105,13 @@ class ProviderMissionObjectiveV2(StrictModel):
                 "ordinal",
             },
             MissionObjectiveKindV2.PLACEMENT_AT_MOST: {"placement_at_most"},
+            MissionObjectiveKindV2.RETURN_TO_LOCATION: {"location"},
+            MissionObjectiveKindV2.LANDING_RENDEZVOUS: {"roster_ref", "location"},
+            MissionObjectiveKindV2.DUO_ASSIST: {
+                "assigned_player_id",
+                "minimum_count",
+                "teammate_player_id",
+            },
         }[self.kind]
         if {field for field, present in supplied.items() if present} != expected:
             raise ValueError("mission objective capability fields must match its kind")
@@ -123,7 +137,7 @@ class ProviderMissionAffordanceV2(StrictModel):
         min_length=1,
         max_length=8,
     )
-    objectives: list[ProviderMissionObjectiveV2] = Field(min_length=1, max_length=10)
+    objectives: list[ProviderMissionObjectiveV2] = Field(min_length=2, max_length=5)
     source_role_binding: ProviderSourceRoleBindingV2 | None = None
 
     @model_validator(mode="after")
@@ -202,6 +216,11 @@ class ProviderStoryBriefV2(StrictModel):
                     and objective.assigned_player_id not in invitation_roster
                 ):
                     raise ValueError("provider objective assignees must be invitation-safe")
+                if (
+                    objective.teammate_player_id is not None
+                    and objective.teammate_player_id not in invitation_roster
+                ):
+                    raise ValueError("provider objective teammates must be invitation-safe")
         required_player_ids = {player.player_id for player in self.players_requiring_perspectives}
         if set(self.authoring_constraints.player_event_roles) != required_player_ids:
             raise ValueError("provider role scopes must match the perspective roster")

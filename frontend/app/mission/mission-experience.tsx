@@ -36,7 +36,7 @@ export function MissionExperience() {
     startPrototypeMatch,
   } = usePlayerFlow();
   const [error, setError] = useState<string | null>(null);
-  const [announcement, setAnnouncement] = useState("Reunion mission screen ready.");
+  const [announcement, setAnnouncement] = useState("Next Chapter mission screen ready.");
   const simulationSequence = useRef(0);
   const delivery = flow.missionAccepted ? flow.delivery : null;
   const invitees = useMemo(
@@ -53,13 +53,13 @@ export function MissionExperience() {
       <PlayerShell
         active="mission"
         status="No active mission"
-        announcement="No accepted reunion mission is available in this prototype session."
+        announcement="No accepted mission is available in this prototype session."
         modeHeading="Battle Royale"
       >
         <section className="player-state-card mission-empty-state" role="status">
           <span>No active mission</span>
-          <h1>Accept a reunion mission first.</h1>
-          <p>Open your current memory and accept its reunion idea. This prototype keeps the handoff only in the current app session.</p>
+          <h1>Accept a Next Chapter mission first.</h1>
+          <p>Open your current memory and accept its Next Chapter. This prototype keeps the handoff only in the current app session.</p>
           <Link className="reveal-memory-button history-home-action" href="/">View current memory</Link>
         </section>
       </PlayerShell>
@@ -85,7 +85,7 @@ export function MissionExperience() {
       return;
     }
     if (!invitees.some((invitee) => invitee.is_current_player)) {
-      setError("The current player is not eligible for this reunion lobby.");
+      setError("The current player is not eligible for this mission lobby.");
       return;
     }
     setError(null);
@@ -152,7 +152,7 @@ export function MissionExperience() {
       ) : error ? (
         <section className="player-state-card" role="alert">
           <span>Mission paused</span>
-          <h1>The reunion could not continue.</h1>
+          <h1>The mission could not continue.</h1>
           <p>{error}</p>
           <button type="button" onClick={() => setError(null)}>Return to mission</button>
         </section>
@@ -235,7 +235,7 @@ function InvitationCard({
     <section className="history-intro invitation-card" aria-labelledby="invitation-title">
       <p className="demo-kicker">Squad invite</p>
       <h1 id="invitation-title">Bring the squad back.</h1>
-      <p>{challengeTitle(delivery.next_chapter.title)} is ready for every player who allowed reunion invitations.</p>
+      <p>{challengeTitle(delivery.next_chapter.title)} is ready for every player who allowed mission invitations.</p>
       <InviteeList invitees={invitees} recipients={recipients} />
       <div className="squad-ready-count" aria-live="polite">
         <strong>{joinedCount}/{invitees.length}</strong>

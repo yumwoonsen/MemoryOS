@@ -961,7 +961,10 @@ export interface components {
             /** Allowed Reason Codes */
             allowed_reason_codes: components["schemas"]["MissionSelectionReasonCodeV2"][];
             family: components["schemas"]["MissionFamilyV2"];
-            /** Objective Candidate Ids */
+            /**
+             * Objective Candidate Ids
+             * @description Ordered backend-owned chapter requirements: squad entry, one to three compatible grounded mechanics, and match completion.
+             */
             objective_candidate_ids: string[];
             /** Parameters */
             parameters?: {
@@ -993,12 +996,12 @@ export interface components {
          * MissionFamilyV2
          * @enum {string}
          */
-        MissionFamilyV2: "reunion" | "role_reversal" | "redemption";
+        MissionFamilyV2: "reunion" | "role_reversal" | "redemption" | "return_to_place" | "landing_rendezvous" | "duo_assist";
         /**
          * MissionSelectionReasonCodeV2
          * @enum {string}
          */
-        MissionSelectionReasonCodeV2: "shared_squad_reunion" | "directly_inverts_original_roles" | "player_specific" | "repeated_near_miss" | "measurable_improvement" | "deterministically_verifiable";
+        MissionSelectionReasonCodeV2: "shared_squad_reunion" | "directly_inverts_original_roles" | "player_specific" | "repeated_near_miss" | "measurable_improvement" | "deterministically_verifiable" | "shared_location_callback" | "shared_landing_point" | "proven_assist_pair";
         /** MissionSelectionV2 */
         MissionSelectionV2: {
             /** Ranked Affordance Ids */
@@ -1419,7 +1422,7 @@ export interface components {
          * StudioScenarioIdV2
          * @enum {string}
          */
-        StudioScenarioIdV2: "rescue-role-reversal" | "repeated-near-miss" | "ordinary-sparse-telemetry";
+        StudioScenarioIdV2: "rescue-role-reversal" | "landing-rendezvous" | "duo-assist" | "repeated-near-miss" | "ordinary-sparse-telemetry";
         /** StudioScenarioInterpretationV2 */
         StudioScenarioInterpretationV2: {
             result: components["schemas"]["InterpretDeliveryResultV2"];

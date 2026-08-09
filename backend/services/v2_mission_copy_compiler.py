@@ -38,6 +38,7 @@ def compile_mission_objective_descriptions(
                 f"candidate {candidate.candidate_id} belongs to a different event window"
             )
         descriptions[candidate.candidate_id] = _compile_candidate(
+            affordance,
             candidate,
             safe_player_display_names,
         )
@@ -45,6 +46,7 @@ def compile_mission_objective_descriptions(
 
 
 def _compile_candidate(
+    affordance: MissionAffordanceV2,
     candidate: MissionCapabilityCandidate,
     safe_player_display_names: Mapping[str, str],
 ) -> str:
@@ -69,7 +71,7 @@ def _compile_candidate(
             raise MissionCopyCompilationError(
                 f"candidate {candidate.candidate_id} references a player outside the safe map"
             )
-        return "Play a match with the invited squad."
+        return "Queue into a match with the invited squad."
 
     if metric == "squad.matches_completed":
         if (
@@ -108,6 +110,57 @@ def _compile_candidate(
                 f"candidate {candidate.candidate_id} has an invalid top-three rule"
             )
         return "Reach the top 3 in the new match."
+
+    if metric == "match.invited_squad_visits_location":
+        if (
+            rule.operator != "equals"
+            or not isinstance(rule.target, str)
+            or not rule.target.strip()
+            or candidate.assigned_player_id is not None
+        ):
+            raise MissionCopyCompilationError(
+                f"candidate {candidate.candidate_id} has an invalid squad-location rule"
+            )
+        return f"Return to {rule.target} with the invited squad."
+
+    if metric == "match.invited_squad_lands_at_location":
+        invitation_player_ids = affordance.parameters.get("invitation_player_ids")
+        if (
+            rule.operator != "equals"
+            or not isinstance(rule.target, str)
+            or not rule.target.strip()
+            or candidate.assigned_player_id is not None
+            or affordance.parameters.get("landing_location") != rule.target
+            or not isinstance(invitation_player_ids, list)
+            or not invitation_player_ids
+            or any(
+                not isinstance(player_id, str)
+                or player_id not in safe_player_display_names
+                for player_id in invitation_player_ids
+            )
+        ):
+            raise MissionCopyCompilationError(
+                f"candidate {candidate.candidate_id} has an invalid landing-rendezvous rule"
+            )
+        return f"Land at {rule.target} with the invited squad."
+
+    if metric == "match.assigned_player_assisted_elimination_player_ids":
+        assister_id = affordance.parameters.get("assister_player_id")
+        teammate_id = affordance.parameters.get("elimination_player_id")
+        if (
+            rule.operator != "contains_all"
+            or rule.target != [teammate_id]
+            or candidate.assigned_player_id != assister_id
+            or not isinstance(assister_id, str)
+            or not isinstance(teammate_id, str)
+            or assister_id == teammate_id
+        ):
+            raise MissionCopyCompilationError(
+                f"candidate {candidate.candidate_id} has an invalid duo-assist rule"
+            )
+        assister_name = _safe_display_name(assister_id, safe_player_display_names)
+        teammate_name = _safe_display_name(teammate_id, safe_player_display_names)
+        return f"{assister_name} assists {teammate_name} with an elimination."
 
     raise MissionCopyCompilationError(
         f"candidate {candidate.candidate_id} uses unsupported metric {metric!r}"

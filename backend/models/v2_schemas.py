@@ -311,6 +311,9 @@ class MissionFamilyV2(StrEnum):
     REUNION = "reunion"
     ROLE_REVERSAL = "role_reversal"
     REDEMPTION = "redemption"
+    RETURN_TO_PLACE = "return_to_place"
+    LANDING_RENDEZVOUS = "landing_rendezvous"
+    DUO_ASSIST = "duo_assist"
 
 
 class MissionSelectionReasonCodeV2(StrEnum):
@@ -320,6 +323,9 @@ class MissionSelectionReasonCodeV2(StrEnum):
     REPEATED_NEAR_MISS = "repeated_near_miss"
     MEASURABLE_IMPROVEMENT = "measurable_improvement"
     DETERMINISTICALLY_VERIFIABLE = "deterministically_verifiable"
+    SHARED_LOCATION_CALLBACK = "shared_location_callback"
+    SHARED_LANDING_POINT = "shared_landing_point"
+    PROVEN_ASSIST_PAIR = "proven_assist_pair"
 
 
 class MissionAffordanceV2(StrictModel):
@@ -332,7 +338,14 @@ class MissionAffordanceV2(StrictModel):
     source_match_ids: list[str] = Field(min_length=1, max_length=10)
     source_context_ids: list[str] = Field(default_factory=list, max_length=10)
     parameters: dict[str, TelemetryValue] = Field(default_factory=dict, max_length=12)
-    objective_candidate_ids: list[str] = Field(min_length=1, max_length=10)
+    objective_candidate_ids: list[str] = Field(
+        min_length=1,
+        max_length=5,
+        description=(
+            "Ordered backend-owned chapter requirements: squad entry, one to three "
+            "compatible grounded mechanics, and match completion."
+        ),
+    )
     allowed_reason_codes: list[MissionSelectionReasonCodeV2] = Field(
         min_length=1,
         max_length=8,
@@ -413,7 +426,7 @@ class StoryBriefV2(StrictModel):
     active_player_ids: list[str] = Field(default_factory=list, max_length=4)
     evidence_ledger: ConsentSafeEvidenceLedgerV2
     eligible_event_windows: list[EligibleEventWindow] = Field(min_length=1, max_length=4)
-    mission_candidates: list[MissionCapabilityCandidate] = Field(min_length=1, max_length=80)
+    mission_candidates: list[MissionCapabilityCandidate] = Field(min_length=1, max_length=120)
     mission_affordances: list[MissionAffordanceV2] = Field(min_length=1, max_length=32)
     authoring_constraints: AuthoringConstraintsV2
     squad_history: SquadHistoryV2
@@ -426,6 +439,11 @@ class StoryBriefV2(StrictModel):
         scoped_player_ids = set(self.authoring_constraints.player_event_roles)
         if scoped_player_ids != required_player_ids:
             raise ValueError("player event role scopes must match players requiring perspectives")
+        if any(
+            not 2 <= len(affordance.objective_candidate_ids) <= 5
+            for affordance in self.mission_affordances
+        ):
+            raise ValueError("offered mission affordances must contain two to five objectives")
         return self
 
 
@@ -519,7 +537,7 @@ class ProposedMissionV2(StrictModel):
     title: str = Field(min_length=1, max_length=120)
     mission: str = Field(min_length=1, max_length=500)
     recipe: QuestRecipe
-    objectives: list[ProposedMissionObjectiveV2] = Field(min_length=1, max_length=10)
+    objectives: list[ProposedMissionObjectiveV2] = Field(min_length=2, max_length=5)
 
 
 class MemoryProposalV2(StrictModel):
@@ -695,7 +713,7 @@ class DeliveryNextChapterV2(StrictModel):
     title: str
     mission: str
     recipe: QuestRecipe
-    objectives: list[DeliveryMissionObjectiveV2]
+    objectives: list[DeliveryMissionObjectiveV2] = Field(min_length=2, max_length=5)
 
 
 class StudioTraceStageV2(StrictModel):

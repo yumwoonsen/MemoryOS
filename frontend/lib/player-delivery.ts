@@ -5,6 +5,7 @@ import type {
   RawTelemetryBatchV2,
   RawTelemetryEventV2,
 } from "@/lib/ai-memory-contract";
+import type { PlayerExperienceRef } from "@/lib/player-scenarios";
 
 export type PlayerActivityV2 = "online" | "away";
 
@@ -17,6 +18,7 @@ export type PlayerRosterMemberV2 = {
 
 export type PlayerExperienceSeedV2 = {
   schema_version: "2.1";
+  experience_ref: PlayerExperienceRef;
   request_id: string;
   current_recipient_ref: string;
   match_preview: {
@@ -134,11 +136,15 @@ function scopedRoster(telemetry: RawTelemetryBatchV2) {
   };
 }
 
-export function projectTelemetryForPlayerStart(telemetry: RawTelemetryBatchV2): PlayerExperienceSeedV2 {
+export function projectTelemetryForPlayerStart(
+  telemetry: RawTelemetryBatchV2,
+  experienceRef: PlayerExperienceRef,
+): PlayerExperienceSeedV2 {
   const { refByPlayerId, roster } = scopedRoster(telemetry);
   const previewMatch = telemetry.matches[0];
   return {
     schema_version: "2.1",
+    experience_ref: experienceRef,
     request_id: telemetry.request_id,
     current_recipient_ref: refByPlayerId.get(telemetry.target_player_id) ?? "recipient-current",
     match_preview: {
@@ -174,6 +180,11 @@ function verifiedMomentLabel(event: RawTelemetryEventV2, players: RawSquadPlayer
       return `${actor} was knocked`;
     case "SQUAD_MEMBER_LANDED":
       return `${actor} landed with the squad`;
+    case "KILL_ASSIST":
+    case "ASSIST":
+      return `${actor} assisted ${target}`;
+    case "PLAYER_ELIMINATED_OPPONENT":
+      return `${actor} secured an elimination`;
     case "MATCH_PLACEMENT_RECORDED":
       return typeof event.details.placement === "number"
         ? `The squad finished #${event.details.placement}`
@@ -187,10 +198,22 @@ function verifiedMomentLabel(event: RawTelemetryEventV2, players: RawSquadPlayer
 
 function inferMissionFamily(delivery: PendingDeliveryV2): MissionFamilyV2 {
   const supplied = delivery.next_chapter.family;
-  if (supplied === "reunion" || supplied === "role_reversal" || supplied === "redemption") return supplied;
+  if ([
+    "reunion",
+    "role_reversal",
+    "redemption",
+    "return_to_place",
+    "landing_rendezvous",
+    "duo_assist",
+  ].includes(supplied)) {
+    return supplied as MissionFamilyV2;
+  }
   const metrics = delivery.next_chapter.objectives.map((objective) => objective.verification.metric);
   if (metrics.includes("match.first_squad_revive_actor_id")) return "role_reversal";
   if (metrics.includes("match.top_three_reached")) return "redemption";
+  if (metrics.includes("match.invited_squad_visits_location")) return "return_to_place";
+  if (metrics.includes("match.invited_squad_lands_at_location")) return "landing_rendezvous";
+  if (metrics.includes("match.assigned_player_assisted_elimination_player_ids")) return "duo_assist";
   return "reunion";
 }
 
@@ -198,7 +221,7 @@ function projectPlayerMissionObjectives(
   delivery: PendingDeliveryV2,
   refByPlayerId: Map<string, string>,
 ): PlayerMissionObjectiveV2[] {
-  const projected = delivery.next_chapter.objectives.map((objective, index) => ({
+  return delivery.next_chapter.objectives.map((objective, index) => ({
     objective_ref: `objective-${index + 1}`,
     description: objective.description,
     required: objective.required,
@@ -206,32 +229,6 @@ function projectPlayerMissionObjectives(
       ? { assigned_recipient_ref: refByPlayerId.get(objective.assigned_player_id) }
       : {}),
   }));
-  const participantIndexes = delivery.next_chapter.objectives.flatMap((objective, index) =>
-    objective.required && objective.verification.metric === "squad.participant_ids" ? [index] : []);
-  const completedMatchIndexes = delivery.next_chapter.objectives.flatMap((objective, index) =>
-    objective.required && objective.verification.metric === "squad.matches_completed" ? [index] : []);
-  if (participantIndexes.length !== 1 || completedMatchIndexes.length !== 1) return projected;
-
-  const participantIndex = participantIndexes[0];
-  const completedMatchIndex = completedMatchIndexes[0];
-  if (participantIndex === completedMatchIndex) return projected;
-  const visibleIndex = Math.min(participantIndex, completedMatchIndex);
-  const hiddenIndex = Math.max(participantIndex, completedMatchIndex);
-  const completedTarget = delivery.next_chapter.objectives[completedMatchIndex].verification.target;
-  const matchCount = typeof completedTarget === "number" && completedTarget > 0
-    ? completedTarget
-    : 1;
-  const matchLabel = matchCount === 1 ? "one match" : `${matchCount} matches`;
-
-  return projected.flatMap((objective, index) => {
-    if (index === hiddenIndex) return [];
-    if (index !== visibleIndex) return [objective];
-    return [{
-      objective_ref: objective.objective_ref,
-      description: `Play and complete ${matchLabel} with the invited squad.`,
-      required: true,
-    }];
-  });
 }
 
 function escapeRegExp(value: string) {
@@ -424,9 +421,17 @@ export function parsePlayerDeliveryResultV2(value: unknown): PlayerDeliveryResul
     || !isRecord(value.next_chapter)
     || typeof value.next_chapter.title !== "string"
     || typeof value.next_chapter.mission !== "string"
-    || !["reunion", "role_reversal", "redemption"].includes(String(value.next_chapter.family))
+    || ![
+      "reunion",
+      "role_reversal",
+      "redemption",
+      "return_to_place",
+      "landing_rendezvous",
+      "duo_assist",
+    ].includes(String(value.next_chapter.family))
     || !Array.isArray(value.next_chapter.objectives)
-    || value.next_chapter.objectives.length === 0
+    || value.next_chapter.objectives.length < 2
+    || value.next_chapter.objectives.length > 5
     || !value.next_chapter.objectives.every((objective) => isRecord(objective)
       && typeof objective.objective_ref === "string"
       && typeof objective.description === "string"

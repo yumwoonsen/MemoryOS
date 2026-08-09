@@ -222,10 +222,16 @@ UNSAFE_MISSION_PATTERN = re.compile(
 VICTORY_WORDS = {"victory", "won", "winner", "booyah", "first place"}
 VICTORY_RESULTS = {"win", "won", "victory", "winner", "booyah", "first"}
 MISSION_METRIC_PREDICATES = {
-    "squad.revive_count": ClaimPredicate.REVIVED,
-    "squad.matches_completed": ClaimPredicate.COMPLETED_MATCH,
-    "match.first_squad_revive_actor_id": ClaimPredicate.REVIVED,
-    "match.top_three_reached": ClaimPredicate.PLACED,
+    "squad.revive_count": {ClaimPredicate.REVIVED},
+    "squad.matches_completed": {ClaimPredicate.COMPLETED_MATCH},
+    "match.first_squad_revive_actor_id": {ClaimPredicate.REVIVED},
+    "match.top_three_reached": {ClaimPredicate.PLACED},
+    "match.invited_squad_visits_location": set(),
+    "match.invited_squad_lands_at_location": {ClaimPredicate.LANDED},
+    "match.assigned_player_assisted_elimination_player_ids": {
+        ClaimPredicate.ASSISTED,
+        ClaimPredicate.ELIMINATED,
+    },
 }
 
 KNOWN_UNSUPPORTED_VEHICLES = {
@@ -242,6 +248,12 @@ MISSION_METRIC_ALLOWED_ACTIONS = {
     "squad.revive_count": {ClaimPredicate.REVIVED},
     "match.first_squad_revive_actor_id": {ClaimPredicate.REVIVED},
     "match.top_three_reached": set(),
+    "match.invited_squad_visits_location": set(),
+    "match.invited_squad_lands_at_location": {ClaimPredicate.LANDED},
+    "match.assigned_player_assisted_elimination_player_ids": {
+        ClaimPredicate.ASSISTED,
+        ClaimPredicate.ELIMINATED,
+    },
 }
 
 NUMBER_WORD_VALUES = {
@@ -259,6 +271,24 @@ NUMBER_WORD_VALUES = {
     "eight": 8,
     "nine": 9,
     "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+    "hundred": 100,
 }
 
 MISSION_QUANTIFIER_VALUES = {
@@ -278,16 +308,24 @@ MISSION_AMBIGUOUS_QUANTIFIERS = {"few", "several", "multiple"}
 MISSION_METRIC_NOUNS = {
     "squad.matches_completed": ("match", "matches", "round", "rounds", "game", "games"),
     "squad.revive_count": ("revive", "revives"),
+    "match.assigned_player_assisted_elimination_player_ids": (
+        "elimination",
+        "eliminations",
+        "kill",
+        "kills",
+    ),
 }
 
 MISSION_UNOFFERED_CONDITION_PATTERN = re.compile(
     r"\b(?:headshots?|damage|pistols?|sidearms?|rifles?|shotguns?|snipers?|"
     r"weapons?|firearms?|guns?|grenades?|"
-    r"melee|armor|helmets?|medkits?|kills?|eliminations?|without dying|without taking|"
+    r"melee|armor|helmets?|medkits?|without dying|without taking|"
     r"without moving|without healing|no healing|using only|using|equipped|armed|"
     r"crouch\w*|prone|sprint\w*|jump\w*|camp\w*|hid(?:e|ing)|stealth|"
-    r"emotes?|solo|duo|weaponless|entire time|throughout)\b"
+    r"emotes?|solo|weaponless|entire time|throughout)\b"
 )
+
+MISSION_COMBAT_PAIR_PATTERN = re.compile(r"\b(?:kills?|eliminations?|duo)\b")
 
 MISSION_STRONGER_THAN_TOP_THREE_PATTERN = re.compile(
     r"\b(?:win(?:s|ning)?|won|winner|victor(?:y|ious)|booyah|"
@@ -1143,12 +1181,13 @@ class ProposalValidatorV2:
         normalized = text.casefold()
         predicates = {claim.predicate for claim in claims}
         candidate_predicates = {
-            MISSION_METRIC_PREDICATES[candidate.verification.metric]
+            predicate
             for claim in claims
             for candidate_id in claim.supporting_mission_candidate_ids
             for candidate in prepared.mission_candidates
             if candidate.candidate_id == candidate_id
             and candidate.verification.metric in MISSION_METRIC_PREDICATES
+            for predicate in MISSION_METRIC_PREDICATES[candidate.verification.metric]
         }
         candidate_player_ids = {
             player_id
@@ -1186,6 +1225,29 @@ class ProposalValidatorV2:
             for candidate in prepared.mission_candidates
             if candidate.candidate_id == candidate_id
         }
+        selected_affordance_by_candidate = {
+            candidate_id: affordance
+            for affordance in prepared.mission_affordances
+            for candidate_id in affordance.objective_candidate_ids
+            if candidate_id in selected_candidates
+        }
+        candidate_player_ids.update(
+            player_id
+            for affordance in selected_affordance_by_candidate.values()
+            for parameter_name in ("assister_player_id", "elimination_player_id")
+            for player_id in [affordance.parameters.get(parameter_name)]
+            if isinstance(player_id, str)
+        )
+        candidate_locations = {
+            str(candidate.verification.target)
+            for candidate in selected_candidates.values()
+            if candidate.verification.metric
+            in {
+                "match.invited_squad_visits_location",
+                "match.invited_squad_lands_at_location",
+            }
+            and isinstance(candidate.verification.target, str)
+        }
         detected_actions = {
             predicate
             for predicate, keywords in ACTION_WORDS.items()
@@ -1203,6 +1265,11 @@ class ProposalValidatorV2:
             candidate.verification.metric == "match.top_three_reached"
             for candidate in selected_candidates.values()
         )
+        supports_duo_assist = any(
+            candidate.verification.metric
+            == "match.assigned_player_assisted_elimination_player_ids"
+            for candidate in selected_candidates.values()
+        )
         extra_capability_language = bool(
             re.search(
                 r"\b(?:alive|surviv\w*|safe zone|damage zone|pickup|vehicle)\b",
@@ -1213,6 +1280,7 @@ class ProposalValidatorV2:
                 and re.search(r"\b(?:victory|win|placement|top\s+(?:3|three))\b", normalized)
             )
             or (supports_top_three and MISSION_STRONGER_THAN_TOP_THREE_PATTERN.search(normalized))
+            or (not supports_duo_assist and MISSION_COMBAT_PAIR_PATTERN.search(normalized))
             or MISSION_UNOFFERED_CONDITION_PATTERN.search(normalized)
         )
         if selected_candidates and (
@@ -1333,6 +1401,143 @@ class ProposalValidatorV2:
                             f"Section {section} does not state the top-three requirement.",
                         )
                     )
+            elif metric == "match.invited_squad_visits_location" and isinstance(target, str):
+                location_stated = bool(
+                    re.search(rf"(?<!\w){re.escape(target.casefold())}(?!\w)", normalized)
+                )
+                return_intent_stated = bool(
+                    re.search(r"\b(?:return|revisit|go back|head back)\w*\b", normalized)
+                )
+                invited_group_stated = bool(
+                    re.search(
+                        r"\b(?:invited|listed)\s+"
+                        r"(?:squad|team|players?|squad members?)\b",
+                        normalized,
+                    )
+                )
+                if requires_literal_rule and not (
+                    location_stated and return_intent_stated and invited_group_stated
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the return-to-location requirement.",
+                        )
+                    )
+            elif metric == "match.invited_squad_lands_at_location" and isinstance(target, str):
+                location_stated = bool(
+                    re.search(rf"(?<!\w){re.escape(target.casefold())}(?!\w)", normalized)
+                )
+                landing_stated = bool(re.search(r"\bland\w*\b", normalized))
+                invited_group_stated = bool(
+                    re.search(
+                        r"\b(?:invited|listed)\s+(?:squad|team|players?|squad members?)\b",
+                        normalized,
+                    )
+                )
+                other_location_stated = any(
+                    location.casefold() != target.casefold()
+                    and contains_identity(text, location)
+                    for match in prepared.normalized.matches
+                    for event in match.events
+                    for location in [event.location]
+                    if location
+                )
+                alternative_location_stated = bool(
+                    re.search(
+                        r"\b(?:somewhere|anywhere)\s+else\b|"
+                        r"\b(?:another|different)\s+(?:location|place|drop(?: point)?|poi)\b",
+                        normalized,
+                    )
+                )
+                explicit_alternate_destination = bool(
+                    landing_stated
+                    and not location_stated
+                    and re.search(r"\bland\w*\s+(?:at|in|near|on)\s+", normalized)
+                    and not re.search(
+                        r"\bland\w*\s+(?:at|in|near|on)\s+(?:the\s+|a\s+)?"
+                        r"(?:named|shared|same|original)\s+"
+                        r"(?:drop(?: point)?|location|place|poi)\b",
+                        normalized,
+                    )
+                )
+                landing_negated = bool(
+                    re.search(
+                        r"\b(?:do not|don't|never|avoid|skip)\s+(?:\w+\s+){0,3}land\w*\b",
+                        normalized,
+                    )
+                )
+                invited_group_negated = bool(
+                    re.search(
+                        r"\b(?:alone|solo)\b|\bwithout\s+(?:the\s+)?"
+                        r"(?:invited\s+)?(?:squad|team|players?|squad members?)\b",
+                        normalized,
+                    )
+                )
+                if landing_stated and (
+                    other_location_stated
+                    or alternative_location_stated
+                    or explicit_alternate_destination
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_target_mismatch",
+                            f"Section {section} changes the selected landing location.",
+                        )
+                    )
+                if landing_stated and (landing_negated or invited_group_negated):
+                    issues.append(
+                        self._issue(
+                            "mission_capability_language_mismatch",
+                            f"Section {section} contradicts the squad landing requirement.",
+                        )
+                    )
+                if requires_literal_rule and not (
+                    location_stated and landing_stated and invited_group_stated
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the landing-rendezvous requirement.",
+                        )
+                    )
+            elif (
+                metric == "match.assigned_player_assisted_elimination_player_ids"
+                and isinstance(target, list)
+            ):
+                affordance = selected_affordance_by_candidate.get(candidate.candidate_id)
+                assister_id = (
+                    affordance.parameters.get("assister_player_id") if affordance else None
+                )
+                teammate_id = (
+                    affordance.parameters.get("elimination_player_id") if affordance else None
+                )
+                player_map = {player.player_id: player for player in prepared.normalized.players}
+                mentioned_counts = mission_metric_count_mentions(normalized, metric)
+                if any(count is None or count != 1 for count in mentioned_counts):
+                    issues.append(
+                        self._issue(
+                            "mission_target_mismatch",
+                            f"Section {section} changes the selected duo-assist count.",
+                        )
+                    )
+                if requires_literal_rule and (
+                    not isinstance(assister_id, str)
+                    or not isinstance(teammate_id, str)
+                    or target != [teammate_id]
+                    or assister_id not in player_map
+                    or teammate_id not in player_map
+                    or not contains_identity(text, player_map[assister_id].display_name)
+                    or not contains_identity(text, player_map[teammate_id].display_name)
+                    or not re.search(r"\bassist\w*\b", normalized)
+                    or not re.search(r"\beliminat\w*\b", normalized)
+                ):
+                    issues.append(
+                        self._issue(
+                            "mission_rule_not_expressed",
+                            f"Section {section} does not state the assigned duo-assist rule.",
+                        )
+                    )
             operator = candidate.verification.operator
             metric_nouns = MISSION_METRIC_NOUNS.get(metric, ())
             metric_clauses = [
@@ -1422,7 +1627,7 @@ class ProposalValidatorV2:
         for location in locations:
             if contains_identity(text, location) and not any(
                 claim.location == location for claim in claims
-            ):
+            ) and location not in candidate_locations:
                 issues.append(
                     self._issue(
                         "unmapped_location",
@@ -1685,6 +1890,38 @@ class ProposalValidatorV2:
             for player_id in candidate.verification.target
             if isinstance(player_id, str)
         }
+        authorized_assist_pairs = {
+            (assister_id, teammate_id)
+            for affordance in prepared.mission_affordances
+            if any(
+                candidate.candidate_id in affordance.objective_candidate_ids
+                and candidate.verification.metric
+                == "match.assigned_player_assisted_elimination_player_ids"
+                for candidate in mission_candidates
+            )
+            for assister_id in [affordance.parameters.get("assister_player_id")]
+            for teammate_id in [affordance.parameters.get("elimination_player_id")]
+            if isinstance(assister_id, str) and isinstance(teammate_id, str)
+        }
+        authorized_assist_eliminators = {
+            teammate_id for _, teammate_id in authorized_assist_pairs
+        }
+        authorized_future_landers = {
+            player_id
+            for affordance in prepared.mission_affordances
+            if any(
+                candidate.candidate_id in affordance.objective_candidate_ids
+                and candidate.verification.metric
+                == "match.invited_squad_lands_at_location"
+                for candidate in mission_candidates
+            )
+            for invitation_player_ids in [
+                affordance.parameters.get("invitation_player_ids")
+            ]
+            if isinstance(invitation_player_ids, list)
+            for player_id in invitation_player_ids
+            if isinstance(player_id, str)
+        }
         references = [
             (player.player_id, player.display_name.casefold())
             for player in prepared.normalized.players
@@ -1805,15 +2042,37 @@ class ProposalValidatorV2:
                 )
                 mission_actor_role_supported = bool(
                     actor_id is not None
-                    and target_id is None
                     and (
                         (
                             predicate == ClaimPredicate.REVIVED
+                            and target_id is None
                             and actor_id in authorized_future_revivers
                         )
                         or (
                             predicate == ClaimPredicate.COMPLETED_MATCH
+                            and target_id is None
                             and actor_id in authorized_match_players
+                        )
+                        or (
+                            predicate == ClaimPredicate.ASSISTED
+                            and target_id is not None
+                            and (actor_id, target_id) in authorized_assist_pairs
+                        )
+                        or (
+                            predicate == ClaimPredicate.ELIMINATED
+                            and target_id is None
+                            and actor_id in authorized_assist_eliminators
+                        )
+                        or (
+                            predicate == ClaimPredicate.LANDED
+                            and target_id is None
+                            and (
+                                actor_id in authorized_future_landers
+                                or (
+                                    actor_id == "squad"
+                                    and bool(authorized_future_landers)
+                                )
+                            )
                         )
                     )
                 )

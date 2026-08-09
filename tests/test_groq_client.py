@@ -429,7 +429,7 @@ def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> No
             "messages": [
                 {
                     "role": "system",
-                    "content": load_prompt("memory_interpreter_v2_11.txt"),
+                    "content": load_prompt("memory_interpreter_v2_12.txt"),
                 },
                 {
                     "role": "user",
@@ -459,7 +459,9 @@ def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> No
     # tokenizer replacement. The live smoke remains the authoritative check.
     estimated_input_tokens = math.ceil(len(request_body) / 3.5)
 
-    assert estimated_input_tokens <= 5_000
+    # Compound chapters add a small, bounded set of backend-owned objective
+    # descriptors while remaining comfortably inside the prototype 8k envelope.
+    assert estimated_input_tokens <= 5_500
     assert estimated_input_tokens + adapter.DEFAULT_V2_INTERPRETATION_MAX_OUTPUT_TOKENS <= 8_000
 
 

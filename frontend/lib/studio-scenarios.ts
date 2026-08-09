@@ -10,6 +10,8 @@ import {
 export const studioScenarioIds = [
   "rescue-role-reversal",
   "repeated-near-miss",
+  "landing-rendezvous",
+  "duo-assist",
   "ordinary-sparse-telemetry",
 ] as const;
 
@@ -102,7 +104,14 @@ function isNonNegativeInteger(value: unknown) {
 }
 
 function isMissionFamily(value: unknown): value is MissionFamilyV2 {
-  return ["reunion", "role_reversal", "redemption"].includes(String(value));
+  return [
+    "reunion",
+    "role_reversal",
+    "redemption",
+    "return_to_place",
+    "landing_rendezvous",
+    "duo_assist",
+  ].includes(String(value));
 }
 
 function isRuleTarget(value: unknown) {
@@ -141,17 +150,25 @@ function isMissionCandidate(value: unknown): value is StudioInterpretationTraceV
 }
 
 function isMissionAffordance(value: unknown): value is MissionAffordanceV2 {
-  return isRecord(value)
-    && typeof value.affordance_id === "string"
-    && isMissionFamily(value.family)
-    && typeof value.window_id === "string"
-    && isStringArray(value.source_event_ids)
-    && isStringArray(value.source_match_ids)
-    && isStringArray(value.source_context_ids)
-    && isRecord(value.parameters)
-    && Object.values(value.parameters).every(isRuleTarget)
-    && isStringArray(value.objective_candidate_ids)
-    && isStringArray(value.allowed_reason_codes);
+  if (!isRecord(value)
+    || typeof value.affordance_id !== "string"
+    || !isMissionFamily(value.family)
+    || typeof value.window_id !== "string"
+    || !isStringArray(value.source_event_ids)
+    || !isStringArray(value.source_match_ids)
+    || !isStringArray(value.source_context_ids)
+    || !isRecord(value.parameters)
+    || !Object.values(value.parameters).every(isRuleTarget)
+    || !isStringArray(value.objective_candidate_ids)
+    || !isStringArray(value.allowed_reason_codes)) return false;
+  const uniqueNonEmpty = (items: string[]) => items.length > 0 && new Set(items).size === items.length;
+  return uniqueNonEmpty(value.source_event_ids)
+    && uniqueNonEmpty(value.source_match_ids)
+    && new Set(value.source_context_ids).size === value.source_context_ids.length
+    && uniqueNonEmpty(value.objective_candidate_ids)
+    && value.objective_candidate_ids.length >= 2
+    && value.objective_candidate_ids.length <= 5
+    && uniqueNonEmpty(value.allowed_reason_codes);
 }
 
 export function parseStudioScenarioDescriptor(value: unknown): StudioScenarioDescriptorV2 | null {
@@ -244,8 +261,20 @@ export function parseStudioScenarioPreparation(value: unknown): StudioScenarioPr
     || !value.mission_affordances.every(isMissionAffordance)) return null;
 
   const candidateIds = new Set(value.mission_candidates.map((item) => item.candidate_id));
+  const windowIds = new Set(value.eligible_windows.map((item) => item.window_id));
+  const issueCodes = value.normalization.issue_codes as string[];
+  if ((value.status === "ready"
+      && (issueCodes.length > 0
+        || value.eligible_windows.length === 0
+        || value.mission_candidates.length === 0
+        || value.mission_affordances.length === 0))
+    || (value.status === "rejected" && issueCodes.length === 0)
+    || value.mission_candidates.some((candidate) => !windowIds.has(candidate.window_id))) {
+    return null;
+  }
   if (value.mission_affordances.some((affordance) =>
-    affordance.objective_candidate_ids.some((candidateId) => !candidateIds.has(candidateId)))) {
+    !windowIds.has(affordance.window_id)
+    || affordance.objective_candidate_ids.some((candidateId) => !candidateIds.has(candidateId)))) {
     return null;
   }
   return value as StudioScenarioPreparationV2;

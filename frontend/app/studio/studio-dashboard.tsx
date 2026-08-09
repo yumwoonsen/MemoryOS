@@ -471,7 +471,7 @@ export function StudioDashboard() {
           <p className="studio-kicker">Developer observability</p>
           <h1 id="studio-title">AI-grounded memory trace</h1>
           <p className="studio-intro">
-            Compare three versioned telemetry scenarios, inspect their deterministic preparation,
+            Compare five versioned telemetry scenarios, inspect their deterministic preparation,
             then deliberately start one bounded live interpretation.
           </p>
         </div>

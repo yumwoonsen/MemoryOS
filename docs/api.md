@@ -14,7 +14,7 @@ The implemented consumer API is additive:
   suppresses the exact delivery when declined.
 - `GET /v2/deliveries/{delivery_id}/trace` returns the sanitized Studio trace for a process-local
   delivery.
-- `GET /v2/studio/scenarios` lists three backend-owned synthetic evaluation scenarios with an
+- `GET /v2/studio/scenarios` lists five backend-owned synthetic evaluation scenarios with an
   exact fixture SHA-256/revision and offline expected label.
 - `POST /v2/studio/scenarios/{scenario_id}/prepare` returns deterministic normalization, privacy,
   neutral-window, candidate, and affordance summaries with zero provider calls.
@@ -134,14 +134,30 @@ The public request and response do not expose the provider's internal schema. De
 preparation builds an authoritative consent-safe `StoryBriefV2` with no more than four narratively
 neutral `eligible_event_windows`, plus runtime `mission_affordances`. A provider-only projection
 replaces its canonical selection IDs with request-scoped short references. The current affordance
-catalogue has exactly three families: `reunion`, `role_reversal`, and `redemption`; only families
-supported by the submitted evidence and current feasibility are offered.
+catalogue has exactly six families: `reunion`, `role_reversal`, `redemption`, `return_to_place`,
+`landing_rendezvous`, and `duo_assist`; only families supported by the submitted evidence and
+current feasibility are offered.
 
 Each `MissionAffordanceV2` carries backend-owned `affordance_id`, `family`, `window_id`,
 `source_event_ids`, `source_match_ids`, `source_context_ids`, `parameters`,
 `objective_candidate_ids`, and `allowed_reason_codes`. The corresponding
 `MissionCapabilityCandidate` records own `recipe`, `assigned_player_id`, `source_event_ids`, and
 `verification` (`metric`, `operator`, and `target`).
+
+Every offered Story Brief affordance and every delivered `next_chapter` contains two to five
+ordered objectives. Deterministic composition places invitation-safe squad entry first, match
+completion last, and up to three compatible grounded mechanics between them. The primary family
+mechanic is never dropped, candidate IDs are unique per affordance, and no mechanic may be borrowed
+from another neutral window.
+
+`landing_rendezvous` is offered only when one selected neutral window contains a named landing for
+every invitation-ready player at the same location and the first such landing per player spans no
+more than 30 seconds. Its backend-owned rule is
+`match.invited_squad_lands_at_location equals <location>`. `duo_assist` is offered only for a
+consent-safe pair in which the assist target is a distinct invitation-ready teammate who performs a
+same-location elimination zero to 30 seconds later. Its assigned assister and finishing teammate
+are backend parameters, and its rule is
+`match.assigned_player_assisted_elimination_player_ids contains_all [<teammate_id>]`.
 
 For one eligible request, AI returns the provider-only typed interpretation decision as exactly one
 of:
@@ -192,7 +208,7 @@ control plane. Player, action, and target terms are checked as one supported rol
 citing separate events that contain each word is insufficient. That expected reliability benefit
 is not inferred from schema size alone. Automated suites cover the current contract. A historical
 telemetry-only Groq 120B request passed on 8 August 2026 with the older V2.4 prompt, but it is not
-evidence for the active `memory-interpreter-v2.11-backend-mission-copy` prompt. Current live
+evidence for the active `memory-interpreter-v2.12-richer-missions` prompt. Current live
 reliability remains an evaluation task.
 
 The internal Story Brief includes neutral `authoring_constraints`: per-player
@@ -293,7 +309,7 @@ This abridged example omits additional required section claims and trace details
     "provider": "gemini",
     "model": "gemini-3.6-flash",
     "mode": "live_ai",
-    "prompt_version": "memory-interpreter-v2.11-backend-mission-copy",
+    "prompt_version": "memory-interpreter-v2.12-richer-missions",
     "content_origin": "live_ai_validated",
     "grounded_render": false,
     "narrative_fallback": false
@@ -428,7 +444,7 @@ telemetry body to either POST route:
 
 | Endpoint | Provider use | Result |
 |---|---:|---|
-| `GET /v2/studio/scenarios` | None | Three safe descriptors: `rescue-role-reversal`, `repeated-near-miss`, and `ordinary-sparse-telemetry` |
+| `GET /v2/studio/scenarios` | None | Five safe descriptors: `rescue-role-reversal`, `landing-rendezvous`, `duo-assist`, `repeated-near-miss`, and `ordinary-sparse-telemetry` |
 | `POST /v2/studio/scenarios/{scenario_id}/prepare` | Zero calls | Sanitized telemetry summary, normalization/redaction counts, neutral windows, mission candidates, and offered affordances |
 | `POST /v2/studio/scenarios/{scenario_id}/interpret` | One call, or two when correction is attempted | The exact registered fixture passed through the unchanged live interpretation pipeline, wrapped with its descriptor |
 
@@ -436,9 +452,10 @@ Each descriptor contains a scenario ID, title, purpose, fixture SHA-256, fixture
 status, optional expected mission family, and
 `label_source: "offline_evaluation_manifest"`. Those expectations exist only for offline/Studio
 comparison. They are never fields in `RawTelemetryBatchV2`, `StoryBriefV2`, or the provider payload.
-The rescue scenario tests a possible `role_reversal`, repeated near misses test `redemption`, and
-ordinary sparse telemetry tests whether AI abstains. The expected label never forces the actual
-output.
+The rescue scenario tests a possible `role_reversal`, the shared-drop scenario tests
+`landing_rendezvous`, the assist-pair scenario tests `duo_assist`, repeated near misses test
+`redemption`, and ordinary sparse telemetry tests whether AI abstains. The expected label never
+forces the actual output.
 
 Unknown scenario IDs return safe `404 unknown_studio_scenario`. A non-empty POST body returns
 `422 studio_request_body_not_allowed`, preventing a named scenario from being replaced with client
@@ -742,8 +759,8 @@ The deterministic provider is appropriate for repeatable tests and offline Studi
 player route requires an explicitly configured Gemini, Groq, or OpenAI provider and fails closed; it
 never silently uses deterministic narrative when a live provider is unavailable.
 
-The active v2 prompt contract is `memory-interpreter-v2.11-backend-mission-copy`, loaded from
-`memory_interpreter_v2_11.txt`. Any V2.4/120B or V2.10 Gemini smoke record is historical only and
+The active v2 prompt contract is `memory-interpreter-v2.12-richer-missions`, loaded from
+`memory_interpreter_v2_12.txt`. Any V2.4/120B or V2.10 Gemini smoke record is historical only and
 cannot be cited as validation of this prompt.
 
 The default needs no credentials:

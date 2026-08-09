@@ -179,13 +179,21 @@ test("server-renders the unrevealed Battle Royale memory", async () => {
   assert.match(html, /Memory waiting/i);
   assert.match(html, /Memory not loaded/i);
   assert.match(html, /A squad memory is waiting/i);
+  assert.match(html, /Synthetic demo histories/i);
+  assert.match(html, /Choose a squad signal to open/i);
+  assert.match(html, /4(?:<!-- -->)? safe fixtures/i);
+  assert.match(html, /Rescue at Clock Tower/i);
+  assert.match(html, /Peak landing/i);
+  assert.match(html, /Katulistiwa assist/i);
+  assert.match(html, /Observatory near misses/i);
+  assert.match(html, /aria-pressed="true"/i);
   assert.match(html, /Free Fire/i);
   assert.match(html, /Bermuda/i);
   assert.match(html, /Your original squad left a story behind/i);
   assert.match(html, /The consent-safe squad/i);
   assert.match(html, /aria-label="4 opted-in squad members"/i);
   assert.match(html, />J<\/span>/i);
-  assert.doesNotMatch(html, /ff-player-|anonymous:squadmate|memory_appearance|mission_invitation/i);
+  assert.doesNotMatch(html, /ff-player-|anonymous:squadmate|memory_appearance|mission_invitation|rescue-role-reversal|landing-rendezvous|duo-assist|repeated-near-miss/i);
   assert.match(html, /Open current memory/i);
   assert.match(mainHtml, /aria-label="Player sections"/i);
   assert.match(mainHtml, /href="\/mission"/i);
@@ -226,7 +234,7 @@ test("server-renders a safe empty mission state without an accepted session hand
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /No active mission/i);
-  assert.match(html, /Accept a reunion mission first/i);
+  assert.match(html, /Accept a Next Chapter mission first/i);
   assert.match(html, /View current memory/i);
   assert.doesNotMatch(html, /Send squad invite|Simulate rematch|Story Continues/i);
 });
@@ -237,7 +245,7 @@ test("keeps the loaded player story in a simple evidence-first order", async () 
   const reason = source.indexOf("Why this memory returned");
   const recap = source.indexOf("What actually happened");
   const perspective = source.indexOf("Your side of the story");
-  const chapter = source.indexOf("Reunion idea");
+  const chapter = source.indexOf("Next Chapter /");
   const objectives = source.indexOf("player-objectives");
   const decision = source.indexOf("Accept mission");
 
@@ -263,15 +271,17 @@ test("does not ship the disposable starter preview", async () => {
   assert.doesNotMatch(html, /Your site is taking shape/);
 });
 
-test("ships raw fixtures plus an explicitly empty saved-replay registry", async () => {
+test("ships server-owned player fixtures plus an explicitly empty saved-replay registry", async () => {
   const dataFiles = (await readdir(new URL("../data/", import.meta.url))).sort();
-  assert.deepEqual(dataFiles, ["funny_memory.json", "raw_telemetry_v2.json", "studio-replays"]);
+  assert.deepEqual(dataFiles, ["funny_memory.json", "player-scenarios", "raw_telemetry_v2.json", "studio-replays"]);
   const telemetry = JSON.parse(await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"));
   assert.equal(telemetry.schema_version, "2.0");
   assert.ok(Array.isArray(telemetry.matches));
   for (const forbidden of ["title", "summary", "memory_type", "narrative_angle", "mission", "objectives", "resurfacing_reason", "importance"]) {
     assert.equal(JSON.stringify(telemetry).includes(`"${forbidden}"`), false, `${forbidden} must not pre-author the v2 input`);
   }
+  const playerFixtures = (await readdir(new URL("../data/player-scenarios/", import.meta.url))).sort();
+  assert.deepEqual(playerFixtures, ["duo_assist.json", "landing_rendezvous.json", "repeated_near_miss.json"]);
   const replayManifest = JSON.parse(
     await readFile(new URL("../data/studio-replays/manifest.json", import.meta.url), "utf8"),
   );
@@ -494,10 +504,10 @@ test("browser bundle never calls the local backend directly", async () => {
   assert.match(browserBundle, /Why this memory returned/i);
   assert.match(browserBundle, /What actually happened/i);
   assert.match(browserBundle, /Your side of the story/i);
-  assert.match(browserBundle, /Reunion idea/i);
-  assert.match(browserBundle, /Reunion mission steps/i);
+  assert.match(browserBundle, /Next Chapter/i);
+  assert.match(browserBundle, /Next Chapter mission steps/i);
   assert.match(browserBundle, /Accept mission/i);
-  assert.match(browserBundle, /Open reunion mission/i);
+  assert.match(browserBundle, /Open mission/i);
   assert.match(browserBundle, /No active mission/i);
   assert.match(browserBundle, /Send squad invite/i);
   assert.match(browserBundle, /Simulate squad accepting/i);
@@ -533,6 +543,7 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   const deliveryFlow = await readFile(new URL("../lib/delivery-flow.ts", import.meta.url), "utf8");
   const v2Contract = await readFile(new URL("../lib/ai-memory-contract.ts", import.meta.url), "utf8");
   const playerProjection = await readFile(new URL("../lib/player-delivery.ts", import.meta.url), "utf8");
+  const playerExperienceServer = await readFile(new URL("../lib/player-scenario.server.ts", import.meta.url), "utf8");
   const reunionCore = await readFile(new URL("../lib/reunion-flow-core.mjs", import.meta.url), "utf8");
   const proxySource = await readFile(new URL("../lib/memoryos-server.ts", import.meta.url), "utf8");
   const historyPage = await readFile(new URL("../app/history/page.tsx", import.meta.url), "utf8");
@@ -542,6 +553,8 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(prepareRoute, /\/v2\/memories\/interpret-delivery/);
   assert.match(prepareRoute, /projectPendingDeliveryForPlayer/);
   assert.match(prepareRoute, /isDeliveryBoundToTelemetryV2/);
+  assert.match(prepareRoute, /allowedBodyKeys = new Set\(\["experience_ref", "request_id"\]\)/);
+  assert.doesNotMatch(prepareRoute, /parseRawTelemetryBatchV2|submittedTelemetry/);
   assert.match(decisionRoute, /\/v2\/deliveries\/\$\{encodeURIComponent\(deliveryId\)\}\/decision/);
   assert.match(traceRoute, /\/v2\/deliveries\/\$\{encodeURIComponent\(body\.delivery_id\)\}\/trace/);
   assert.match(traceRoute, /isSameOriginRequest/);
@@ -559,8 +572,13 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(deliveryFlow, /code === "provider_unavailable"/);
   assert.match(memoryClient, /view\.retryable \? \(\) => void prepare\(\) : undefined/);
   assert.doesNotMatch(deliveryFlow, /validation\.issues|reason_codes|rejected.*prose/is);
-  assert.match(homePage, /raw_telemetry_v2\.json/);
-  assert.match(homePage, /projectTelemetryForPlayerStart/);
+  assert.match(homePage, /playerExperienceSeeds/);
+  assert.doesNotMatch(homePage, /raw_telemetry_v2\.json|RawTelemetryBatchV2|projectTelemetryForPlayerStart/);
+  assert.match(playerExperienceServer, /raw_telemetry_v2\.json/);
+  assert.match(playerExperienceServer, /landing_rendezvous\.json/);
+  assert.match(playerExperienceServer, /duo_assist\.json/);
+  assert.match(playerExperienceServer, /repeated_near_miss\.json/);
+  assert.match(playerExperienceServer, /"memory-01"/);
   assert.match(historyPage, /backend\/data\/historical_memory_packs\.json/);
   assert.match(historyPage, /CURRENT_MEMORY_MATCH_ID/);
   assert.match(memoryClient, /Accept mission/);
@@ -577,6 +595,9 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(memoryClient, /\/api\/delivery\/prepare/);
   assert.match(memoryClient, /\/api\/delivery\/decision/);
   assert.match(memoryClient, /isDeliveryBoundToSeed/);
+  assert.match(memoryClient, /key=\{seed\.experience_ref\}/);
+  assert.match(memoryClient, /resetPlayerFlow/);
+  assert.match(flowProvider, /resetPlayerFlow/);
   assert.match(memoryClient, /declineMission/);
   assert.match(deliveryFlow, /parsePlayerDeliveryResultV2/);
   assert.match(playerProjection, /projectPendingDeliveryForPlayer/);
@@ -584,6 +605,7 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(playerProjection, /verified_moments/);
   assert.match(playerProjection, /perspective:/);
   assert.match(playerProjection, /invitation_roster/);
+  assert.doesNotMatch(playerProjection, /participantIndexes|completedMatchIndexes|Play and complete/);
   assert.match(v2Contract, /grounded_render === true/);
   assert.match(v2Contract, /grounded_claims/);
   assert.match(v2Contract, /supporting_mission_candidate_ids/);
@@ -600,9 +622,14 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(missionClient, /scripted successful completion state/);
   assert.match(reunionCore, /role_reversal/);
   assert.match(reunionCore, /redemption/);
+  assert.match(reunionCore, /return_to_place/);
+  assert.match(reunionCore, /landing_rendezvous/);
+  assert.match(reunionCore, /duo_assist/);
   assert.match(reunionCore, /The Favour Returned/);
   assert.match(reunionCore, /The Comeback Complete/);
   assert.match(reunionCore, /Together Again/);
+  assert.match(reunionCore, /Same Drop, Same Squad/);
+  assert.match(reunionCore, /The Setup and the Finish/);
   assert.match(missionClient, /Story continued/);
   assert.match(missionClient, /Original memory/);
   assert.match(missionClient, /Accepted mission/);
@@ -686,9 +713,58 @@ test("Studio prepares an exact catalog scenario without sending a provider paylo
     },
     normalization: { normalized_match_count: 1, normalized_event_count: 1, issue_codes: [] },
     privacy: { redaction_count: 0, anonymous_player_count: 0 },
-    eligible_windows: [],
-    mission_candidates: [],
-    mission_affordances: [],
+    eligible_windows: [{
+      window_id: "window-1",
+      match_id: "match-1",
+      event_ids: ["event-1"],
+      participant_ids: ["player-1", "player-2"],
+      start_seconds: 1,
+      end_seconds: 1,
+    }],
+    mission_candidates: [
+      {
+        candidate_id: "candidate-0",
+        window_id: "window-1",
+        recipe: "remix",
+        assigned_player_id: null,
+        source_event_ids: [],
+        verification: {
+          metric: "squad.matches_completed",
+          operator: "at_least",
+          target: 1,
+        },
+      },
+      {
+        candidate_id: "candidate-1",
+        window_id: "window-1",
+        recipe: "remix",
+        assigned_player_id: "player-1",
+        source_event_ids: ["event-1"],
+        verification: {
+          metric: "match.first_squad_revive_actor_id",
+          operator: "equals",
+          target: "player-1",
+        },
+      },
+    ],
+    mission_affordances: [{
+      affordance_id: "affordance-1",
+      family: "role_reversal",
+      window_id: "window-1",
+      source_event_ids: ["event-1"],
+      source_match_ids: ["match-1"],
+      source_context_ids: ["context:reunion_eligible"],
+      parameters: {
+        original_rescuer_id: "player-2",
+        original_saved_player_id: "player-1",
+        invitation_player_ids: ["player-1", "player-2"],
+      },
+      objective_candidate_ids: ["candidate-0", "candidate-1"],
+      allowed_reason_codes: [
+        "directly_inverts_original_roles",
+        "deterministically_verifiable",
+      ],
+    }],
   };
   const prepared = await postWithBackendStub(
     "/api/studio/scenarios/prepare",
@@ -702,6 +778,145 @@ test("Studio prepares an exact catalog scenario without sending a provider paylo
   assert.equal(prepared.upstreamRequest.init.method, "POST");
   assert.equal(prepared.upstreamRequest.init.body, undefined);
   assert.equal(prepared.response.headers.get("cache-control"), "no-store");
+
+  const malformedPreparation = structuredClone(preparation);
+  malformedPreparation.mission_affordances[0].allowed_reason_codes = [];
+  const malformed = await postWithBackendStub(
+    "/api/studio/scenarios/prepare",
+    JSON.stringify({ scenario }),
+    malformedPreparation,
+    { requestOrigin: "https://memoryos.example" },
+  );
+  assert.equal(malformed.response.status, 502);
+  assert.equal((await malformed.response.json()).code, "scenario_version_mismatch");
+});
+
+test("Studio accepts grounded landing-rendezvous and duo-assist preparation payloads", async () => {
+  const cases = [
+    {
+      scenarioId: "landing-rendezvous",
+      family: "landing_rendezvous",
+      metric: "match.invited_squad_lands_at_location",
+      target: "Peak",
+      operator: "equals",
+    },
+    {
+      scenarioId: "duo-assist",
+      family: "duo_assist",
+      metric: "match.assigned_player_assisted_elimination_player_ids",
+      target: ["player-2"],
+      operator: "contains_all",
+    },
+  ];
+
+  for (const [index, scenarioCase] of cases.entries()) {
+    const scenario = {
+      ...testStudioScenario(),
+      scenario_id: scenarioCase.scenarioId,
+      title: scenarioCase.family,
+      expected_mission_family: scenarioCase.family,
+      fixture_sha256: String(index + 1).repeat(64),
+      fixture_revision: `2.1:${String(index + 1).repeat(12)}`,
+    };
+    const baselineId = `candidate-baseline-${index + 1}`;
+    const candidateId = `candidate-${index + 1}`;
+    const preparation = {
+      schema_version: "2.1",
+      scenario,
+      status: "ready",
+      telemetry_summary: {
+        request_id: `req-studio-${index + 1}`,
+        target_player_id: "player-1",
+        match_count: 1,
+        raw_event_count: 2,
+        consent_safe_player_count: 2,
+        invitation_eligible_count: 2,
+        active_player_count: 2,
+        matches: [{
+          match_id: "match-1",
+          game: "free_fire",
+          mode: "battle_royale_squad",
+          map_name: "Bermuda",
+          started_at: "2026-08-09T10:00:00Z",
+          placement: 5,
+          event_count: 2,
+        }],
+      },
+      normalization: { normalized_match_count: 1, normalized_event_count: 2, issue_codes: [] },
+      privacy: { redaction_count: 0, anonymous_player_count: 0 },
+      eligible_windows: [{
+        window_id: "window-1",
+        match_id: "match-1",
+        event_ids: ["event-1", "event-2"],
+        participant_ids: ["player-1", "player-2"],
+        start_seconds: 1,
+        end_seconds: 2,
+      }],
+      mission_candidates: [
+        {
+          candidate_id: baselineId,
+          window_id: "window-1",
+          recipe: "remix",
+          assigned_player_id: null,
+          source_event_ids: [],
+          verification: {
+            metric: "squad.matches_completed",
+            operator: "at_least",
+            target: 1,
+          },
+        },
+        {
+          candidate_id: candidateId,
+          window_id: "window-1",
+          recipe: "remix",
+          assigned_player_id: scenarioCase.family === "duo_assist" ? "player-1" : null,
+          source_event_ids: ["event-1", "event-2"],
+          verification: {
+            metric: scenarioCase.metric,
+            operator: scenarioCase.operator,
+            target: scenarioCase.target,
+          },
+        },
+      ],
+      mission_affordances: [{
+        affordance_id: `affordance-${index + 1}`,
+        family: scenarioCase.family,
+        window_id: "window-1",
+        source_event_ids: ["event-1", "event-2"],
+        source_match_ids: ["match-1"],
+        source_context_ids: ["context:reunion_eligible"],
+        parameters: scenarioCase.family === "landing_rendezvous"
+          ? {
+              landing_location: "Peak",
+              invitation_player_ids: ["player-1", "player-2"],
+            }
+          : {
+              assister_player_id: "player-1",
+              elimination_player_id: "player-2",
+              assist_window_seconds: 30,
+              invitation_player_ids: ["player-1", "player-2"],
+            },
+        objective_candidate_ids: [baselineId, candidateId],
+        allowed_reason_codes: [
+          scenarioCase.family === "landing_rendezvous"
+            ? "shared_landing_point"
+            : "proven_assist_pair",
+          "deterministically_verifiable",
+        ],
+      }],
+    };
+
+    const prepared = await postWithBackendStub(
+      "/api/studio/scenarios/prepare",
+      JSON.stringify({ scenario }),
+      preparation,
+      { requestOrigin: "https://memoryos.example" },
+    );
+    assert.equal(prepared.response.status, 200, scenarioCase.scenarioId);
+    const body = await prepared.response.json();
+    assert.equal(body.mission_affordances[0].family, scenarioCase.family);
+    assert.match(prepared.upstreamRequest.input, new RegExp(`/v2/studio/scenarios/${scenarioCase.scenarioId}/prepare$`));
+  }
 });
 
 test("provider-consuming routes require a strict local browser request", async () => {
@@ -712,7 +927,7 @@ test("provider-consuming routes require a strict local browser request", async (
   const routeCases = [
     {
       path: "/api/delivery/prepare",
-      body: JSON.stringify({ request_id: telemetry.request_id }),
+      body: JSON.stringify({ experience_ref: "memory-01", request_id: telemetry.request_id }),
       upstream: createTestLiveDelivery(telemetry),
     },
     {
@@ -769,7 +984,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
 
   const deterministic = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     deterministicResult,
   );
   assert.equal(deterministic.response.status, 422);
@@ -780,7 +995,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   const liveResult = createTestLiveDelivery(telemetry);
   const live = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     liveResult,
   );
   assert.equal(live.response.status, 200);
@@ -793,14 +1008,15 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.equal(playerDelivery.invitation_roster.length, 4);
   assert.equal(playerDelivery.invitation_roster.filter((recipient) => recipient.activity === "away").length, 2);
   assert.ok(playerDelivery.invitation_roster.every((recipient) => /^recipient-\d+$/.test(recipient.recipient_ref)));
-  assert.equal(liveResult.next_chapter.objectives.length, 3);
-  assert.equal(playerDelivery.next_chapter.objectives.length, 2);
-  assert.equal(
-    playerDelivery.next_chapter.objectives[0].description,
-    "Play and complete one match with the invited squad.",
+  assert.equal(liveResult.next_chapter.objectives.length, 4);
+  assert.equal(playerDelivery.next_chapter.objectives.length, 4);
+  assert.deepEqual(
+    playerDelivery.next_chapter.objectives.slice(0, 2).map((objective) => objective.description),
+    ["Play a match with the invited squad.", "Complete at least 1 match."],
   );
-  assert.match(playerDelivery.next_chapter.objectives[1].description, /Lee.*first revive/i);
-  assert.equal(playerDelivery.next_chapter.objectives[1].assigned_recipient_ref, "recipient-1");
+  assert.match(playerDelivery.next_chapter.objectives[2].description, /Lee.*first revive/i);
+  assert.equal(playerDelivery.next_chapter.objectives[2].assigned_recipient_ref, "recipient-1");
+  assert.match(playerDelivery.next_chapter.objectives[3].description, /Clock Tower/i);
   for (const internal of ["player_perspectives", "grounded_claims", "studio_trace", "validation", "reason_codes", "consent", "matches"]) {
     assert.equal(Object.hasOwn(playerDelivery, internal), false, `${internal} must remain server-side`);
   }
@@ -818,9 +1034,25 @@ test("player delivery boundary strips judge internals and refuses deterministic 
       target: true,
     },
   };
+  placementResult.studio_trace.mission_candidates[2] = {
+    ...placementResult.studio_trace.mission_candidates[2],
+    assigned_player_id: null,
+    verification: placementResult.next_chapter.objectives[2].verification,
+  };
+  placementResult.studio_trace.mission_affordances[0] = {
+    ...placementResult.studio_trace.mission_affordances[0],
+    family: "redemption",
+    parameters: {
+      target_placement_max: 3,
+      invitation_player_ids: [...placementResult.next_chapter.invitation_player_ids],
+    },
+    allowed_reason_codes: ["repeated_near_miss", "deterministically_verifiable"],
+  };
+  placementResult.studio_trace.mission_selection.selected_family = "redemption";
+  placementResult.studio_trace.mission_selection.reason_codes = ["repeated_near_miss"];
   const placement = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     placementResult,
   );
   assert.equal(placement.response.status, 200);
@@ -828,16 +1060,107 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.deepEqual(
     placementDelivery.next_chapter.objectives.map((objective) => objective.description),
     [
-      "Play and complete one match with the invited squad.",
+      "Play a match with the invited squad.",
+      "Complete at least 1 match.",
       "Reach the top three in the new match.",
+      "Visit Clock Tower with the invited squad.",
     ],
   );
+
+  const inconsistentFamily = structuredClone(liveResult);
+  inconsistentFamily.next_chapter.family = "duo_assist";
+  const inconsistent = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
+    inconsistentFamily,
+  );
+  assert.equal(inconsistent.response.status, 422);
+  assert.equal((await inconsistent.response.json()).code, "memory_withheld");
+
+  const landingResult = structuredClone(liveResult);
+  landingResult.next_chapter.family = "landing_rendezvous";
+  landingResult.next_chapter.objectives[2] = {
+    ...landingResult.next_chapter.objectives[2],
+    description: "Land at Peak with the invited squad.",
+    assigned_player_id: null,
+    verification: {
+      metric: "match.invited_squad_lands_at_location",
+      operator: "equals",
+      target: "Peak",
+    },
+  };
+  landingResult.studio_trace.mission_candidates[2] = {
+    ...landingResult.studio_trace.mission_candidates[2],
+    assigned_player_id: null,
+    verification: landingResult.next_chapter.objectives[2].verification,
+  };
+  landingResult.studio_trace.mission_affordances[0] = {
+    ...landingResult.studio_trace.mission_affordances[0],
+    family: "landing_rendezvous",
+    parameters: {
+      landing_location: "Peak",
+      invitation_player_ids: [...landingResult.next_chapter.invitation_player_ids],
+    },
+    allowed_reason_codes: ["shared_landing_point", "deterministically_verifiable"],
+  };
+  landingResult.studio_trace.mission_selection.selected_family = "landing_rendezvous";
+  landingResult.studio_trace.mission_selection.reason_codes = ["shared_landing_point"];
+  const landing = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
+    landingResult,
+  );
+  assert.equal(landing.response.status, 200);
+  const landingDelivery = await landing.response.json();
+  assert.equal(landingDelivery.next_chapter.family, "landing_rendezvous");
+  assert.match(landingDelivery.next_chapter.objectives[2].description, /Land at Peak/i);
+
+  const duoResult = structuredClone(liveResult);
+  duoResult.next_chapter.family = "duo_assist";
+  duoResult.next_chapter.objectives[2] = {
+    ...duoResult.next_chapter.objectives[2],
+    description: "Lee assists Mei with an elimination.",
+    assigned_player_id: "ff-player-lee",
+    verification: {
+      metric: "match.assigned_player_assisted_elimination_player_ids",
+      operator: "contains_all",
+      target: ["ff-player-mei"],
+    },
+  };
+  duoResult.studio_trace.mission_candidates[2] = {
+    ...duoResult.studio_trace.mission_candidates[2],
+    assigned_player_id: "ff-player-lee",
+    verification: duoResult.next_chapter.objectives[2].verification,
+  };
+  duoResult.studio_trace.mission_affordances[0] = {
+    ...duoResult.studio_trace.mission_affordances[0],
+    family: "duo_assist",
+    parameters: {
+      assister_player_id: "ff-player-lee",
+      elimination_player_id: "ff-player-mei",
+      assist_window_seconds: 30,
+      invitation_player_ids: [...duoResult.next_chapter.invitation_player_ids],
+    },
+    allowed_reason_codes: ["proven_assist_pair", "deterministically_verifiable"],
+  };
+  duoResult.studio_trace.mission_selection.selected_family = "duo_assist";
+  duoResult.studio_trace.mission_selection.reason_codes = ["proven_assist_pair"];
+  const duo = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
+    duoResult,
+  );
+  assert.equal(duo.response.status, 200);
+  const duoDelivery = await duo.response.json();
+  assert.equal(duoDelivery.next_chapter.family, "duo_assist");
+  assert.match(duoDelivery.next_chapter.objectives[2].description, /Lee assists Mei/i);
+  assert.equal(duoDelivery.next_chapter.objectives[2].assigned_recipient_ref, "recipient-1");
 
   const obsoleteOutput = structuredClone(liveResult);
   obsoleteOutput.schema_version = "2.0";
   const obsolete = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     obsoleteOutput,
   );
   assert.equal(obsolete.response.status, 422);
@@ -847,7 +1170,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   disguisedFallback.metadata.grounded_render = true;
   const fallback = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     disguisedFallback,
   );
   assert.equal(fallback.response.status, 422);
@@ -857,7 +1180,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   savedReplay.metadata.content_origin = "saved_live_replay";
   const replayAtPlayerBoundary = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     savedReplay,
   );
   assert.equal(replayAtPlayerBoundary.response.status, 422);
@@ -875,7 +1198,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   };
   const abstention = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     abstentionResult,
   );
   assert.equal(abstention.response.status, 200);
@@ -903,7 +1226,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   };
   const rejected = await postWithBackendStub(
     "/api/delivery/prepare",
-    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    JSON.stringify({ experience_ref: "memory-01", request_id: "req-ff-20260808-001" }),
     rejectedWithSentinel,
   );
   assert.equal(rejected.response.status, 422);
@@ -911,49 +1234,28 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.doesNotMatch(rejectedBody, /REJECTED_PROSE|unsupported_claim|studio_trace/i);
 });
 
-test("player route safely projects an identity-hidden target and invitee through backend aliases", async () => {
+test("player route accepts only opaque allowlisted experience references", async () => {
   const telemetry = JSON.parse(
     await readFile(new URL("../data/raw_telemetry_v2.json", import.meta.url), "utf8"),
   );
-  telemetry.squad.players.find((player) => player.player_id === "ff-player-lee").consent.identity_display = false;
-  telemetry.squad.players.find((player) => player.player_id === "ff-player-amir").consent.identity_display = false;
+  const upstream = createTestLiveDelivery(telemetry);
+  const rejectedBodies = [
+    telemetry,
+    { experience_ref: "memory-99", request_id: telemetry.request_id },
+    { experience_ref: "memory-02", request_id: telemetry.request_id },
+    { experience_ref: "memory-01", request_id: telemetry.request_id, matches: telemetry.matches },
+  ];
 
-  const hiddenDelivery = createTestLiveDelivery(telemetry);
-
-  const projected = await postWithBackendStub(
-    "/api/delivery/prepare",
-    JSON.stringify(telemetry),
-    hiddenDelivery,
-  );
-  assert.equal(projected.response.status, 200);
-  const playerDelivery = await projected.response.json();
-
-  assert.equal(playerDelivery.perspective.display_name, "Player 1");
-  assert.equal(playerDelivery.perspective.recipient_ref, "recipient-1");
-  assert.deepEqual(
-    playerDelivery.invitation_roster.map((recipient) => recipient.display_name),
-    ["Player 1", "Mei", "Player 3", "Jo"],
-  );
-  assert.equal(playerDelivery.invitation_roster.find((recipient) => recipient.display_name === "Player 3").activity, "away");
-  assert.ok(playerDelivery.invitation_roster.every((recipient) => /^recipient-\d+$/.test(recipient.recipient_ref)));
-  assert.match(playerDelivery.verified_moments.map((moment) => moment.label).join(" / "), /A squadmate was knocked/i);
-
-  const playerJson = JSON.stringify(playerDelivery);
-  assert.doesNotMatch(playerJson, /ff-player-lee|ff-player-amir|anonymous:squadmate/i);
-  assert.doesNotMatch(playerJson, /"Lee"|"Amir"/i);
-  assert.doesNotMatch(playerJson, /identity_display|mission_invitation|player_perspectives|grounded_claims|studio_trace/i);
-
-  const leakyDelivery = structuredClone(hiddenDelivery);
-  leakyDelivery.memory.summary = "Lee / ff-player-lee / anonymous:squadmate:1";
-  const blockedLeak = await postWithBackendStub(
-    "/api/delivery/prepare",
-    JSON.stringify(telemetry),
-    leakyDelivery,
-  );
-  assert.equal(blockedLeak.response.status, 502);
-  const blockedBody = await blockedLeak.response.text();
-  assert.match(blockedBody, /player_projection_failed/i);
-  assert.doesNotMatch(blockedBody, /ff-player-lee|anonymous:squadmate|"Lee"/i);
+  for (const body of rejectedBodies) {
+    const rejected = await postWithBackendStub(
+      "/api/delivery/prepare",
+      JSON.stringify(body),
+      upstream,
+    );
+    assert.equal(rejected.response.status, 422);
+    assert.equal((await rejected.response.json()).code, "invalid_player_experience");
+    assert.equal(rejected.upstreamRequest, null);
+  }
 });
 
 test("Studio fails closed when a live run has no exact registered replay", async () => {

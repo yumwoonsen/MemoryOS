@@ -1313,7 +1313,7 @@ def test_backend_compiles_participant_copy_and_keeps_the_exact_safe_roster_rule(
     )
 
     assert report.passed is True
-    assert participant.description == "Play a match with the invited squad."
+    assert participant.description == "Queue into a match with the invited squad."
     assert candidate.verification.target == prepared.story_brief.invitation_player_ids
 
 

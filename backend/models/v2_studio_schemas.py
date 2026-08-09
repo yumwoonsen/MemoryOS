@@ -25,6 +25,8 @@ from backend.models.v2_schemas import (
 
 class StudioScenarioIdV2(StrEnum):
     RESCUE_ROLE_REVERSAL = "rescue-role-reversal"
+    LANDING_RENDEZVOUS = "landing-rendezvous"
+    DUO_ASSIST = "duo-assist"
     REPEATED_NEAR_MISS = "repeated-near-miss"
     ORDINARY_SPARSE_TELEMETRY = "ordinary-sparse-telemetry"
 
@@ -49,7 +51,7 @@ class StudioScenarioDescriptorV2(StrictModel):
 
 class StudioScenarioCatalogV2(StrictModel):
     schema_version: Literal["2.1"] = "2.1"
-    scenarios: list[StudioScenarioDescriptorV2] = Field(min_length=3, max_length=3)
+    scenarios: list[StudioScenarioDescriptorV2] = Field(min_length=5, max_length=5)
 
     @model_validator(mode="after")
     def contains_each_scenario_once(self) -> StudioScenarioCatalogV2:
@@ -118,7 +120,7 @@ class StudioScenarioPreparationV2(StrictModel):
     eligible_windows: list[EligibleEventWindow] = Field(default_factory=list, max_length=6)
     mission_candidates: list[MissionCapabilityCandidate] = Field(
         default_factory=list,
-        max_length=80,
+        max_length=120,
     )
     mission_affordances: list[MissionAffordanceV2] = Field(
         default_factory=list,

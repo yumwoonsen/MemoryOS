@@ -47,6 +47,8 @@ def test_manifest_contains_labelled_counterfactual_and_abstention() -> None:
     counterfactual = cases["rescue-counterfactual-no-revive"]
     assert counterfactual.expected_mission_family == "reunion"
     assert counterfactual.forbidden_offered_mission_families == ["role_reversal"]
+    assert cases["landing-rendezvous"].expected_mission_family == "landing_rendezvous"
+    assert cases["duo-assist"].expected_mission_family == "duo_assist"
     assert cases["repeated-near-miss"].expected_mission_family == "redemption"
     assert cases["ordinary-sparse-telemetry"].expected_status == "not_generated"
 
@@ -62,14 +64,16 @@ def test_deterministic_benchmark_reports_safe_per_run_fields() -> None:
     assert report["live_api_enabled"] is False
     assert len(report["models"]) == 1
     model_report = report["models"][0]
-    assert len(model_report["runs"]) == 4
+    assert len(model_report["runs"]) == 6
     by_case = {run["case_id"]: run for run in model_report["runs"]}
     assert by_case["rescue-role-reversal"]["selected_family"] == "role_reversal"
     assert "role_reversal" not in by_case["rescue-counterfactual-no-revive"]["offered_families"]
+    assert by_case["landing-rendezvous"]["selected_family"] == "landing_rendezvous"
+    assert by_case["duo-assist"]["selected_family"] == "duo_assist"
     assert by_case["repeated-near-miss"]["selected_family"] == "redemption"
     assert by_case["ordinary-sparse-telemetry"]["labels_passed"] is False
     summary = model_report["summary"]
-    assert summary["mission_family_labels_evaluated"] == 3
+    assert summary["mission_family_labels_evaluated"] == 5
     assert summary["mission_family_accuracy"] == 1
     assert summary["cross_fixture_family_variation_rate"] == 1
     assert summary["typed_abstention_accuracy"] == 0
@@ -119,7 +123,7 @@ def test_repeated_model_matrix_can_be_exercised_without_network(monkeypatch) -> 
     )
 
     assert [item["model"] for item in report["models"]] == ["model-a", "model-b"]
-    assert all(len(item["runs"]) == 8 for item in report["models"])
+    assert all(len(item["runs"]) == 12 for item in report["models"])
 
 
 def test_gemini_model_override_is_scoped_without_network(monkeypatch) -> None:

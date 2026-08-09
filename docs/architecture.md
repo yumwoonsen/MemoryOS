@@ -18,12 +18,12 @@ authenticated telemetry adapter and source-quality controls. The player decides 
 memory is relevant; the player is not asked to audit raw telemetry.
 
 > **Implementation status:** the additive V2.1 contract, orchestration, validators, player
-> projection, three-scenario Studio registry, Studio trace, and acceptance tests exist.
+> projection, five-scenario Studio registry, Studio trace, and acceptance tests exist.
 > `RawTelemetryBatchV2` accepts both `2.0`
 > and `2.1` input, while every `InterpretDeliveryResultV2` is `2.1`. The active prompt contract is
-> `memory-interpreter-v2.11-backend-mission-copy`, loaded from `memory_interpreter_v2_11.txt`. A
+> `memory-interpreter-v2.12-richer-missions`, loaded from `memory_interpreter_v2_12.txt`. A
 > historical 8 August 2026 Groq 120B smoke used the older V2.4 prompt; it is not evidence for the
-> current V2.11 prompt and must be rerun before
+> current V2.12 prompt and must be rerun before
 > making current live-quality claims. Existing V1.0 and V1.1 routes remain runnable compatibility
 > paths while production authentication, persistence, notifications, telemetry integration, and
 > post-match verification are deferred.
@@ -78,11 +78,13 @@ separate composed request models rather than inheriting their review and scaffol
 ## Developer Studio scenario checkpoint and provenance
 
 Developer Studio does not accept arbitrary raw telemetry under a named demo. A backend registry
-owns exactly three committed scenarios and their fixture versions:
+owns exactly five committed scenarios and their fixture versions:
 
 | Scenario | Offline expected behavior | Deterministic affordance space |
 |---|---|---|
-| `rescue-role-reversal` | `pending_player_decision` / `role_reversal` | Reunion and role reversal |
+| `rescue-role-reversal` | `pending_player_decision` / `role_reversal` | Reunion, role reversal, and return to place |
+| `landing-rendezvous` | `pending_player_decision` / `landing_rendezvous` | Reunion and landing rendezvous |
+| `duo-assist` | `pending_player_decision` / `duo_assist` | Reunion and duo assist |
 | `repeated-near-miss` | `pending_player_decision` / `redemption` | Reunion and redemption |
 | `ordinary-sparse-telemetry` | `not_generated` | Feasible reunion, while AI decides whether the episode merits a memory |
 
@@ -114,7 +116,8 @@ from consent-safe canonical events. Each offered window carries consent-safe rol
 media capabilities, and dynamically compiled mission affordances behind bounded references. The
 provider sees request-scoped `W#` window references, `A#` affordance references, and nested `O#`
 objective references rather than canonical selection IDs. Each `A#` represents one feasible
-episode-and-mission pair, so the first ranked `A#` chooses the linked episode and continuation
+episode-and-compound-mission pair with two to five ordered objectives, so the first ranked `A#`
+chooses the linked episode and continuation
 without a redundant selected-window output field. It may not choose an arbitrary event subset from
 the complete match or author authoritative control values. Deterministic resolution restores
 canonical IDs before the existing expander and validator run.
@@ -175,21 +178,34 @@ personal action. Match-scoped facts support match language, not individual actio
 Privacy-safe aliases remain first-class grounding labels; hiding an original identity does not let
 the model attach unsupported actions or observations to its replacement label.
 
-The backend currently compiles exactly three affordance families, only when their evidence and
+The backend currently compiles exactly six affordance families, only when their evidence and
 feasibility conditions hold. These are authoritative capability boundaries: the model can choose
 and narrate one offered transformation but cannot invent a mechanic or verification rule. The
-backend also compiles the selected capability into exact objective copy.
+backend composes squad entry, one to three compatible same-window mechanics, and match completion
+into a two-to-five-step chapter, then compiles every selected capability into exact objective copy.
 
 | Family | Availability | Backend-owned continuation |
 |---|---|---|
 | `reunion` | Reunion is allowed, the mode is available, and at least two memory- and invitation-consented players include the target | Reassemble the invitation-ready roster and complete one match |
 | `role_reversal` | The selected window contains a consent-safe revive between invitation-ready players | Add a first-future-revive assignment to the previously saved player |
 | `redemption` | At least two supplied matches are near misses in places four through six | Add a top-three target |
+| `return_to_place` | The selected window contains a consent-safe revive at a named location | Return to that rescue location with the invited squad |
+| `landing_rendezvous` | The selected neutral window contains the first landing event for every invitation-ready player at one named location, spanning at most 30 seconds | Land at that location with the invited squad |
+| `duo_assist` | An invitation-ready assist actor names a distinct invitation-ready teammate who performs an elimination at the same location zero to 30 seconds later | Assign the assister to help that teammate secure an elimination |
 
 The provider compares the offered `episode × mission affordance` options and should normally rank
 the strongest direct evidence-linked continuation first. A rescue can support `role_reversal`; a
-repeated near miss can support `redemption`; `reunion` is the general fallback when no more coherent
-specific continuation is supported. The backend does not hard-code this narrative choice.
+named rescue site can support `return_to_place`; a complete shared drop can support
+`landing_rendezvous`; a proven assist-to-elimination pair can support `duo_assist`; a repeated near
+miss can support `redemption`; and `reunion` is the general fallback when no more coherent specific
+continuation is supported. The backend does not hard-code this narrative choice.
+
+Landing rendezvous is roster-complete by construction. For each named landing location in a neutral
+window, deterministic preparation keeps the first landing event per invitation-ready player and
+requires the resulting player set to equal the invitation roster with no more than 30 seconds
+between the earliest and latest event. Duo assist likewise requires an explicit ordered source pair:
+the assist target must perform the same-location elimination within 30 seconds. Nearby counts,
+unattributed combat, and prose are not substitutes for either grounding rule.
 
 The serialized order of affordances, request-scoped `A#` numbers, and nested `O#` count carry no
 preference signal. They exist only for bounded reference resolution. The guidance to prefer a
@@ -240,8 +256,8 @@ Reducing duplicated IDs and backend-owned controls in the provider schema should
 output easier for a live model to produce consistently. It does not weaken validation because the
 removed fields are derived from deterministic sources rather than trusted from the model. Automated
 compact-decision, abstention, affordance, enrichment, and projection checks pass. The historical
-120B/V2.4 and Gemini/V2.10 smokes predate the current V2.11 prompt and therefore cannot establish
-current prompt reliability; the expected improvement still requires a controlled V2.11 sample.
+120B/V2.4 and Gemini/V2.10 smokes predate the current V2.12 prompt and therefore cannot establish
+current prompt reliability; the expected improvement still requires a controlled V2.12 sample.
 
 ## V1.1 compatibility: historical discovery
 
@@ -330,7 +346,7 @@ for operations. Neither decision edits trusted telemetry or triggers automatic p
 | V2 stage | Model-capable? | Owned behavior |
 |---|---:|---|
 | Raw ingestion and normalization | No | Types, external-to-canonical mappings, provenance, and rejection |
-| Consent, windows, and affordances | No | Current consent, source quality, deduplication, no more than four neutral windows, and feasible/verifiable `reunion`, `role_reversal`, and `redemption` affordances |
+| Consent, windows, and affordances | No | Current consent, source quality, deduplication, no more than four neutral windows, and feasible/verifiable `reunion`, `role_reversal`, `redemption`, `return_to_place`, `landing_rendezvous`, and `duo_assist` affordances |
 | Compact interpretation decision | Yes | Compare the offered episode-and-mission options, normally select the strongest direct evidence-linked continuation, author bounded player-facing text, or abstain with `no_meaningful_episode` |
 | Authoritative enrichment | No | Resolve the window and selected affordance; derive proposal match/event IDs, full claims, media, roster, recipe, objectives, assignments, metrics, operators, targets, and source references |
 | Proposal validation | No | Chronology, derived claim references, roles, privacy, context, media, prose support, and mission controls |
@@ -486,11 +502,9 @@ The projection accepts a pending delivery only when its backend result provenanc
 rejected. The compact player badge for an accepted delivery is
 **AI-prepared · evidence-checked**.
 
-When roster participation and one completed match describe the same player action, the player
-projection combines them into one clear step, such as **Complete one match with the invited
-squad**. This does not merge or discard backend controls. Developer Studio retains the underlying
-participant and completion rules separately so judges and developers can inspect what is feasible
-and how it would be verified.
+The player projection preserves the complete ordered two-to-five-step chapter. Queueing with the
+invited squad and completing the match remain distinct lifecycle requirements around the grounded
+gameplay mechanics; Developer Studio shows the same objective count and underlying controls.
 
 `/` proxies `/v2/memories/interpret-delivery` and
 `/v2/deliveries/{delivery_id}/decision` without exposing backend credentials. `/history` remains
@@ -524,9 +538,11 @@ real match result. `/history` then reflects that scripted milestone in its sessi
 proves continuation presentation and state transitions, not real objective verification.
 
 The completed chapter is constructed deterministically from the selected family:
-**Together Again** for reunion, **The Favour Returned** for role reversal, and
-**The Comeback Complete** for redemption, with fixed collision-safe alternatives when a title would
-repeat the accepted mission. It is not a second AI generation after the simulated match.
+**Together Again** for reunion, **The Favour Returned** for role reversal,
+**The Comeback Complete** for redemption, **Back Where It Began** for return to place,
+**Same Drop, Same Squad** for landing rendezvous, and **The Setup and the Finish** for duo assist,
+with fixed collision-safe alternatives when a title would repeat the accepted mission. It is not a
+second AI generation after the simulated match.
 
 Optional post-chapter relevance feedback is session-only and deliberately excludes the
 `details_wrong` source-quality reason used during the original delivery decision.

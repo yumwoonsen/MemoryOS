@@ -39,6 +39,7 @@ export type PlayerFlowState = {
 
 type PlayerFlowContextValue = {
   flow: PlayerFlowState;
+  resetPlayerFlow: () => void;
   setPreparedDelivery: (delivery: PendingDelivery) => void;
   acceptMission: (delivery: PendingDelivery) => void;
   declineMission: (reason: DeliveryDeclineReason) => void;
@@ -61,6 +62,10 @@ const PlayerFlowContext = createContext<PlayerFlowContextValue | null>(null);
 
 export function PlayerFlowProvider({ children }: { children: React.ReactNode }) {
   const [flow, setFlow] = useState<PlayerFlowState>(emptyFlow);
+
+  const resetPlayerFlow = useCallback(() => {
+    setFlow(emptyFlow);
+  }, []);
 
   const setPreparedDelivery = useCallback((delivery: PendingDelivery) => {
     setFlow({
@@ -159,6 +164,7 @@ export function PlayerFlowProvider({ children }: { children: React.ReactNode }) 
 
   const value = useMemo<PlayerFlowContextValue>(() => ({
     flow,
+    resetPlayerFlow,
     setPreparedDelivery,
     acceptMission,
     declineMission,
@@ -174,6 +180,7 @@ export function PlayerFlowProvider({ children }: { children: React.ReactNode }) 
     declineMission,
     flow,
     openInvitation,
+    resetPlayerFlow,
     setChapterFeedback,
     setPreparedDelivery,
     startPrototypeMatch,

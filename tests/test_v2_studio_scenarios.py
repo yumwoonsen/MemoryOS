@@ -21,12 +21,14 @@ BACKEND_DATA = Path(__file__).resolve().parents[1] / "backend" / "data"
 
 EXPECTED_SCENARIOS = {
     "rescue-role-reversal": ("pending_player_decision", "role_reversal"),
+    "landing-rendezvous": ("pending_player_decision", "landing_rendezvous"),
+    "duo-assist": ("pending_player_decision", "duo_assist"),
     "repeated-near-miss": ("pending_player_decision", "redemption"),
     "ordinary-sparse-telemetry": ("not_generated", None),
 }
 
 
-def test_studio_catalog_uses_three_manifest_backed_fixtures() -> None:
+def test_studio_catalog_uses_five_manifest_backed_fixtures() -> None:
     response = client.get("/v2/studio/scenarios")
 
     assert response.status_code == 200
@@ -56,7 +58,9 @@ def test_studio_catalog_uses_three_manifest_backed_fixtures() -> None:
 @pytest.mark.parametrize(
     ("scenario_id", "expected_families"),
     [
-        ("rescue-role-reversal", {"reunion", "role_reversal"}),
+        ("rescue-role-reversal", {"reunion", "role_reversal", "return_to_place"}),
+        ("landing-rendezvous", {"reunion", "landing_rendezvous"}),
+        ("duo-assist", {"reunion", "duo_assist"}),
         ("repeated-near-miss", {"reunion", "redemption"}),
         ("ordinary-sparse-telemetry", {"reunion"}),
     ],

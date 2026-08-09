@@ -29,7 +29,7 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
   const status = flow.continuation
     ? (visibleContinuation ? "Story continued" : "Chapter hidden")
     : flow.missionAccepted
-      ? "Reunion in progress"
+      ? "Mission in progress"
       : "Squad history";
   const announcement = flow.continuation
     ? (visibleContinuation
@@ -42,7 +42,7 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
       <section className="history-archive-heading" aria-labelledby="history-title">
         <p className="demo-kicker">Squad history</p>
         <h1 id="history-title">The stories your squad kept.</h1>
-        <p>A compact archive of verified past matches and completed reunion chapters—without reopening the current decision flow.</p>
+        <p>A compact archive of verified past matches and completed Next Chapters—without reopening the current decision flow.</p>
       </section>
 
       {flow.missionAccepted && flow.delivery ? (
@@ -54,7 +54,7 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
                 ? "Latest chapter"
                 : flow.continuation?.feedback === "hidden"
                   ? "Chapter hidden"
-                  : "Reunion in progress"}</h2>
+                  : "Mission in progress"}</h2>
             </div>
             <span className="history-session-badge">Session only</span>
           </div>
@@ -81,7 +81,7 @@ export function HistoryExperience({ items }: { items: SafeHistoryItem[] }) {
           ) : visibleContinuation ? (
             <p className="history-session-note">{visibleContinuation.outcome.objective_results.filter((objective) => objective.completed).length} of {visibleContinuation.outcome.objective_results.length} prototype objectives completed in the scripted match simulation.</p>
           ) : (
-            <Link className="reveal-memory-button history-home-action" href="/mission">Continue reunion mission</Link>
+            <Link className="reveal-memory-button history-home-action" href="/mission">Continue mission</Link>
           )}
         </section>
       ) : null}

@@ -140,7 +140,16 @@ class GeminiStructuredGenerator:
                 code="provider_invalid_response",
                 retryable=False,
             )
-        except Exception:
+        except Exception as error:
+            # Keep provider-authored details private while retaining enough
+            # diagnostic signal to distinguish SDK compatibility failures.
+            logger.warning(
+                "provider_call_exception provider=%s model=%s stage=%s exception_type=%s",
+                self.provider_name,
+                self.model_name,
+                stage,
+                type(error).__name__,
+            )
             safe_error = GeminiProviderError(
                 stage=stage,
                 code="provider_unexpected_error",

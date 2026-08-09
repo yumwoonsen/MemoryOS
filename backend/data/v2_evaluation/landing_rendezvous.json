@@ -1,0 +1,113 @@
+{
+  "schema_version": "2.1",
+  "request_id": "req-ff-landing-rendezvous-001",
+  "target_player_id": "ff-player-lee",
+  "squad": {
+    "squad_id": "ff-squad-landing-001",
+    "players": [
+      {
+        "player_id": "ff-player-lee",
+        "display_name": "Lee",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-mei",
+        "display_name": "Mei",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-amir",
+        "display_name": "Amir",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      },
+      {
+        "player_id": "ff-player-jo",
+        "display_name": "Jo",
+        "consent": {
+          "memory_appearance": true,
+          "identity_display": true,
+          "media_use": false,
+          "mission_invitation": true
+        }
+      }
+    ]
+  },
+  "matches": [
+    {
+      "match_id": "ff-match-landing-001",
+      "game": "free_fire",
+      "mode": "battle_royale_squad",
+      "map_name": "Bermuda",
+      "started_at": "2026-07-03T12:00:00Z",
+      "ended_at": "2026-07-03T12:20:00Z",
+      "placement": 8,
+      "result": "eliminated",
+      "events": [
+        {
+          "event_id": "ffevt-landing-lee",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-lee",
+          "timestamp_seconds": 31,
+          "location": "Peak",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "ffevt-landing-mei",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-mei",
+          "timestamp_seconds": 35,
+          "location": "Peak",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "ffevt-landing-amir",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 38,
+          "location": "Peak",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "ffevt-landing-jo",
+          "provider_event_type": "SQUAD_MEMBER_LANDED",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 41,
+          "location": "Peak",
+          "details": {"team_members_nearby": 3}
+        },
+        {
+          "event_id": "ffevt-landing-match-end",
+          "provider_event_type": "MATCH_PLACEMENT_RECORDED",
+          "timestamp_seconds": 1200,
+          "details": {"placement": 8, "squad_members_alive": 0}
+        }
+      ]
+    }
+  ],
+  "squad_history": {
+    "previous_session_at": ["2026-07-03T12:00:00Z"],
+    "days_since_full_squad": 14,
+    "recent_rematch_count": 1
+  },
+  "current_context": {
+    "active_player_ids": ["ff-player-lee", "ff-player-mei"],
+    "available_modes": ["battle_royale_squad"],
+    "reunion_eligible": true
+  },
+  "media_references": []
+}

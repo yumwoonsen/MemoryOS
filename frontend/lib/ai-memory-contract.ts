@@ -69,7 +69,13 @@ export type RawTelemetryBatchV2 = {
 
 export type DeliveryDeclineReasonV2 = "not_relevant" | "details_wrong";
 
-export type MissionFamilyV2 = "reunion" | "role_reversal" | "redemption";
+export type MissionFamilyV2 =
+  | "reunion"
+  | "role_reversal"
+  | "redemption"
+  | "return_to_place"
+  | "landing_rendezvous"
+  | "duo_assist";
 
 export type MissionAffordanceV2 = {
   affordance_id: string;
@@ -338,20 +344,35 @@ function isPerspective(value: unknown): value is PlayerPerspectiveV2 {
     && value.evidence_event_ids.length > 0;
 }
 function isMissionFamily(value: unknown): value is MissionFamilyV2 {
-  return ["reunion", "role_reversal", "redemption"].includes(String(value));
+  return [
+    "reunion",
+    "role_reversal",
+    "redemption",
+    "return_to_place",
+    "landing_rendezvous",
+    "duo_assist",
+  ].includes(String(value));
 }
 function isMissionAffordance(value: unknown): value is MissionAffordanceV2 {
-  return isRecord(value)
-    && typeof value.affordance_id === "string"
-    && isMissionFamily(value.family)
-    && typeof value.window_id === "string"
-    && isStringArray(value.source_event_ids)
-    && isStringArray(value.source_match_ids)
-    && isStringArray(value.source_context_ids)
-    && isRecord(value.parameters)
-    && Object.values(value.parameters).every(isRuleTarget)
-    && isStringArray(value.objective_candidate_ids)
-    && isStringArray(value.allowed_reason_codes);
+  if (!isRecord(value)
+    || typeof value.affordance_id !== "string"
+    || !isMissionFamily(value.family)
+    || typeof value.window_id !== "string"
+    || !isStringArray(value.source_event_ids)
+    || !isStringArray(value.source_match_ids)
+    || !isStringArray(value.source_context_ids)
+    || !isRecord(value.parameters)
+    || !Object.values(value.parameters).every(isRuleTarget)
+    || !isStringArray(value.objective_candidate_ids)
+    || !isStringArray(value.allowed_reason_codes)) return false;
+  const uniqueNonEmpty = (items: string[]) => items.length > 0 && new Set(items).size === items.length;
+  return uniqueNonEmpty(value.source_event_ids)
+    && uniqueNonEmpty(value.source_match_ids)
+    && new Set(value.source_context_ids).size === value.source_context_ids.length
+    && uniqueNonEmpty(value.objective_candidate_ids)
+    && value.objective_candidate_ids.length >= 2
+    && value.objective_candidate_ids.length <= 5
+    && uniqueNonEmpty(value.allowed_reason_codes);
 }
 function isMissionSelection(value: unknown): value is MissionSelectionV2 {
   return isRecord(value)
@@ -472,7 +493,8 @@ function hasPendingPlayerContent(value: Record<string, unknown>) {
     && isStringArray(value.next_chapter.invitation_player_ids)
     && new Set(value.next_chapter.invitation_player_ids).size === value.next_chapter.invitation_player_ids.length
     && Array.isArray(value.next_chapter.objectives)
-    && value.next_chapter.objectives.length > 0
+    && value.next_chapter.objectives.length >= 2
+    && value.next_chapter.objectives.length <= 5
     && value.next_chapter.objectives.every(isMissionObjective)
     && value.next_chapter.objectives.some((objective) => isRecord(objective) && objective.required === true);
 }
@@ -536,6 +558,26 @@ export function parseStudioInterpretDeliveryV2(value: unknown): StudioInterpretD
     || !isStringArray(value.next_chapter.invitation_player_ids)
     || !isRecord(value.studio_trace)
     || !isMissionSelection(value.studio_trace.mission_selection)) return null;
+
+  const nextChapter = value.next_chapter as PendingDeliveryV2["next_chapter"];
+  const trace = value.studio_trace as unknown as StudioInterpretationTraceV2;
+  const selection = trace.mission_selection;
+  const selectedAffordance = selection
+    ? trace.mission_affordances.find(
+        (affordance) => affordance.affordance_id === selection.selected_affordance_id,
+      )
+    : null;
+  const deliveredObjectiveIds = new Set(
+    nextChapter.objectives.map((objective) => objective.objective_id),
+  );
+  if (!selection
+    || !selection.ranked_affordance_ids.includes(selection.selected_affordance_id)
+    || selection.selected_family !== nextChapter.family
+    || selectedAffordance?.family !== nextChapter.family
+    || selectedAffordance.objective_candidate_ids.length !== deliveredObjectiveIds.size
+    || !selectedAffordance.objective_candidate_ids.every(
+      (candidateId) => deliveredObjectiveIds.has(candidateId),
+    )) return null;
 
   return value as StudioPendingDeliveryV2;
 }

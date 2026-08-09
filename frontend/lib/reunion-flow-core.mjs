@@ -41,7 +41,13 @@ export function createPrototypeMatchOutcome(family, invitees, objectives) {
     ? `${roleReversalPlayer?.display_name ?? "The previously saved player"} completed the squad's first revival.`
     : family === "redemption"
       ? "The squad reached the top three."
-      : "The full squad completed one match together.";
+      : family === "return_to_place"
+        ? "The invited squad returned to the original location together."
+        : family === "landing_rendezvous"
+          ? "The invited squad landed together at the named drop point."
+          : family === "duo_assist"
+            ? "The assigned duo combined for one elimination."
+            : "The full squad completed one match together.";
   return {
     simulation_id: "prototype-match-simulation-001",
     family,
@@ -61,6 +67,9 @@ const completedChapterTitles = {
   reunion: ["Together Again", "The Squad Reunited"],
   role_reversal: ["The Favour Returned", "Roles Reversed"],
   redemption: ["The Comeback Complete", "The Final Push Landed"],
+  return_to_place: ["Back Where It Began", "The Rescue Site Revisited"],
+  landing_rendezvous: ["Same Drop, Same Squad", "Touchdown Together"],
+  duo_assist: ["The Setup and the Finish", "Two Players, One Finish"],
 };
 
 function shortChapterTitle(title) {

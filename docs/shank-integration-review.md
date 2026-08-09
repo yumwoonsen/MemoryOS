@@ -46,9 +46,12 @@ resolved in favor of the sanitized evidence ledger and deterministic factual con
 - At least two opted-in squad members are required for a shared memory.
 - Player captions remain attributed context rather than verified telemetry.
 - Generic actor perspectives are distinct and player-specific.
-- The backend dynamically compiles exactly three mission affordance families—`reunion`,
-  `role_reversal`, and `redemption`—and owns their objective sets, assignments,
-  metrics/operators/targets, and source references.
+- The backend dynamically compiles exactly six mission affordance families—`reunion`,
+  `role_reversal`, `redemption`, `return_to_place`, `landing_rendezvous`, and `duo_assist`—and owns
+  their objective sets, assignments, metrics/operators/targets, and source references. Landing
+  rendezvous requires the complete invitation-ready roster at one named location within 30 seconds;
+  duo assist requires a distinct invitation-safe assist/finishing-teammate pair at the same location
+  within 30 seconds.
 - AI ranks/selects an offered affordance and writes its memory language, perspectives, mission title,
   and short story bridge. The backend compiles the exact objective descriptions from the selected
   candidates; the bridge is not required to repeat every rule.
@@ -74,7 +77,7 @@ Garena telemetry integration, and post-match objective verification remain defer
 The public `next_chapter.mission` carries the AI-authored story bridge and its `objectives` carry the
 backend-compiled exact steps. Validation still rejects contradictory targets/operators, unoffered
 mechanics, unsupported facts, privacy violations, and unsafe content. The active prompt is
-`memory-interpreter-v2.11-backend-mission-copy`, loaded from `memory_interpreter_v2_11.txt`; the
+`memory-interpreter-v2.12-richer-missions`, loaded from `memory_interpreter_v2_12.txt`; the
 historical V2.4/120B and V2.10/Gemini smokes do not validate this prompt.
 
 ## Next implementation order

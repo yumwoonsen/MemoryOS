@@ -46,8 +46,9 @@ returns only the current player's perspective, verified moment summaries, one Ne
 safe invitation roster. Raw telemetry, teammate perspective prose, consent records, compact output,
 and Studio internals do not cross into the player UI.
 
-The backend offers only evidence-supported, feasible, and verifiable `reunion`, `role_reversal`, and
-`redemption` options. AI compares those episode-and-mission combinations and normally selects the
+The backend offers only evidence-supported, feasible, and verifiable `reunion`, `role_reversal`,
+`redemption`, `return_to_place`, `landing_rendezvous`, and `duo_assist` options. AI compares those
+episode-and-mission combinations and normally selects the
 strongest direct evidence-linked continuation, then writes its title and story bridge naturally.
 The backend supplies the exact player-facing steps. Reunion is the general
 fallback when no more coherent specific continuation is supported. Serialized `A#` order/reference
@@ -67,9 +68,11 @@ read-only timeline rather than a second delivery or feedback surface.
 ## Developer Studio
 
 Open `/studio` for the developer-facing observability workspace. Its selector is backed by exactly
-three versioned backend scenarios:
+five versioned backend scenarios:
 
 - rescue evidence, expected to test `role_reversal`;
+- a complete invited-squad drop, expected to test `landing_rendezvous`;
+- a consent-safe assist-to-elimination pair, expected to test `duo_assist`;
 - repeated near misses, expected to test `redemption`; and
 - ordinary sparse telemetry, expected to test `not_generated` abstention.
 
@@ -123,7 +126,7 @@ no longer repeats identifiers and control values already owned by the backend. T
 the player boundary or validation. The updated backend/frontend suites and one telemetry-only live
 interpretation passed historically on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
 v2.4 prompt. The current v2.1 mission-affordance path uses
-`memory-interpreter-v2.11-backend-mission-copy` from `memory_interpreter_v2_11.txt`; historical
+`memory-interpreter-v2.12-richer-missions` from `memory_interpreter_v2_12.txt`; historical
 V2.4 and V2.10 runs are not comparative
 reliability results for the active prompt.
 
@@ -182,17 +185,18 @@ decisions approve durable storage.
 not drifted. The legacy exact-fixture fallback remains limited to `/api/discover` and is not used
 by the canonical player routes.
 
-## Phase 3 reunion continuation
+## Phase 3 Next Chapter continuation
 
 After an accepted `/` delivery, layout-scoped in-memory state hands the validated delivery to
 `/mission`. The player sees a consent-safe mission start and a backend-authorized invitation roster.
 Inactive but consented original squadmates remain eligible and move from Invited to Joined during
 the simulation. Once the complete roster joins, the app runs a short, clearly labelled static
-prototype game and shows a successful outcome matching the selected reunion, role-reversal, or
-redemption family. The deterministic completed-chapter titles are **Together Again**,
-**The Favour Returned**, and **The Comeback Complete**, respectively; a collision-safe alternative
-is used when a title would repeat the accepted mission. **Story Continues** and optional chapter
-feedback unlock afterward.
+prototype game and shows a successful outcome matching the selected mission family. The primary
+deterministic completed-chapter titles are **Together Again**, **The Favour Returned**,
+**The Comeback Complete**, **Back Where It Began**, **Same Drop, Same Squad**, and
+**The Setup and the Finish** for reunion, role reversal, redemption, return to place, landing
+rendezvous, and duo assist, respectively. A collision-safe alternative is used when a title would
+repeat the accepted mission. **Story Continues** and optional chapter feedback unlock afterward.
 
 This Phase 3 slice remains intentionally ephemeral. The accepted handoff is not placed in a URL,
 browser storage, or durable store, so a refresh or direct `/mission` visit correctly shows no active

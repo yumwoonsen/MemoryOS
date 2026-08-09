@@ -55,13 +55,14 @@ evidence, or validation ownership.
 ### 3.2 — Collaborator dashboard and backend visibility
 
 **Prototype status: complete in Developer Studio.** The Studio uses same-origin server routes and
-the versioned OpenAPI contract to select three backend-owned scenarios: rescue/role reversal,
-repeated-near-miss/redemption, and ordinary/abstention. It separately shows zero-provider
-deterministic preparation and a fresh live interpretation, including sanitized telemetry, eligible
-event windows, AI provider metadata, validated claim mappings, backend-owned mission rules,
-correction status, delivery status, and source-quality feedback. Offline expected labels remain
-outside model input. Player responses remain minimal, and neither Studio nor the player UI exposes
-raw prompts, secrets, opted-out identities, or rejected prose.
+the versioned OpenAPI contract to select five backend-owned scenarios: rescue/role reversal,
+landing/landing rendezvous, assist-pair/duo assist, repeated-near-miss/redemption, and
+ordinary/abstention. It separately shows zero-provider deterministic preparation and a fresh live
+interpretation, including sanitized telemetry, eligible event windows, AI provider metadata,
+validated claim mappings, backend-owned mission rules, correction status, delivery status, and
+source-quality feedback. Offline expected labels remain outside model input. Player responses
+remain minimal, and neither Studio nor the player UI exposes raw prompts, secrets, opted-out
+identities, or rejected prose.
 
 The Studio has no completed-result cache or deduplication; a fresh live click may use an initial
 provider call plus one correction. Exact-provenance `saved_live_replay` support is Studio-only, and

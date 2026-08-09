@@ -19,7 +19,7 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: baseUrl,
     title: "Garena Next Chapter — MemoryOS",
     description:
-      "Rediscover a squad memory, see your side of the story, and reunite for the next chapter.",
+      "Rediscover a squad memory, see your side of the story, and continue it through a grounded Next Chapter.",
     openGraph: {
       title: "Your squad has unfinished stories.",
       description:
