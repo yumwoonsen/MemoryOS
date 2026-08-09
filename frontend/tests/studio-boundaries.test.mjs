@@ -13,7 +13,7 @@ test("Studio exposes deliberate scenario preparation and quota-labelled executio
     "One correction attempt may use a second provider call.",
     "Backend configured",
     "Saved live replay — not a fresh AI run",
-    "Latest player app decision",
+    "Player app state in this tab",
     "Safe code:",
   ]) {
     assert.match(dashboard, new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -27,6 +27,11 @@ test("Studio exposes deliberate scenario preparation and quota-labelled executio
   assert.match(dashboard, /body: JSON\.stringify\(\{ delivery_id: deliveryId \}\)/);
   assert.match(dashboard, /result\?\.studio_trace \?\? null/);
   assert.match(dashboard, /inspection-only replay/);
+  assert.match(dashboard, /studioInspectionDecision\(run\?\.content_origin \?\? null, result\?\.status \?\? null\)/);
+  assert.match(dashboard, /studioInitialResultTab\(parsed\.content_origin, parsed\.result\.status\)/);
+  assert.match(dashboard, /Accepted by default for Studio inspection only/);
+  assert.match(dashboard, /No player-app decision or backend telemetry was recorded/);
+  assert.doesNotMatch(dashboard, /\/api\/delivery\/decision/);
 });
 
 test("saved replay stays Studio-only while the player parser remains live-AI-only", async () => {

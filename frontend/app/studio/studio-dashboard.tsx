@@ -25,6 +25,10 @@ import {
   parseSafeStudioProviderFailure,
   studioProviderFailureMessage,
 } from "@/lib/studio-provider-error";
+import {
+  studioInitialResultTab,
+  studioInspectionDecision,
+} from "@/lib/studio-inspection-decision-core.mjs";
 import { usePlayerFlow } from "../player-flow-provider";
 
 type ResultTab = "summary" | "grounding" | "mission";
@@ -205,6 +209,8 @@ export function StudioDashboard() {
   );
   const result = run?.result ?? null;
   const pending = result?.status === "pending_player_decision" ? result : null;
+  const studioDecision = studioInspectionDecision(run?.content_origin ?? null, result?.status ?? null);
+  const acceptedForInspection = studioDecision === "accepted";
   const effectiveTrace = result?.studio_trace ?? null;
   const missionAffordances = effectiveTrace?.mission_affordances
     ?? preparation?.mission_affordances
@@ -400,7 +406,7 @@ export function StudioDashboard() {
       }
       setRun(parsed);
       setRunSource(parsed.content_origin === "saved_live_replay" ? "saved_replay" : "live");
-      setResultTab("summary");
+      setResultTab(studioInitialResultTab(parsed.content_origin, parsed.result.status));
     } catch (error) {
       if (!controller.signal.aborted && sequence === runSequence.current) {
         setRunError({
@@ -502,8 +508,8 @@ export function StudioDashboard() {
         </dl>
       </section>
 
-      <section className="studio-player-session-status" aria-label="Latest player app decision">
-        <div><span>Latest player app decision</span><strong>{playerDecision}</strong></div>
+      <section className="studio-player-session-status" aria-label="Player app state in this tab">
+        <div><span>Player app state in this tab</span><strong>{playerDecision}</strong></div>
         <p>
           {playerSourceQualityFlag
             ? "Details-wrong source-quality flag recorded for operations."
@@ -628,12 +634,17 @@ export function StudioDashboard() {
             {stageDefinitions.map((definition) => {
               const trace = traceByStage.get(definition.id);
               const isPreparedStage = definition.id === "deterministic_preparation" && preparationCurrent;
-              const status = trace?.status ?? (isPreparedStage
-                ? preparation?.status === "ready" ? "complete" : "rejected"
-                : running ? "pending" : "idle");
-              const summary = trace?.summary ?? (isPreparedStage
-                ? `${preparation!.normalization.normalized_event_count} normalized events formed ${preparation!.eligible_windows.length} neutral windows and ${preparation!.mission_affordances.length} feasible mission affordances.`
-                : null);
+              const isStudioAcceptedStage = definition.id === "player_decision" && acceptedForInspection;
+              const status = isStudioAcceptedStage
+                ? "complete"
+                : trace?.status ?? (isPreparedStage
+                  ? preparation?.status === "ready" ? "complete" : "rejected"
+                  : running ? "pending" : "idle");
+              const summary = isStudioAcceptedStage
+                ? "Accepted by default for Studio inspection only. No player-app decision or backend telemetry was recorded."
+                : trace?.summary ?? (isPreparedStage
+                  ? `${preparation!.normalization.normalized_event_count} normalized events formed ${preparation!.eligible_windows.length} neutral windows and ${preparation!.mission_affordances.length} feasible mission affordances.`
+                  : null);
               const issueCodes = trace?.issue_codes ?? (isPreparedStage ? preparation!.normalization.issue_codes : []);
               return (
                 <li key={definition.id}>
@@ -648,7 +659,7 @@ export function StudioDashboard() {
                       {summary ? <small>{summary}</small> : null}
                       {issueCodes.length ? <ul className="studio-issue-list">{issueCodes.map((code) => <li key={code}>{formatWords(code)}</li>)}</ul> : null}
                     </div>
-                    <span className="studio-stage-status">{status}</span>
+                    <span className="studio-stage-status">{isStudioAcceptedStage ? studioDecision : status}</span>
                   </article>
                 </li>
               );
@@ -671,7 +682,9 @@ export function StudioDashboard() {
         <section className="studio-panel studio-output-panel" aria-labelledby="studio-output-title">
           <div className="studio-panel-heading">
             <div><p className="studio-panel-index">Validated output</p><h2 id="studio-output-title">Delivery inspector</h2></div>
-            <span className={`studio-result-status result-${result?.status ?? "waiting"}`}>{result ? formatWords(result.status) : "No result"}</span>
+            <span className={`studio-result-status result-${result?.status ?? "waiting"}`}>
+              {acceptedForInspection ? "Accepted for inspection" : result ? formatWords(result.status) : "No result"}
+            </span>
           </div>
           <div className="studio-output-metrics">
             <div><span>Selected events</span><strong>{pending?.memory.selected_event_ids.length ?? "--"}</strong></div>
@@ -722,10 +735,10 @@ export function StudioDashboard() {
               <article className="studio-result-card"><p>Player perspectives</p><h3>{result.player_perspectives.length} consent-safe views</h3><ul className="studio-perspective-list">{result.player_perspectives.map((perspective) => <li key={perspective.player_id}><strong>{perspective.display_name}</strong><span>{perspective.message}</span></li>)}</ul></article>
               <article className="studio-result-card result-validation">
                 <p>{runSource === "saved_replay" ? "Replay boundary" : "Delivery state"}</p>
-                <h3>{runSource === "saved_replay" ? "Inspection only" : "Awaiting player app"}</h3>
+                <h3>{runSource === "saved_replay" ? "Inspection only" : "Accepted for Studio inspection"}</h3>
                 <span>{runSource === "saved_replay"
                   ? "Player decisions, invitations, and continuation are disabled for saved replays."
-                  : "Relevance feedback remains separate from factual source disputes."}</span>
+                  : "This Studio-only default reveals the validated delivery without recording a player decision or changing backend telemetry."}</span>
               </article>
             </div>
           ) : resultTab === "grounding" ? (

@@ -404,7 +404,7 @@ test("server-renders the dedicated developer Studio", async () => {
   assert.match(html, /Run new live interpretation â€” uses provider quota|Run new live interpretation — uses provider quota/i);
   assert.match(html, /Open player view/i);
   assert.match(html, /active \/ invite-ready/i);
-  assert.match(html, /Latest player app decision/i);
+  assert.match(html, /Player app state in this tab/i);
   assert.match(html, /noindex/i);
 });
 
