@@ -49,6 +49,9 @@ resolved in favor of the sanitized evidence ledger and deterministic factual con
 - The backend dynamically compiles exactly three mission affordance families—`reunion`,
   `role_reversal`, and `redemption`—and owns their objective sets, assignments,
   metrics/operators/targets, and source references.
+- AI ranks/selects an offered affordance and writes its memory language, perspectives, mission title,
+  and short story bridge. The backend compiles the exact objective descriptions from the selected
+  candidates; the bridge is not required to repeat every rule.
 - `StoryBriefV2` exposes no more than four neutral windows. AI returns a typed generate-or-abstain
   decision, ranks/selects one offered affordance, and may abstain with `no_meaningful_episode`.
 - Invalid provider configuration returns a structured safe error.
@@ -61,13 +64,18 @@ resolved in favor of the sanitized evidence ledger and deterministic factual con
 
 The AI-first V2.1 prototype is implemented. It accepts V2.0/V2.1 raw synthetic Free Fire telemetry,
 constructs at most four consent-safe neutral windows and dynamic mission affordances, and asks one
-live model for `CompactInterpretationDecisionV2`. AI may generate by ranking/selecting one offered
-affordance or abstain with `no_meaningful_episode`. The backend validates and enriches a generated
+live model for a provider-only typed decision. Request-scoped `W#`, `A#`, and nested `O#` references
+keep canonical selection IDs out of the provider contract. AI may generate by ranking the offered
+`A#` choices (the first selects its linked episode) or abstain with `no_meaningful_episode`. The
+backend resolves those references, validates, and enriches a generated
 proposal into one player-facing **Next Chapter**. History is a privacy-safe read-only timeline.
 Production authentication, durable persistence/suppression, real notifications and invitations,
 Garena telemetry integration, and post-match objective verification remain deferred.
-The active prompt is `memory-interpreter-v2.6-mission-affordances`; the historical V2.4/120B smoke
-does not validate this prompt.
+The public `next_chapter.mission` carries the AI-authored story bridge and its `objectives` carry the
+backend-compiled exact steps. Validation still rejects contradictory targets/operators, unoffered
+mechanics, unsupported facts, privacy violations, and unsafe content. The active prompt is
+`memory-interpreter-v2.11-backend-mission-copy`, loaded from `memory_interpreter_v2_11.txt`; the
+historical V2.4/120B and V2.10/Gemini smokes do not validate this prompt.
 
 ## Next implementation order
 

@@ -212,11 +212,11 @@ proposal prose and the raw compact provider draft are withheld.
 
 ## ADR-018 — Compact AI draft, deterministic enrichment, stable public delivery
 
-**Status:** implemented; automated suites and one configured live-provider smoke run passed
+**Status:** implemented; mission-copy responsibility refined by ADR-021
 
-The internal v2 provider schema is simplified so AI selects one offered event window and returns only
-the player-facing language, perspectives, mission wording, and compact fact/capability references it
-must reason about. The model does not repeat authoritative selected match/event ID lists, complete
+The initial compact v2 provider schema was simplified so AI selected one offered event window and
+returned player-facing language, perspectives, mission wording, and compact fact/capability
+references. The model did not repeat authoritative selected match/event ID lists, complete
 `GroundedClaim` objects, media mappings, mission recipe, objective IDs, assignments, required flags,
 source event IDs, verification rules, the eligible roster, delivery state, or Studio trace.
 
@@ -241,9 +241,11 @@ perspective evidence only when an allowlisted membership count proves full-roste
 match-scoped facts cannot be reframed as an individual's action. Deterministic categorical
 allowlists constrain accepted telemetry detail values.
 
-The provider selects one offered mission candidate and authors one objective description. Its
-candidate-specific `authoring_scope` limits prose to the permitted intent, player IDs, and count;
-recipe, assignment, source events, and verification rule remain deterministic.
+The provider selected one offered mission candidate and, before ADR-021, authored objective copy.
+Its candidate-specific `authoring_scope` limited prose to the permitted intent, player IDs, and
+count; recipe, assignment, source events, and verification rule remained deterministic. ADR-021
+moves the exact objective description into the deterministic backend while preserving the compact
+selection boundary and stable public response.
 
 This decision changes an internal model-output contract, not the public API. The public
 `InterpretDeliveryResultV2`, player projection, decision endpoints, and Studio trace retain their
@@ -267,8 +269,8 @@ schema or equivalent behavior from the default 20B model.
 The player receives one Next Chapter. Internally, deterministic preparation may offer three
 mission families: reunion, role reversal, and redemption. An affordance groups the backend-owned
 objective capabilities that together form one complete mission. AI ranks the offered affordances,
-selects one, and authors its language; it cannot introduce a fourth family, new assignments, or new
-verification rules.
+selects one, and authors its title and story bridge; it cannot introduce a fourth family, new
+assignments, or new verification rules. ADR-021 assigns exact objective copy to the backend.
 
 Invitation eligibility depends on memory-appearance and mission-invitation consent, not current
 activity. Active status is a current-context signal and optional Online/Away presentation detail.
@@ -284,3 +286,57 @@ The prototype player journey after acceptance is intentionally static and clearl
 invitation, lobby assembly, game start, and a successful family-specific outcome are simulated.
 The dynamic product claim ends at validated mission selection. Authenticated post-match telemetry
 and authoritative mission-result verification remain deferred.
+
+## ADR-020 — Gemini is the preferred hosted prototype provider
+
+**Status:** accepted and implemented; supersedes only the provider preference in ADR-016
+
+Gemini `gemini-3.6-flash` is the preferred hosted provider for current prototype trials. The adapter
+uses Google's official OpenAI-compatible endpoint, so the existing OpenAI SDK and provider-neutral
+structured-generation boundary remain in place. Configuration is server-side through
+`GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.6-flash`, and
+`GEMINI_V2_MAX_OUTPUT_TOKENS=4000`. Groq GPT-OSS and OpenAI remain explicit alternatives.
+
+Gemini requests use low reasoning, no explicit temperature, a 60-second per-attempt timeout, no
+hidden SDK transport retries, and bounded output. MemoryOS owns one explicit semantic correction,
+and the same-origin proxy permits 130 seconds for that bounded path. The adapter removes
+provider-unsupported hints from the
+strict wire JSON Schema, but never weakens the authoritative contract: returned JSON must pass the
+original Pydantic response model, deterministic enrichment, and final validation. Refusal,
+transport failure, malformed output, or terminal validation failure returns no partial player
+artifacts and never falls back to deterministic prose labelled as live AI.
+
+Free-tier Gemini use is limited to synthetic, non-sensitive prototype telemetry. It is not approval
+to send production player data to a hosted provider; production use still requires the unresolved
+privacy, retention, regional processing, security, contractual, and operations reviews.
+
+ADR-016's fail-closed boundary remains in force. Its Groq preference and the dated Groq smoke record
+remain historical context rather than evidence about Gemini or the current prompt/model combination.
+
+## ADR-021 — Backend-compiled objective copy, AI-authored story bridge
+
+**Status:** accepted and implemented for the V2.11 prompt boundary
+
+The active prompt is `memory-interpreter-v2.11-backend-mission-copy`, loaded from
+`memory_interpreter_v2_11.txt`. AI still performs the meaningful interpretation: it ranks the
+offered episode-and-affordance combinations, selects one, and authors the memory language,
+perspectives, mission title, and a short narrative bridge connecting the source episode to the next
+chapter.
+
+The deterministic backend now compiles each selected objective candidate into its exact public
+description. It continues to own objective IDs, assignments, required flags, metrics, operators,
+targets, source references, and verification rules. The public response remains compatible:
+`next_chapter.mission` carries the AI-authored story bridge and `next_chapter.objectives` carries the
+backend-compiled steps.
+
+The validator no longer requires the story bridge to repeat every selected mechanical rule. It still
+rejects contradictory targets or operators, unoffered mechanics, unsupported factual claims,
+privacy violations, and unsafe content. This reduces brittle failures caused by harmless paraphrases
+without allowing AI to redefine what the game can measure or what the mission requires.
+
+This decision changes only the authoring boundary before delivery. The post-accept prototype remains
+the clearly labelled scripted sequence: invitations, lobby assembly, game start, game end, and
+mission completion. It does not ingest an authenticated result or claim real objective verification.
+
+Historical V2.4 and V2.10 provider results remain labelled historical and are not evidence for the
+active V2.11 prompt.

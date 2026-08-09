@@ -67,6 +67,22 @@
           "details": {"item_type": "armor"}
         },
         {
+          "event_id": "nm01-signal-jo",
+          "provider_event_type": "TACTICAL_PING_PLACED",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 246,
+          "location": "Observatory",
+          "details": {"ping_type": "enemy"}
+        },
+        {
+          "event_id": "nm01-assist-amir",
+          "provider_event_type": "KILL_ASSIST",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 248,
+          "location": "Observatory",
+          "details": {}
+        },
+        {
           "event_id": "nm01-heal-mei",
           "provider_event_type": "PLAYER_HEALED",
           "actor_id": "ff-player-mei",
@@ -99,6 +115,22 @@
           "timestamp_seconds": 210,
           "location": "Observatory",
           "details": {"item_type": "ammo"}
+        },
+        {
+          "event_id": "nm02-signal-jo",
+          "provider_event_type": "TACTICAL_PING_PLACED",
+          "actor_id": "ff-player-jo",
+          "timestamp_seconds": 216,
+          "location": "Observatory",
+          "details": {"ping_type": "enemy"}
+        },
+        {
+          "event_id": "nm02-assist-amir",
+          "provider_event_type": "KILL_ASSIST",
+          "actor_id": "ff-player-amir",
+          "timestamp_seconds": 219,
+          "location": "Observatory",
+          "details": {}
         },
         {
           "event_id": "nm02-heal-mei",

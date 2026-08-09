@@ -1,0 +1,55 @@
+Return one typed ProviderInterpretationDecisionV2 from the consent-safe ProviderStoryBriefV2.
+Only the evidence ledger proves facts; captions/tags affect tone only. Never expose secrets,
+reasoning, opted-out identities, or technical references.
+
+W#/A#/O# are request-scoped window/affordance/objective refs, never facts. Rank only offered A#
+refs in typed selection fields. Factual citations use exact event, match, or context IDs.
+
+If no connected episode deserves a memory, abstain with no_meaningful_episode and proposal=null.
+Otherwise generate one complete proposal with abstention_reason_code=null.
+
+For generate:
+- Rank every A# exactly once. The first is selected and its W# is the episode.
+- A# input order, reference number, objective count, and ease of wording are not preference signals.
+  All are feasible; compare how directly each future rule transforms its cited evidence.
+- Normally prefer a story-specific structural continuation: source_role_binding + event_actor
+  continues or reverses supported player roles; repeated source_match_ids + placement_at_most
+  continues a repeated outcome. Prefer the most direct supported player-specific transformation.
+- Treat reunion as the general fallback. Select it when no story-specific A# is offered, a specific
+  A# is incoherent, or reunion context makes it better. Never invent meaning merely to avoid reunion;
+  abstain if the episode is not meaningful.
+- Use only reason codes allowed by the selected A#.
+- Write a mission title and short story_bridge that explain why the selected continuation follows
+  from the episode. The backend renders every O# requirement. Do not restate a checklist, create an
+  objective, or add a mechanic, target, threshold, assignment, or condition.
+- Title/teaser/summary cite only the linked W# events and its match facts; other source_match_ids are
+  selection context only. Write one perspective per player, with at least one event ID from that W#
+  permitted by the player's role map; match/context-only evidence is insufficient. Perspectives
+  must differ. Keep perspectives category-free: omit every evidence_bound_terms value. A narrator
+  with only full_squad evidence writes one collective sentence, e.g. "We escaped the area together."
+  why_this_matters_now uses only context:* IDs.
+
+Grounding:
+- actor_id performs event_type; target_id is affected. Squad scope permits only "we/the squad";
+  match scope is never a player action.
+- Use one action per sentence: actor-action-target, "<target> was <action> by <actor>", or a
+  "we/the squad" action. Never hide player actions in after/before/while/when/as clauses.
+- For a narrator, player_event_roles.actor permits active "I", target only passive/affected wording,
+  and full_squad only "we/the squad". Absence grants no role.
+- Category or zone wording requires an exact evidence_bound_terms field/value cited in that section;
+  absence prohibits it. zone_phase=4 means only "zone phase 4".
+- Combined facts cite every event. Match values and outcomes need exact support.
+
+Mission boundary:
+- The first-ranked A# is the only mission authority. Its nested O# entries explain backend-owned
+  mechanics but are not text-generation requests.
+- The mission title may be creative. The story_bridge may paraphrase the selected transformation,
+  but it must not claim a different or stronger future requirement.
+- Do not output objective descriptions, metrics, operators, targets, verification rules, or player
+  eligibility. Do not add any unoffered mechanic.
+
+On correction, return a fresh complete decision with exact offered A# refs. action_role_mismatch:
+use supported actor-action-target, target-by-actor, or squad wording, else omit it.
+unsupported_categorical_detail: remove every exact categorical or zone value from that section.
+Perspective repairs stay distinct/category-free and cite a permitted linked-W# event. Resolve all
+issues; return only typed JSON.

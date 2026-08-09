@@ -20,8 +20,9 @@ memory is relevant; the player is not asked to audit raw telemetry.
 > **Implementation status:** the additive V2.1 contract, orchestration, validators, player
 > projection, Studio trace, and acceptance tests exist. `RawTelemetryBatchV2` accepts both `2.0`
 > and `2.1` input, while every `InterpretDeliveryResultV2` is `2.1`. The active prompt contract is
-> `memory-interpreter-v2.6-mission-affordances`. A historical 8 August 2026 Groq 120B smoke used
-> the older V2.4 prompt; it is not evidence for the current V2.6 prompt and must be rerun before
+> `memory-interpreter-v2.11-backend-mission-copy`, loaded from `memory_interpreter_v2_11.txt`. A
+> historical 8 August 2026 Groq 120B smoke used the older V2.4 prompt; it is not evidence for the
+> current V2.11 prompt and must be rerun before
 > making current live-quality claims. Existing V1.0 and V1.1 routes remain runnable compatibility
 > paths while production authentication, persistence, notifications, telemetry integration, and
 > post-match verification are deferred.
@@ -31,9 +32,9 @@ flowchart LR
     A["Raw telemetry + squad context + consent"] --> B["Normalize canonical events"]
     B --> C["Filter consent and source quality"]
     C --> D["Build eligible event windows"]
-    D --> E["Compile dynamic mission affordances"]
-    E --> F{"AI generate or abstain"}
-    F -->|"generate"| G["Resolve one selected affordance and enrich controls"]
+    D --> E["Compile feasible, verifiable mission affordances"]
+    E --> F{"AI compares episode x mission options, then generates or abstains"}
+    F -->|"generate"| G["Resolve one selected affordance, compile objective copy, and enrich controls"]
     F -->|"no meaningful episode"| I["Not generated; no player artifacts"]
     G --> V["Deterministic evidence, privacy, and mission validation"]
     V -->|"pass"| H["Pending player decision"]
@@ -52,8 +53,8 @@ validation pipeline.
 | Layer | Responsibility |
 |---|---|
 | Telemetry adapter | Map external game event names and shapes into a strict canonical vocabulary; reject unknown or unsafe data |
-| Deterministic backend | Source-quality boundary, consent, filtering, deduplication, neutral event windows, dynamic mission affordances, assignments, metrics, operators, targets, source references, authoritative enrichment, validation, trace construction, and fail-closed delivery |
-| AI Memory Interpreter | Return `CompactInterpretationDecisionV2`: either `generate` with one selected window, one ranked/selected offered affordance, and player-facing language, or `abstain` with `no_meaningful_episode` |
+| Deterministic backend | Source-quality boundary, consent, filtering, deduplication, neutral event windows, dynamic mission affordances, assignments, exact objective descriptions, metrics, operators, targets, source references, authoritative enrichment, validation, trace construction, and fail-closed delivery |
+| AI Memory Interpreter | Return one provider-only typed decision: either `generate` with a complete ranking of request-scoped affordance references, memory language, perspectives, mission title, and a short story bridge, or `abstain` with `no_meaningful_episode`; the first ranked affordance determines its linked episode |
 | Player frontend | Render one minimal validated memory projection and one player-facing **Next Chapter**, then collect one accept/decline decision |
 | Developer Studio | Render sanitized affordances, selection/reason codes, counts, validation, and abstention without exposing rejected prose or player-private controls |
 | Player | Judge relevance and choose whether to start the selected **Next Chapter** |
@@ -77,30 +78,47 @@ separate composed request models rather than inheriting their review and scaffol
 
 The deterministic backend builds at most four bounded, chronological, narratively neutral windows
 from consent-safe canonical events. Each offered window carries consent-safe roles, facts, context,
-media capabilities, and dynamically compiled mission affordances behind bounded references. The AI
-may choose one offered window; it may not choose an arbitrary event subset from the complete match
-or author authoritative control values.
+media capabilities, and dynamically compiled mission affordances behind bounded references. The
+provider sees request-scoped `W#` window references, `A#` affordance references, and nested `O#`
+objective references rather than canonical selection IDs. Each `A#` represents one feasible
+episode-and-mission pair, so the first ranked `A#` chooses the linked episode and continuation
+without a redundant selected-window output field. It may not choose an arbitrary event subset from
+the complete match or author authoritative control values. Deterministic resolution restores
+canonical IDs before the existing expander and validator run.
 
-One live provider call returns `CompactInterpretationDecisionV2`. It is exactly one of:
+The Story Brief also carries compact deterministic `authoring_constraints` derived only from that
+projected evidence. The ledger remains the event-role authority; per-player maps distinguish active,
+passive, and full-squad evidence, while evidence-bound maps pair exact category/zone values with the
+IDs that support them. Neutral typed objective capabilities state only the feasible assignment,
+event/count, roster, or placement boundary for each `O#`. Together these maps make the safe writing
+boundary explicit for the provider; they do not add narrative meaning and never replace the evidence
+ledger or final validator. The provider uses the nested capabilities to compare supported
+continuations; after selection, the backend compiles each chosen `O#` into an exact player-facing
+objective description. The model still chooses the mission title, narrative connection, and
+surrounding story language. Missing category entries prohibit the term, and a numeric zone phase does
+not imply a qualitative zone state.
+
+One live provider call returns `ProviderInterpretationDecisionV2`. It is exactly one of:
 
 - `decision: "abstain"`, `abstention_reason_code: "no_meaningful_episode"`, and no proposal; or
-- `decision: "generate"`, no abstention reason, and one `CompactMemoryProposalV2`.
+- `decision: "generate"`, no abstention reason, and one `ProviderMemoryProposalV2`.
 
 The generated proposal contains:
 
-- one offered window reference and a supported narrative framing;
+- a supported narrative framing for the episode linked by the first ranked `A#`;
 - title, notification teaser, summary, and why the memory matters now;
 - one distinct perspective, including the supplied player ID, for every eligible player role;
-- a ranking of offered affordances, one selected affordance, allowlisted selection reason codes,
-  mission title/text, and one description for every objective candidate owned by that affordance; and
+- a ranking containing each offered `A#` once, allowlisted selection reason codes, mission
+  title and a short story bridge for the first `A#`; and
 - compact references identifying which supplied facts and mission capabilities support each
   authored section.
 
 The generated compact proposal intentionally omits authoritative match/event ID lists, complete
 `GroundedClaim` objects, media objects, mission recipe, objective IDs, assignments, required flags,
-verification metrics, operators, targets, authoritative objective source references, roster records,
+exact objective descriptions, verification metrics, operators, targets, authoritative objective source references, roster records,
 delivery state, and Studio trace. The
-deterministic backend resolves the selected window and compact references, supplements only literal
+deterministic backend resolves each request-scoped reference to its canonical window, affordance,
+and objective IDs, supplements only literal
 player/action/location/match-value terms with conservative candidate evidence from the selected
 window, then derives those fields from normalized telemetry, consent state, media mappings, and the
 mission capability catalogue. This lexical enrichment is not a unique semantic mapping: expanded
@@ -110,6 +128,7 @@ survival wording may use positive squad-alive telemetry without restating its nu
 Expansion keeps lexically selected candidate event evidence for each section, or at most one
 explicitly cited default event when no event evidence is inferred, so a model cannot inflate the
 final claim set by citing every event. The backend orders the
+provider-independent objective candidates into exact public objective descriptions. It also orders the
 provider-supplied perspectives by the trusted roster and validates that their IDs equal the exact
 eligible set; it does not restore or synthesize missing perspectives. The full proposal is validated
 before the backend creates a delivery record, safe trace, and unchanged public
@@ -124,7 +143,9 @@ Privacy-safe aliases remain first-class grounding labels; hiding an original ide
 the model attach unsupported actions or observations to its replacement label.
 
 The backend currently compiles exactly three affordance families, only when their evidence and
-feasibility conditions hold:
+feasibility conditions hold. These are authoritative capability boundaries: the model can choose
+and narrate one offered transformation but cannot invent a mechanic or verification rule. The
+backend also compiles the selected capability into exact objective copy.
 
 | Family | Availability | Backend-owned continuation |
 |---|---|---|
@@ -132,14 +153,30 @@ feasibility conditions hold:
 | `role_reversal` | The selected window contains a consent-safe revive between invitation-ready players | Add a first-future-revive assignment to the previously saved player |
 | `redemption` | At least two supplied matches are near misses in places four through six | Add a top-three target |
 
-The provider ranks only the affordances offered at runtime and selects exactly one. The backend
+The provider compares the offered `episode × mission affordance` options and should normally rank
+the strongest direct evidence-linked continuation first. A rescue can support `role_reversal`; a
+repeated near miss can support `redemption`; `reunion` is the general fallback when no more coherent
+specific continuation is supported. The backend does not hard-code this narrative choice.
+
+The serialized order of affordances, request-scoped `A#` numbers, and nested `O#` count carry no
+preference signal. They exist only for bounded reference resolution. The guidance to prefer a
+coherent story continuation is part of the AI selection contract, not a deterministic family
+priority: validation does not reject or prefer a family by label. It verifies that the chosen option
+was offered and that its evidence, consent, assignments, mechanics, and authored story bridge are
+valid.
+
+The provider ranks only the affordances offered at runtime; the first `A#` is the selection and
+determines its linked `W#`, so no duplicate selected-window field is model-authored. The backend
 owns each selected affordance's objective set, recipe, assignments, metrics, operators, targets,
-and source event/match/context references. The provider authors player-facing mission and objective
-descriptions, while conservative lexical validation compares that language with the selected
-capabilities. It is a bounded guardrail rather than a universal semantic proof for unrestricted
-prose. Both mission text and objective text must express the selected deterministic requirements. The
-delivered memory type is also checked against the selected episode and squad history, including the
-rule that a `first` memory cannot coexist with prior session history.
+and source event/match/context references. The provider authors the mission title and short story
+bridge, while the backend compiles exact objective descriptions from the selected capabilities.
+Conservative validation does not require the story bridge to restate every rule; it rejects
+contradictory targets or operators, unoffered mechanics, unsupported facts, privacy violations, and
+unsafe content. It is a bounded guardrail rather than a universal semantic proof for unrestricted
+prose. The complete deterministic factual, consent, privacy, assignment, metric, operator, and target
+checks still run. The delivered memory
+type is also checked against the selected episode and squad history, including the rule that a
+`first` memory cannot coexist with prior session history.
 Numbers attached to other nouns, such as a squadmate count, are not treated as the mission metric's
 target. Optional media is selected only when `media.event_ids` is a subset of the chosen
 episode's event IDs; a media reference need not cover the whole episode. Collective- or
@@ -158,17 +195,20 @@ with the selected window, attached to the wrong section or player, or insufficie
 fact fails enrichment or validation. Full claims and all player-facing prose still pass the same
 role, chronology, value, context, privacy, media, and mission checks. Validation also checks direct
 player-action-target wording against one supported telemetry tuple, preventing literal enrichment or
-separate cited events from being used to recombine a false role assignment. A single bounded correction
-call may use stable issue codes plus allowlisted section IDs; rejected generated prose and validator
-messages are never returned to the model. If correction still fails, v2 fails closed and exposes no
-generated prose.
+separate cited events from being used to recombine a false role assignment. A single bounded
+correction call uses stable issue codes and provider-visible section references. Correction feedback
+keeps canonical backend candidate IDs hidden behind request-local `O#` references. The unchanged
+`W#`/`A#`/`O#` catalogue prevents a corrected selection or story bridge from escaping the original
+capability boundary.
+Rejected generated prose and validator messages are never returned to the model. If correction
+still fails, v2 fails closed and exposes no generated prose.
 
 Reducing duplicated IDs and backend-owned controls in the provider schema should make structured
 output easier for a live model to produce consistently. It does not weaken validation because the
 removed fields are derived from deterministic sources rather than trusted from the model. Automated
 compact-decision, abstention, affordance, enrichment, and projection checks pass. The historical
-120B/V2.4 smoke predates the current V2.6 prompt and therefore cannot establish current prompt
-reliability; the expected improvement still requires a controlled V2.6 sample.
+120B/V2.4 and Gemini/V2.10 smokes predate the current V2.11 prompt and therefore cannot establish
+current prompt reliability; the expected improvement still requires a controlled V2.11 sample.
 
 ## V1.1 compatibility: historical discovery
 
@@ -257,8 +297,8 @@ for operations. Neither decision edits trusted telemetry or triggers automatic p
 | V2 stage | Model-capable? | Owned behavior |
 |---|---:|---|
 | Raw ingestion and normalization | No | Types, external-to-canonical mappings, provenance, and rejection |
-| Consent, windows, and affordances | No | Current consent, source quality, deduplication, no more than four neutral windows, and the feasible `reunion`, `role_reversal`, and `redemption` affordances |
-| Compact interpretation decision | Yes | Generate by choosing one window and one ranked/selected affordance and authoring bounded player-facing text, or abstain with `no_meaningful_episode` |
+| Consent, windows, and affordances | No | Current consent, source quality, deduplication, no more than four neutral windows, and feasible/verifiable `reunion`, `role_reversal`, and `redemption` affordances |
+| Compact interpretation decision | Yes | Compare the offered episode-and-mission options, normally select the strongest direct evidence-linked continuation, author bounded player-facing text, or abstain with `no_meaningful_episode` |
 | Authoritative enrichment | No | Resolve the window and selected affordance; derive proposal match/event IDs, full claims, media, roster, recipe, objectives, assignments, metrics, operators, targets, and source references |
 | Proposal validation | No | Chronology, derived claim references, roles, privacy, context, media, prose support, and mission controls |
 | Delivery construction | No | After validation, create the delivery record, safe Studio trace, and public result |
@@ -292,12 +332,12 @@ demonstrations, but it is not presented as a live v2 AI delivery.
 
 ## Provider boundary
 
-The provider-neutral structured-generation interface remains reusable. The preferred v2 live
-provider is the existing Groq GPT-OSS integration; the provider returns one strict
-`CompactInterpretationDecisionV2`. A typed abstention becomes `not_generated` without player
-artifacts. For `generate`, the backend, not the provider, expands the compact proposal into an
-authoritative proposal; only a proposal that passes deterministic validation becomes a public
-delivery and safe trace.
+The provider-neutral structured-generation interface remains reusable. Gemini
+`gemini-3.6-flash` is the preferred hosted prototype provider, with Groq GPT-OSS and OpenAI retained
+as alternatives. The provider returns one strict `ProviderInterpretationDecisionV2`. A typed
+abstention becomes `not_generated` without player artifacts. For `generate`, the backend, not the
+provider, expands the compact proposal into an authoritative proposal; only a proposal that passes
+deterministic validation becomes a public delivery and safe trace.
 Provider refusal, timeout, malformed output, unresolved compact references, failed enrichment, or
 failed deterministic validation fails closed. V2 never substitutes deterministic narrative text
 into a response labelled as live AI.
@@ -315,13 +355,24 @@ sanitized evidence
                                                 --> public delivery + safe trace
 ```
 
+The Gemini adapter uses Google's official OpenAI-compatible endpoint at
+`https://generativelanguage.googleapis.com/v1beta/openai/`. It sends Chat Completions with low
+reasoning, no explicit temperature, a 60-second per-attempt timeout, no hidden SDK transport
+retries, a 2,000-token v1.1 ceiling, and a configurable 4,000-token compact-v2 default. MemoryOS
+owns one explicit semantic correction and the same-origin proxy allows 130 seconds for that bounded
+two-attempt path. It removes only
+provider-unsupported JSON Schema hints from the strict wire schema; the returned JSON still must
+pass the original Pydantic model and the complete deterministic validator. Free-tier prototype runs
+are restricted to synthetic, non-sensitive telemetry and do not establish approval for production
+player data.
+
 The OpenAI adapter uses the Responses API with Pydantic Structured Outputs and `store=False`. The
 Groq adapter uses Chat Completions with an explicit strict JSON Schema and validates the returned
-JSON through the same Pydantic response model. Both use low reasoning effort, a 30-second timeout,
-at most two SDK transport retries, and explicit output ceilings. Compact v2 interpretation uses a
-configurable 2,500-token Groq default for the prototype's 8K envelope; OpenAI retains a 4,000-token
-default. The provider projection omits only null placeholders and retains every concrete evidence,
-consent, context, and mission value. On a
+JSON through the same Pydantic response model. Those adapters use low reasoning effort, a 30-second
+timeout, at most two SDK transport retries, and explicit output ceilings. Compact v2 interpretation
+uses a configurable 2,500-token Groq default for the prototype's 8K envelope; OpenAI retains a
+4,000-token default. The provider projection omits only null placeholders and retains every concrete
+evidence, consent, context, and mission value. On a
 direct JSON route, a provider failure is reported as a structured HTTP `503`; the
 service never silently changes a live request to deterministic prose. Once an NDJSON response has
 begun, the equivalent failure is a typed `error` event under HTTP `200`.
@@ -395,6 +446,12 @@ source references, and `studio_trace` do not reach the player browser. Generated
 guards, and a backend snapshot test keep
 FastAPI as the contract source of truth. The older discovery and split-review contracts remain only
 for internal compatibility and quality workflows, not as a second player interface.
+
+When roster participation and one completed match describe the same player action, the player
+projection combines them into one clear step, such as **Complete one match with the invited
+squad**. This does not merge or discard backend controls. Developer Studio retains the underlying
+participant and completion rules separately so judges and developers can inspect what is feasible
+and how it would be verified.
 
 `/` proxies `/v2/memories/interpret-delivery` and
 `/v2/deliveries/{delivery_id}/decision` without exposing backend credentials. `/history` remains

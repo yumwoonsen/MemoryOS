@@ -271,3 +271,5 @@ def test_provider_name_is_trimmed_and_case_normalized() -> None:
     assert build_pipeline("  DeTeRmInIsTiC  ").provider_name == "deterministic"
     assert build_pipeline("  GrOq  ").provider_name == "groq"
     assert build_pipeline("groq").model_name == "openai/gpt-oss-20b"
+    assert build_pipeline("  GeMiNi  ").provider_name == "gemini"
+    assert build_pipeline("gemini").model_name == "gemini-3.6-flash"

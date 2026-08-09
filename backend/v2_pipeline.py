@@ -23,7 +23,11 @@ from backend.models.v2_schemas import (
     StudioTraceStageV2,
     V2ValidationIssue,
 )
-from backend.pipeline import LazyGroqStructuredGenerator, LazyOpenAIStructuredGenerator
+from backend.pipeline import (
+    LazyGeminiStructuredGenerator,
+    LazyGroqStructuredGenerator,
+    LazyOpenAIStructuredGenerator,
+)
 from backend.services.identity import identifier_contains_identity
 from backend.services.openai_client import OpenAIProviderError
 from backend.services.structured_generator import StructuredGenerator
@@ -347,18 +351,20 @@ class MemoryInterpretationPipelineV2:
                 for player in prepared.normalized.players
                 if player.memory_eligible
             )
-        allowed_sections.update(
-            f"objective:{candidate.candidate_id}" for candidate in prepared.mission_candidates
-        )
+        provider_objective_sections = {
+            f"objective:{candidate.candidate_id}": f"objective:O{index}"
+            for index, candidate in enumerate(prepared.mission_candidates, start=1)
+        }
+        allowed_sections.update(provider_objective_sections)
         static_sections = {
             "why_now_evidence_mismatch": "why_this_matters_now",
         }
         feedback: list[dict[str, str]] = []
         seen: set[tuple[str, str | None]] = set()
         for issue in issues:
-            section = static_sections.get(issue.code)
-            if section is None:
-                section = next(
+            canonical_section = static_sections.get(issue.code)
+            if canonical_section is None:
+                canonical_section = next(
                     (
                         candidate
                         for candidate in allowed_sections
@@ -366,6 +372,7 @@ class MemoryInterpretationPipelineV2:
                     ),
                     None,
                 )
+            section = provider_objective_sections.get(canonical_section, canonical_section)
             key = (issue.code, section)
             if key in seen:
                 continue
@@ -493,7 +500,7 @@ class MemoryInterpretationPipelineV2:
                     stage="ai_interpretation",
                     status="complete" if validation.passed else "withheld",
                     summary=(
-                        "One complete typed memory proposal was produced."
+                        "AI selected one affordance and authored the memory and mission framing."
                         if validation.passed
                         else "A proposal was produced but its prose is withheld from this trace."
                     ),
@@ -502,7 +509,8 @@ class MemoryInterpretationPipelineV2:
                     stage="deterministic_validation",
                     status="complete" if validation.passed else "rejected",
                     summary=(
-                        "All evidence, consent, and mission checks passed."
+                        "Backend-compiled requirements and all evidence, consent, and "
+                        "mission checks passed."
                         if validation.passed
                         else "The proposal failed deterministic validation and was withheld."
                     ),
@@ -609,4 +617,6 @@ def build_v2_pipeline(provider: str | None = None) -> MemoryInterpretationPipeli
         return MemoryInterpretationPipelineV2(LazyGroqStructuredGenerator())
     if selected == "openai":
         return MemoryInterpretationPipelineV2(LazyOpenAIStructuredGenerator())
-    raise ValueError("MEMORYOS_PROVIDER must be 'deterministic', 'openai', or 'groq'")
+    if selected == "gemini":
+        return MemoryInterpretationPipelineV2(LazyGeminiStructuredGenerator())
+    raise ValueError("MEMORYOS_PROVIDER must be 'deterministic', 'openai', 'groq', or 'gemini'")

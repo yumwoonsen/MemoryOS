@@ -289,6 +289,12 @@ MISSION_UNOFFERED_CONDITION_PATTERN = re.compile(
     r"emotes?|solo|duo|weaponless|entire time|throughout)\b"
 )
 
+MISSION_STRONGER_THAN_TOP_THREE_PATTERN = re.compile(
+    r"\b(?:win(?:s|ning)?|won|winner|victor(?:y|ious)|booyah|"
+    r"(?:first|second)[ -]place|(?:finish|place|rank)\w*\s+(?:first|second)|"
+    r"top[ -]+(?:1|one|2|two))\b"
+)
+
 UNSUPPORTED_OBSERVATION_PATTERN = re.compile(
     r"\b(?:saw|seen|watch(?:ed|ing)?|heard|hear|notice(?:d|ing)?|"
     r"observe(?:d|ing)?|witness(?:ed|ing)?)\b"
@@ -299,6 +305,41 @@ def action_language_present(text: str, term: str) -> bool:
     """Match an explicitly allowlisted action form at word boundaries."""
 
     return bool(re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text.casefold()))
+
+
+def assigned_player_performs_first_revive(text: str, display_name: str) -> bool:
+    """Require the assigned player to be grammatically bound to the first revive."""
+
+    player = identity_pattern(display_name.casefold())
+    revive = r"(?:revive|revives|revived|reviving|revival|revivals)"
+    first_revive = (
+        rf"(?:(?:the|a)\s+)?(?:(?:squad|team)(?:['\u2019]s)?\s+)?"
+        rf"first\s+{revive}"
+    )
+    auxiliary = (
+        r"(?:(?:must|should|will|can|could|needs?\s+to|has\s+to|"
+        r"is\s+to|is\s+assigned\s+to)\s+)?"
+    )
+    future_action = r"(?:completes?|performs?|makes?|gets?|secures?|do(?:es)?|takes?)"
+    active_first_object = rf"{player}\s+{auxiliary}{future_action}\s+{first_revive}"
+    active_first_to_revive = rf"{player}\s+{auxiliary}(?:be\s+)?(?:the\s+)?first\s+to\s+{revive}"
+    active_revive_first = (
+        rf"{player}\s+{auxiliary}{revive}"
+        r"(?:\s+(?:a|the)\s+(?:teammate|squadmate))?\s+first\b"
+    )
+    passive_assignment = (
+        rf"{first_revive}\s+(?:(?:must|should|will|can)\s+)?"
+        rf"(?:be\s+)?(?:completed|performed|made|secured|done|taken)\s+by\s+{player}"
+    )
+    return any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in (
+            active_first_object,
+            active_first_to_revive,
+            active_revive_first,
+            passive_assignment,
+        )
+    )
 
 
 def mission_metric_count_mentions(text: str, metric: str) -> list[int | None]:
@@ -801,16 +842,18 @@ class ProposalValidatorV2:
                 )
 
         mission_claims = claims_by_section.get("mission", [])
+        mission_rule_claims = [
+            claim for claim in mission_claims if claim.predicate == ClaimPredicate.MISSION_RULE
+        ]
         selected_candidate_ids = set(objective_ids)
         if (
             any(
-                claim.predicate != ClaimPredicate.MISSION_RULE
-                or not set(claim.supporting_mission_candidate_ids).issubset(selected_candidate_ids)
-                for claim in mission_claims
+                not set(claim.supporting_mission_candidate_ids).issubset(selected_candidate_ids)
+                for claim in mission_rule_claims
             )
             or {
                 candidate_id
-                for claim in mission_claims
+                for claim in mission_rule_claims
                 for candidate_id in claim.supporting_mission_candidate_ids
             }
             != selected_candidate_ids
@@ -827,7 +870,10 @@ class ProposalValidatorV2:
             "notification_teaser": proposal.notification_teaser,
             "summary": proposal.summary,
             "why_this_matters_now": proposal.why_this_matters_now,
-            "mission": proposal.mission.mission,
+            # Both fields are AI-authored and player-facing. Validate them as one
+            # mission-framing section against the same selected capabilities and
+            # source claims; neither field is the executable rule specification.
+            "mission": f"{proposal.mission.title}. {proposal.mission.mission}",
             **{f"perspective:{item.player_id}": item.message for item in proposal.perspectives},
             **{
                 f"objective:{item.candidate_id}": item.description
@@ -1166,6 +1212,7 @@ class ProposalValidatorV2:
                 not supports_top_three
                 and re.search(r"\b(?:victory|win|placement|top\s+(?:3|three))\b", normalized)
             )
+            or (supports_top_three and MISSION_STRONGER_THAN_TOP_THREE_PATTERN.search(normalized))
             or MISSION_UNOFFERED_CONDITION_PATTERN.search(normalized)
         )
         if selected_candidates and (
@@ -1180,12 +1227,17 @@ class ProposalValidatorV2:
                     ),
                 )
             )
+        # Mission prose is an AI-authored story bridge, not the executable mission
+        # specification. It may omit literal mechanic wording, while any mechanic it
+        # does mention must still agree with the selected capability. Objective copy
+        # is backend-compiled and checked literally as an internal invariant.
+        requires_literal_rule = section.startswith("objective:")
         for candidate in selected_candidates.values():
             metric = candidate.verification.metric
             target = candidate.verification.target
             if isinstance(target, (int, float)) and not isinstance(target, bool):
                 mentioned_targets = mission_metric_count_mentions(normalized, metric)
-                if not mentioned_targets:
+                if not mentioned_targets and requires_literal_rule:
                     issues.append(
                         self._issue(
                             "mission_rule_not_expressed",
@@ -1228,7 +1280,9 @@ class ProposalValidatorV2:
                         and re.search(r"\b(?:match|round|game)\b", normalized)
                     )
                 )
-                if not play_intent_stated or not (names_stated or invited_group_stated):
+                if requires_literal_rule and (
+                    not play_intent_stated or not (names_stated or invited_group_stated)
+                ):
                     issues.append(
                         self._issue(
                             "mission_rule_not_expressed",
@@ -1243,14 +1297,25 @@ class ProposalValidatorV2:
                     (item for item in prepared.normalized.players if item.player_id == target),
                     None,
                 )
-                if (
-                    player is None
-                    or not contains_identity(text, player.display_name)
-                    or not re.search(r"\bfirst\b", normalized)
-                    or not any(
-                        action_language_present(normalized, word)
-                        for word in ACTION_WORDS[ClaimPredicate.REVIVED]
+                incorrect_assignee_stated = any(
+                    item.player_id != target
+                    and item.memory_eligible
+                    and assigned_player_performs_first_revive(text, item.display_name)
+                    for item in prepared.normalized.players
+                )
+                if incorrect_assignee_stated:
+                    issues.append(
+                        self._issue(
+                            "mission_target_mismatch",
+                            (
+                                f"Section {section} assigns the first revival to a player other "
+                                "than the selected mission capability."
+                            ),
+                        )
                     )
+                elif requires_literal_rule and (
+                    player is None
+                    or not assigned_player_performs_first_revive(text, player.display_name)
                 ):
                     issues.append(
                         self._issue(
@@ -1259,7 +1324,9 @@ class ProposalValidatorV2:
                         )
                     )
             elif metric == "match.top_three_reached":
-                if not re.search(r"\b(?:top\s+(?:3|three)|third\s+place)\b", normalized):
+                if requires_literal_rule and not re.search(
+                    r"\b(?:top\s+(?:3|three)|third\s+place)\b", normalized
+                ):
                     issues.append(
                         self._issue(
                             "mission_rule_not_expressed",
@@ -1267,12 +1334,35 @@ class ProposalValidatorV2:
                         )
                     )
             operator = candidate.verification.operator
-            if (
-                operator == "equals" and re.search(r"\b(?:at least|or more|minimum)\b", normalized)
-            ) or (
-                operator == "at_least"
-                and re.search(r"\b(?:exactly|no more than|at most)\b", normalized)
-            ):
+            metric_nouns = MISSION_METRIC_NOUNS.get(metric, ())
+            metric_clauses = [
+                clause
+                for clause in re.split(r"[.!?;,]|\b(?:and|then)\b", normalized)
+                if any(
+                    re.search(rf"(?<!\w){re.escape(noun)}(?!\w)", clause) for noun in metric_nouns
+                )
+            ]
+            operator_mismatch = bool(
+                isinstance(target, (int, float))
+                and not isinstance(target, bool)
+                and (
+                    (
+                        operator == "equals"
+                        and any(
+                            re.search(r"\b(?:at least|or more|minimum)\b", clause)
+                            for clause in metric_clauses
+                        )
+                    )
+                    or (
+                        operator == "at_least"
+                        and any(
+                            re.search(r"\b(?:exactly|no more than|at most)\b", clause)
+                            for clause in metric_clauses
+                        )
+                    )
+                )
+            )
+            if operator_mismatch:
                 issues.append(
                     self._issue(
                         "mission_operator_mismatch",
@@ -1538,8 +1628,20 @@ class ProposalValidatorV2:
                     ),
                     None,
                 )
-                if candidate and isinstance(candidate.verification.target, (int, float)):
+                if (
+                    candidate
+                    and isinstance(candidate.verification.target, (int, float))
+                    and not isinstance(candidate.verification.target, bool)
+                ):
                     supported_numbers.add(candidate.verification.target)
+                if candidate and candidate.verification.metric == "match.top_three_reached":
+                    supported_numbers.update(
+                        placement
+                        for affordance in prepared.mission_affordances
+                        if candidate.candidate_id in affordance.objective_candidate_ids
+                        for placement in [affordance.parameters.get("target_placement_max")]
+                        if type(placement) is int
+                    )
         if numeric_values - supported_numbers:
             issues.append(
                 self._issue(
@@ -1559,6 +1661,30 @@ class ProposalValidatorV2:
         """Reject direct actor/target wording unless one claim supports the full tuple."""
 
         normalized = text.casefold()
+        mission_candidate_ids = {
+            candidate_id
+            for claim in claims
+            for candidate_id in claim.supporting_mission_candidate_ids
+        }
+        mission_candidates = [
+            candidate
+            for candidate in prepared.mission_candidates
+            if candidate.candidate_id in mission_candidate_ids
+        ]
+        authorized_future_revivers = {
+            str(candidate.verification.target)
+            for candidate in mission_candidates
+            if candidate.verification.metric == "match.first_squad_revive_actor_id"
+            and isinstance(candidate.verification.target, str)
+        }
+        authorized_match_players = {
+            player_id
+            for candidate in mission_candidates
+            if candidate.verification.metric == "squad.participant_ids"
+            and isinstance(candidate.verification.target, list)
+            for player_id in candidate.verification.target
+            if isinstance(player_id, str)
+        }
         references = [
             (player.player_id, player.display_name.casefold())
             for player in prepared.normalized.players
@@ -1592,7 +1718,14 @@ class ProposalValidatorV2:
             for player_id, reference in references
             for match in re.finditer(rf"(?<!\w){re.escape(reference)}(?!\w)", normalized)
         ]
-        if not reference_matches:
+        collective_actor_matches = [
+            (match.start(), match.end(), "squad")
+            for match in re.finditer(
+                r"(?<!\w)(?:we all|we|the squad|our squad|your squad)(?!\w)",
+                normalized,
+            )
+        ]
+        if not reference_matches and not collective_actor_matches:
             return []
 
         for predicate in ROLE_ACTION_PREDICATES:
@@ -1625,10 +1758,35 @@ class ProposalValidatorV2:
                         actor_bridge,
                     ):
                         actor_id = actor[2]
-                actor_phrase = normalized[sentence_start : action.start()]
-                if re.search(r"\byour\s+squad(?:['’]s)?\s*$", actor_phrase):
-                    actor_id = None
-
+                collective_before = [
+                    item
+                    for item in collective_actor_matches
+                    if sentence_start <= item[0] < action.start()
+                ]
+                if collective_before:
+                    collective_actor = max(collective_before, key=lambda item: item[1])
+                    collective_bridge = normalized[collective_actor[1] : action.start()]
+                    nearest_player_end = max((item[1] for item in before), default=-1)
+                    possessive_collective = bool(re.search(r"['’]s\b", collective_bridge))
+                    squad_claim_supports_action = any(
+                        claim.predicate == predicate and claim.subject_id == "squad"
+                        for claim in claims
+                    )
+                    if (
+                        collective_actor[1] >= nearest_player_end
+                        and len(collective_bridge) <= 24
+                        and not re.search(
+                            r"\b(?:was|were|got|being|been|by|and|then|while|before|after|when|as|but)\b",
+                            collective_bridge,
+                        )
+                        and (
+                            not possessive_collective
+                            or squad_claim_supports_action
+                            or nearest_player_end < 0
+                        )
+                    ):
+                        actor_id = "squad"
+                        actor_bridge = collective_bridge
                 target_id: str | None = None
                 if after:
                     target = min(after, key=lambda item: item[0])
@@ -1645,6 +1803,20 @@ class ProposalValidatorV2:
                     and (target_id is None or claim.target_id == target_id)
                     for claim in claims
                 )
+                mission_actor_role_supported = bool(
+                    actor_id is not None
+                    and target_id is None
+                    and (
+                        (
+                            predicate == ClaimPredicate.REVIVED
+                            and actor_id in authorized_future_revivers
+                        )
+                        or (
+                            predicate == ClaimPredicate.COMPLETED_MATCH
+                            and actor_id in authorized_match_players
+                        )
+                    )
+                )
                 affected_player_idiom_supported = bool(
                     actor_id is not None
                     and predicate == ClaimPredicate.KNOCKED
@@ -1658,6 +1830,7 @@ class ProposalValidatorV2:
                 if (
                     actor_id is not None
                     and not actor_role_supported
+                    and not mission_actor_role_supported
                     and not affected_player_idiom_supported
                 ):
                     return [

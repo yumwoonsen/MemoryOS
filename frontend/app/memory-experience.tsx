@@ -14,6 +14,8 @@ import {
   isDeliveryBoundToSeed,
   isDecisionConfirmation,
   parsePlayerDelivery,
+  playerPreparationError,
+  playerPreparationRetryable,
 } from "@/lib/delivery-flow";
 import type { DecisionRequest, PendingDelivery } from "@/lib/delivery-flow";
 import type { PlayerExperienceSeedV2 } from "@/lib/player-delivery";
@@ -22,7 +24,7 @@ type View =
   | { kind: "unrevealed" }
   | { kind: "loading" }
   | { kind: "no_memory" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; retryable: boolean }
   | { kind: "ready"; delivery: PendingDelivery }
   | { kind: "decline"; delivery: PendingDelivery }
   | { kind: "sending"; delivery: PendingDelivery; request: DecisionRequest }
@@ -110,7 +112,11 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
       if (controller.signal.aborted || requestId !== requestSequence.current) return;
       const parsed = parsePlayerDelivery(payload);
       if (!response.ok || !parsed) {
-        throw new Error("Your squad memory is not available right now.");
+        const failure = new Error(playerPreparationError(payload)) as Error & {
+          retryable?: boolean;
+        };
+        failure.retryable = playerPreparationRetryable(payload);
+        throw failure;
       }
       if (parsed.status === "not_generated") {
         setView({ kind: "no_memory" });
@@ -131,6 +137,9 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
         message: error instanceof Error
           ? error.message
           : "Your squad memory is not available right now.",
+        retryable: error instanceof Error
+          ? (error as Error & { retryable?: boolean }).retryable === true
+          : true,
       });
       setAnnouncement("The squad memory could not be prepared.");
     } finally {
@@ -243,7 +252,11 @@ export function MemoryExperience({ seed }: { seed: PlayerExperienceSeedV2 }) {
       )}
 
       {view.kind === "error" && (
-        <StateCard title="Your memory is unavailable" message={view.message} onRetry={() => void prepare()} />
+        <StateCard
+          title="Your memory is unavailable"
+          message={view.message}
+          onRetry={view.retryable ? () => void prepare() : undefined}
+        />
       )}
 
       {view.kind === "ready" && (
@@ -494,14 +507,14 @@ function StateCard({
 }: {
   title: string;
   message: string;
-  onRetry: () => void;
+  onRetry?: () => void;
 }) {
   return (
     <section className="player-state-card" role="alert">
       <span>Current memory</span>
       <h1>{title}</h1>
       <p>{message}</p>
-      <button type="button" onClick={onRetry}>Try again</button>
+      {onRetry ? <button type="button" onClick={onRetry}>Try again</button> : null}
     </section>
   );
 }

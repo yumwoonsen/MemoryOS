@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate the MemoryOS historical pipeline.")
     parser.add_argument(
         "--provider",
-        choices=("deterministic", "openai", "groq"),
+        choices=("deterministic", "openai", "groq", "gemini"),
         default="deterministic",
         help="Live providers are opt-in and may incur API usage.",
     )

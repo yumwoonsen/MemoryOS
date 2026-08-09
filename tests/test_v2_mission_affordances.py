@@ -142,6 +142,132 @@ def test_repeated_near_misses_offer_and_compile_redemption() -> None:
     assert ProposalValidatorV2().validate(prepared, proposal).passed is True
 
 
+def test_near_misses_from_different_modes_do_not_compile_redemption() -> None:
+    payload = near_miss_payload()
+    payload["matches"][1]["mode"] = "clash_squad"
+
+    prepared = TelemetryPreparerV2().prepare(parsed(payload))
+
+    assert prepared.issues == []
+    assert {item.family for item in prepared.mission_affordances} == {MissionFamilyV2.REUNION}
+
+
+@pytest.mark.parametrize(
+    "unsupported_requirement",
+    [
+        "Win the match too.",
+        "Earn a victory too.",
+        "Finish in first place too.",
+        "Finish first too.",
+        "Finish in the top two too.",
+        "Finish in the top-two too.",
+        "Finish in the top 2 too.",
+    ],
+)
+def test_redemption_story_bridge_rejects_stronger_unoffered_placement_requirements(
+    unsupported_requirement: str,
+) -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed(near_miss_payload()))
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    mission = compact.mission.model_copy(
+        update={
+            "story_bridge": f"Turn those near misses around. {unsupported_requirement}",
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"mission": mission}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert any(
+        issue.code == "mission_capability_language_mismatch"
+        and issue.message.startswith("Section mission ")
+        for issue in report.issues
+    )
+
+
+def test_redemption_compiles_backend_owned_numeric_top_three_objective() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed(near_miss_payload()))
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    mission = compact.mission.model_copy(
+        update={
+            "story_bridge": "Turn those repeated near misses into a stronger finish together.",
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"mission": mission}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+    candidate_by_id = {
+        candidate.candidate_id: candidate for candidate in prepared.mission_candidates
+    }
+    top_three = next(
+        objective
+        for objective in proposal.mission.objectives
+        if candidate_by_id[objective.candidate_id].verification.metric == "match.top_three_reached"
+    )
+
+    assert top_three.description == "Reach the top 3 in the new match."
+    assert not any(issue.code == "unmapped_numeric_claim" for issue in report.issues)
+    assert not any(issue.code == "mission_rule_not_expressed" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    "story_bridge",
+    [
+        "Mei brought Lee back then. This time, Lee can return the favour.",
+        "The rescue changed their roles; the next chapter turns them around.",
+        "What Mei started at Clock Tower now comes back to Lee.",
+    ],
+)
+def test_role_reversal_story_bridge_need_not_repeat_the_authoritative_rule(
+    story_bridge: str,
+) -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    mission = compact.mission.model_copy(update={"story_bridge": story_bridge})
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"mission": mission}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert not any(issue.code == "mission_rule_not_expressed" for issue in report.issues)
+
+
+def test_role_reversal_compiles_assigned_first_revive_objective_in_backend() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    mission = compact.mission.model_copy(
+        update={
+            "story_bridge": "Mei saved Lee before. Now Lee can return the favour.",
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"mission": mission}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+    candidate_by_id = {
+        candidate.candidate_id: candidate for candidate in prepared.mission_candidates
+    }
+    first_revive = next(
+        objective
+        for objective in proposal.mission.objectives
+        if candidate_by_id[objective.candidate_id].verification.metric
+        == "match.first_squad_revive_actor_id"
+    )
+
+    assert first_revive.description == "Lee completes the squad's first revive."
+    assert not any(issue.code == "mission_rule_not_expressed" for issue in report.issues)
+
+
 def test_target_must_be_invitation_eligible() -> None:
     payload = raw_payload()
     payload["squad"]["players"][0]["consent"]["mission_invitation"] = False
@@ -220,9 +346,20 @@ def test_live_generation_has_truthful_content_origin_and_selection_trace() -> No
     )
 
 
-def test_expander_rejects_invented_ranking_reason_and_objective_set() -> None:
+def test_expander_rejects_invented_ranking_and_reason_without_ai_objective_copy() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+
+    mission_payload = compact.mission.model_dump(mode="json")
+    assert set(mission_payload) == {
+        "ranked_affordance_ids",
+        "selected_affordance_id",
+        "selection_reason_codes",
+        "title",
+        "story_bridge",
+    }
+    assert "mission" not in mission_payload
+    assert "objective_descriptions" not in mission_payload
 
     bad_ranking = compact.model_copy(
         update={
@@ -245,17 +382,6 @@ def test_expander_rejects_invented_ranking_reason_and_objective_set() -> None:
     with pytest.raises(CompactProposalExpansionError) as reason_error:
         CompactProposalExpanderV2().expand(prepared, bad_reason)
     assert reason_error.value.code == "mission_selection_reason_invalid"
-
-    missing_objective = compact.model_copy(
-        update={
-            "mission": compact.mission.model_copy(
-                update={"objective_descriptions": compact.mission.objective_descriptions[:-1]}
-            )
-        }
-    )
-    with pytest.raises(CompactProposalExpansionError) as objective_error:
-        CompactProposalExpanderV2().expand(prepared, missing_objective)
-    assert objective_error.value.code == "mission_objective_set_mismatch"
 
 
 def test_v2_0_and_v2_1_inputs_both_return_v2_1() -> None:

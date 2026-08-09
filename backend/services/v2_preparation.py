@@ -8,10 +8,12 @@ from hashlib import sha256
 
 from backend.models.schemas import QuestRecipe, VerificationRule
 from backend.models.v2_schemas import (
+    AuthoringConstraintsV2,
     CanonicalEventType,
     ConsentSafeEvidenceLedgerV2,
     CurrentContextV2,
     EligibleEventWindow,
+    EvidenceBoundFieldV2,
     EvidenceFactV2,
     MediaReferenceV2,
     MissionAffordanceV2,
@@ -22,6 +24,7 @@ from backend.models.v2_schemas import (
     NormalizedMatchV2,
     NormalizedPlayerV2,
     NormalizedTelemetryV2,
+    PlayerEventRoleScopeV2,
     RawTelemetryBatchV2,
     SocialContextV2,
     StoryBriefV2,
@@ -514,6 +517,7 @@ class TelemetryPreparerV2:
                 )
             )
         ledger = self._ledger(normalized)
+        authoring_constraints = self._authoring_constraints(normalized)
         invitation_player_ids = [
             player.player_id
             for player in normalized.players
@@ -532,6 +536,7 @@ class TelemetryPreparerV2:
                 eligible_event_windows=windows,
                 mission_candidates=mission_candidates,
                 mission_affordances=mission_affordances,
+                authoring_constraints=authoring_constraints,
                 squad_history=normalized.squad_history,
                 current_context=normalized.current_context,
                 media_references=normalized.media_references,
@@ -810,11 +815,14 @@ class TelemetryPreparerV2:
         all_events = {
             event.event_id: event for match in normalized.matches for event in match.events
         }
-        near_miss_match_ids = [
-            match.match_id
-            for match in normalized.matches
-            if match.placement is not None and 4 <= match.placement <= 6
-        ]
+        near_miss_match_ids_by_game_mode: dict[tuple[str, str], list[str]] = {}
+        for near_miss in normalized.matches:
+            if near_miss.placement is None or not 4 <= near_miss.placement <= 6:
+                continue
+            near_miss_match_ids_by_game_mode.setdefault(
+                (near_miss.game, near_miss.mode),
+                [],
+            ).append(near_miss.match_id)
         for window in windows:
             match = next(
                 (item for item in normalized.matches if item.match_id == window.match_id),
@@ -822,6 +830,10 @@ class TelemetryPreparerV2:
             )
             if match is None or match.mode not in normalized.current_context.available_modes:
                 continue
+            near_miss_match_ids = near_miss_match_ids_by_game_mode.get(
+                (match.game, match.mode),
+                [],
+            )
             suffix = window.window_id.replace(":", "_")
             source_ids = window.event_ids
             reunion_id = f"affordance:reunion:{suffix}"
@@ -1099,6 +1111,51 @@ class TelemetryPreparerV2:
             players=normalized.players,
             facts=facts,
             human_context=human_context,
+        )
+
+    @staticmethod
+    def _authoring_constraints(normalized: NormalizedTelemetryV2) -> AuthoringConstraintsV2:
+        """Derive neutral role and terminology guidance from the projected evidence only."""
+
+        events = [event for match in normalized.matches for event in match.events]
+        player_scopes: dict[str, PlayerEventRoleScopeV2] = {}
+        for player in normalized.players:
+            if not player.memory_eligible:
+                continue
+            player_scopes[player.player_id] = PlayerEventRoleScopeV2(
+                actor=[
+                    event.event_id
+                    for event in events
+                    if event.event_scope == "player" and event.actor_id == player.player_id
+                ],
+                target=[
+                    event.event_id
+                    for event in events
+                    if event.event_scope == "player" and event.target_id == player.player_id
+                ],
+                full_squad=[
+                    event.event_id
+                    for event in events
+                    if collective_event_includes_full_squad(event, normalized)
+                ],
+            )
+
+        bound_terms: dict[str, dict[EvidenceBoundFieldV2, str | int]] = {}
+        for match in normalized.matches:
+            for event in match.events:
+                for key, value in event.details.items():
+                    if key in ALLOWED_CATEGORICAL_DETAILS:
+                        if not isinstance(value, str) or value in {"other", "unknown"}:
+                            continue
+                        field = EvidenceBoundFieldV2(key)
+                    elif key == "zone_phase" and isinstance(value, int):
+                        field = EvidenceBoundFieldV2.ZONE_PHASE
+                    else:
+                        continue
+                    bound_terms.setdefault(event.event_id, {})[field] = value
+        return AuthoringConstraintsV2(
+            player_event_roles=player_scopes,
+            evidence_bound_terms=bound_terms,
         )
 
     @staticmethod

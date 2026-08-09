@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import logging
 import os
 from collections.abc import AsyncIterator
 
@@ -39,6 +40,8 @@ from backend.services.delivery_store import delivery_decision_store
 from backend.services.openai_client import OpenAIProviderError
 from backend.services.v2_delivery_repository import v2_delivery_repository
 from backend.v2_pipeline import MemoryInterpretationPipelineV2, build_v2_pipeline
+
+logger = logging.getLogger(__name__)
 
 
 class NDJSONStreamingResponse(StreamingResponse):
@@ -226,7 +229,16 @@ def interpret_delivery_v2(
     """Interpret telemetry into one fully validated player delivery or fail closed."""
 
     try:
-        return _build_configured_v2_pipeline().interpret_delivery(request)
+        result = _build_configured_v2_pipeline().interpret_delivery(request)
+        issue_codes = [issue.code for issue in result.validation.issues]
+        logger.log(
+            logging.WARNING if result.status.value == "rejected" else logging.INFO,
+            "v2_interpretation_complete status=%s correction_attempted=%s issue_codes=%s",
+            result.status.value,
+            result.validation.correction_attempted,
+            ",".join(issue_codes) or "none",
+        )
+        return result
     except OpenAIProviderError as error:
         return _provider_error_response(error)
 

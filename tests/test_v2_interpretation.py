@@ -13,9 +13,9 @@ import backend.main as api
 import backend.services.v2_interpreter as v2_interpreter_module
 from backend.main import app
 from backend.models.schemas import MemoryType
+from backend.models.v2_provider_schemas import ProviderInterpretationDecisionV2
 from backend.models.v2_schemas import (
     ClaimPredicate,
-    CompactInterpretationDecisionV2,
     CompactMemoryProposalV2,
     GroundedClaim,
     InterpretDeliveryResultV2,
@@ -37,6 +37,9 @@ from backend.services.v2_validator import ProposalValidatorV2
 from backend.v2_pipeline import MemoryInterpretationPipelineV2
 
 DATA_PATH = Path(__file__).resolve().parents[1] / "backend" / "data" / "raw_telemetry_v2.json"
+PLAYER_DATA_PATH = (
+    Path(__file__).resolve().parents[1] / "frontend" / "data" / "raw_telemetry_v2.json"
+)
 FAKE_GITHUB_TOKEN = "ghp_" + ("a" * 36)
 client = TestClient(app)
 REAL_BUILD_CONFIGURED_V2_PIPELINE = api._build_configured_v2_pipeline
@@ -48,6 +51,10 @@ def raw_payload() -> dict[str, object]:
 
 def parsed_batch() -> RawTelemetryBatchV2:
     return RawTelemetryBatchV2.model_validate(raw_payload())
+
+
+def player_batch() -> RawTelemetryBatchV2:
+    return RawTelemetryBatchV2.model_validate_json(PLAYER_DATA_PATH.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(autouse=True)
@@ -275,18 +282,29 @@ def test_live_ai_uses_compact_contract_and_server_derives_authoritative_fields()
     result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
 
     window = next(item for item in prepared.windows if item.window_id == compact.selected_window_id)
-    candidate = next(
+    selected_affordance = next(
         item
-        for item in prepared.mission_candidates
-        if item.candidate_id == compact.mission.candidate_id
+        for item in prepared.mission_affordances
+        if item.affordance_id == compact.mission.selected_affordance_id
     )
+    candidate_map = {item.candidate_id: item for item in prepared.mission_candidates}
+    selected_candidates = [
+        candidate_map[candidate_id] for candidate_id in selected_affordance.objective_candidate_ids
+    ]
     assert result.status == "pending_player_decision"
-    assert generator.requests[0]["response_model"] is CompactInterpretationDecisionV2
+    assert generator.requests[0]["response_model"] is ProviderInterpretationDecisionV2
     assert result.memory.selected_match_id == window.match_id
     assert result.memory.selected_event_ids == window.event_ids
-    assert result.next_chapter.recipe == candidate.recipe
-    assert result.next_chapter.objectives[0].verification == candidate.verification
-    assert result.next_chapter.objectives[0].assigned_player_id == candidate.assigned_player_id
+    assert result.next_chapter.recipe == selected_candidates[0].recipe
+    assert [item.objective_id for item in result.next_chapter.objectives] == [
+        candidate.candidate_id for candidate in selected_candidates
+    ]
+    assert [item.verification for item in result.next_chapter.objectives] == [
+        candidate.verification for candidate in selected_candidates
+    ]
+    assert [item.assigned_player_id for item in result.next_chapter.objectives] == [
+        candidate.assigned_player_id for candidate in selected_candidates
+    ]
     assert [item.player_id for item in result.player_perspectives] == [
         player.player_id for player in prepared.normalized.players if player.memory_eligible
     ]
@@ -816,6 +834,78 @@ def test_vehicle_wording_requires_vehicle_event_and_exact_vehicle_type() -> None
     assert "unsupported_categorical_detail" in {issue.code for issue in wrong_report.issues}
 
 
+def test_player_fixture_category_free_collective_perspective_is_grounded() -> None:
+    prepared = TelemetryPreparerV2().prepare(player_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    perspectives = [
+        item.model_copy(
+            update={
+                "message": "We escaped the area together.",
+                "evidence_ids": ["ffevt-06-zone-exit"],
+            }
+        )
+        if item.player_id == "ff-player-7f3c"
+        else item
+        for item in compact.perspectives
+    ]
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"perspectives": perspectives}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert report.passed is True
+
+
+def test_player_fixture_collective_perspective_rejects_uncited_vehicle_detail() -> None:
+    prepared = TelemetryPreparerV2().prepare(player_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    perspectives = [
+        item.model_copy(
+            update={
+                "message": "We escaped in the pickup.",
+                "evidence_ids": ["ffevt-06-zone-exit"],
+            }
+        )
+        if item.player_id == "ff-player-7f3c"
+        else item
+        for item in compact.perspectives
+    ]
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"perspectives": perspectives}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert "unsupported_categorical_detail" in {issue.code for issue in report.issues}
+
+
+def test_player_fixture_collective_perspective_accepts_canonical_vehicle_detail() -> None:
+    prepared = TelemetryPreparerV2().prepare(player_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    perspectives = [
+        item.model_copy(
+            update={
+                "message": "We entered the pickup together.",
+                "evidence_ids": ["ffevt-05-vehicle-enter"],
+            }
+        )
+        if item.player_id == "ff-player-7f3c"
+        else item
+        for item in compact.perspectives
+    ]
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"perspectives": perspectives}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert report.passed is True
+
+
 def test_collective_perspective_requires_full_squad_membership_evidence() -> None:
     payload = raw_payload()
     vehicle = next(
@@ -918,6 +1008,120 @@ def test_summary_accepts_supported_actor_action_target_tuple() -> None:
     report = ProposalValidatorV2().validate(prepared, proposal)
 
     assert report.passed is True
+
+
+def test_summary_accepts_explicit_collective_actor_for_squad_event() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    compact = compact.model_copy(
+        update={
+            "summary": compact.summary.model_copy(
+                update={
+                    "text": "Mei revived Lee so the squad could escape Clock Tower.",
+                    "evidence_ids": ["ffevt-04-revive-lee", "ffevt-06-zone-exit"],
+                }
+            )
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(prepared, compact)
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert report.passed is True
+
+
+def test_perspective_accepts_explicit_we_for_supported_squad_event() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    perspectives = [
+        item.model_copy(
+            update={
+                "message": "I signalled retreat so we could escape Clock Tower.",
+                "evidence_ids": ["ffevt-03-ping-retreat", "ffevt-06-zone-exit"],
+            }
+        )
+        if item.player_id == "ff-player-amir"
+        else item
+        for item in compact.perspectives
+    ]
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"perspectives": perspectives}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert report.passed is True
+
+
+def test_summary_rejects_collective_actor_for_player_revive() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    compact = compact.model_copy(
+        update={
+            "summary": compact.summary.model_copy(
+                update={
+                    "text": "The squad revived Lee at Clock Tower.",
+                    "evidence_ids": ["ffevt-04-revive-lee"],
+                }
+            )
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(prepared, compact)
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert "action_role_mismatch" in {issue.code for issue in report.issues}
+
+
+def test_perspective_rejects_collective_actor_for_personal_signal() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    perspectives = [
+        item.model_copy(
+            update={
+                "message": "We signalled retreat at Clock Tower.",
+                "evidence_ids": ["ffevt-03-ping-retreat"],
+            }
+        )
+        if item.player_id == "ff-player-amir"
+        else item
+        for item in compact.perspectives
+    ]
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"perspectives": perspectives}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert "action_role_mismatch" in {issue.code for issue in report.issues}
+
+
+def test_mission_can_connect_supported_source_roles_to_all_selected_rules() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    mission = compact.mission.model_copy(
+        update={
+            "story_bridge": "Mei revived Lee last time, so the next chapter reverses their roles."
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(
+        prepared,
+        compact.model_copy(update={"mission": mission}),
+    )
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert report.passed is True
+    assert any(
+        claim.output_section == "mission"
+        and claim.predicate == ClaimPredicate.REVIVED
+        and claim.subject_id == "ff-player-mei"
+        and claim.target_id == "ff-player-lee"
+        and claim.supporting_event_ids == ["ffevt-04-revive-lee"]
+        for claim in proposal.claims
+    )
 
 
 def test_summary_accepts_supported_affected_player_knock_idiom() -> None:
@@ -1087,30 +1291,30 @@ def test_perspective_literal_support_is_added_only_for_that_player_role() -> Non
     assert "ffevt-04-revive-lee" in mei.evidence_event_ids
 
 
-def test_participant_mission_candidate_authorizes_its_exact_player_names() -> None:
+def test_backend_compiles_participant_copy_and_keeps_the_exact_safe_roster_rule() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
-    description = "Play a match with Lee, Mei, Amir, and Jo."
-    compact = compact.model_copy(
-        update={
-            "mission": compact.mission.model_copy(
-                update={
-                    "objective_descriptions": [
-                        item.model_copy(update={"description": description})
-                        if item.candidate_id == compact.mission.candidate_id
-                        else item
-                        for item in compact.mission.objective_descriptions
-                    ]
-                }
-            )
-        }
-    )
-
     proposal = CompactProposalExpanderV2().expand(prepared, compact)
     report = ProposalValidatorV2().validate(prepared, proposal)
+    participant = next(
+        item
+        for item in proposal.mission.objectives
+        if next(
+            candidate
+            for candidate in prepared.mission_candidates
+            if candidate.candidate_id == item.candidate_id
+        ).verification.metric
+        == "squad.participant_ids"
+    )
+    candidate = next(
+        item
+        for item in prepared.mission_candidates
+        if item.candidate_id == participant.candidate_id
+    )
 
     assert report.passed is True
-    assert proposal.mission.objectives[0].description == description
+    assert participant.description == "Play a match with the invited squad."
+    assert candidate.verification.target == prepared.story_brief.invitation_player_ids
 
 
 def test_participant_mission_rejects_unoffered_survival_and_zone_conditions() -> None:
@@ -1120,10 +1324,7 @@ def test_participant_mission_rejects_unoffered_survival_and_zone_conditions() ->
         update={
             "mission": compact.mission.model_copy(
                 update={
-                    "mission": "Gather Lee and Mei and keep them alive in the safe zone.",
-                    "objective_description": (
-                        "Both Lee and Mei must be alive when the zone closes."
-                    ),
+                    "story_bridge": "Keep Lee and Mei alive until the safe zone closes.",
                 }
             )
         }
@@ -1161,28 +1362,14 @@ def test_participant_mission_rejects_unoffered_survival_and_zone_conditions() ->
         ),
     ],
 )
-def test_match_mission_text_must_match_backend_target_and_conditions(
+def test_story_bridge_cannot_change_backend_targets_or_add_conditions(
     wording: str,
     expected_code: str,
 ) -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
-    candidate = next(
-        item
-        for item in prepared.mission_candidates
-        if item.verification.metric == "squad.matches_completed"
-        and item.window_id == compact.selected_window_id
-    )
     compact = compact.model_copy(
-        update={
-            "mission": compact.mission.model_copy(
-                update={
-                    "candidate_id": candidate.candidate_id,
-                    "mission": wording,
-                    "objective_description": wording,
-                }
-            )
-        }
+        update={"mission": compact.mission.model_copy(update={"story_bridge": wording})}
     )
     proposal = CompactProposalExpanderV2().expand(prepared, compact)
 
@@ -1194,36 +1381,24 @@ def test_match_mission_text_must_match_backend_target_and_conditions(
 @pytest.mark.parametrize(
     "wording",
     [
-        "Revive a teammate twice.",
-        "Revive teammates two times.",
-        "Get a double revive.",
+        "Return the favour in the next chapter.",
+        "This time, the rescue roles reverse.",
     ],
 )
-def test_role_reversal_must_name_the_assigned_first_reviver(wording: str) -> None:
+def test_role_reversal_story_bridge_may_paraphrase_without_repeating_the_rule(
+    wording: str,
+) -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
-    candidate = next(
-        item
-        for item in prepared.mission_candidates
-        if item.verification.metric == "match.first_squad_revive_actor_id"
-        and item.window_id == compact.selected_window_id
-    )
     compact = compact.model_copy(
-        update={
-            "mission": compact.mission.model_copy(
-                update={
-                    "candidate_id": candidate.candidate_id,
-                    "mission": wording,
-                    "objective_description": wording,
-                }
-            )
-        }
+        update={"mission": compact.mission.model_copy(update={"story_bridge": wording})}
     )
     proposal = CompactProposalExpanderV2().expand(prepared, compact)
 
     report = ProposalValidatorV2().validate(prepared, proposal)
 
-    assert "mission_rule_not_expressed" in {issue.code for issue in report.issues}
+    assert report.passed is True
+    assert "mission_rule_not_expressed" not in {issue.code for issue in report.issues}
 
 
 @pytest.mark.parametrize(
@@ -1236,22 +1411,8 @@ def test_role_reversal_must_name_the_assigned_first_reviver(wording: str) -> Non
 def test_match_mission_ignores_numbers_attached_to_other_nouns(wording: str) -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
-    candidate = next(
-        item
-        for item in prepared.mission_candidates
-        if item.verification.metric == "squad.matches_completed"
-        and item.window_id == compact.selected_window_id
-    )
     compact = compact.model_copy(
-        update={
-            "mission": compact.mission.model_copy(
-                update={
-                    "candidate_id": candidate.candidate_id,
-                    "mission": wording,
-                    "objective_description": wording,
-                }
-            )
-        }
+        update={"mission": compact.mission.model_copy(update={"story_bridge": wording})}
     )
     proposal = CompactProposalExpanderV2().expand(prepared, compact)
 
@@ -1261,32 +1422,22 @@ def test_match_mission_ignores_numbers_attached_to_other_nouns(wording: str) -> 
 
 
 @pytest.mark.parametrize(
-    ("metric", "wording"),
+    "wording",
     [
-        ("squad.participant_ids", "Play a new match."),
-        ("squad.matches_completed", "Play again together."),
-        ("match.first_squad_revive_actor_id", "Help the squad again."),
+        "Bring the squad back for another chapter.",
+        "Give this memory a different ending.",
+        "Return the favour together.",
     ],
 )
-def test_mission_text_must_express_the_selected_backend_rule(
-    metric: str,
-    wording: str,
-) -> None:
+def test_story_bridge_does_not_have_to_repeat_backend_rules(wording: str) -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
-    candidate = next(
-        item
-        for item in prepared.mission_candidates
-        if item.verification.metric == metric and item.window_id == compact.selected_window_id
-    )
     compact = compact.model_copy(
         update={
             "mission": compact.mission.model_copy(
                 update={
-                    "candidate_id": candidate.candidate_id,
                     "title": "Try Again",
-                    "mission": wording,
-                    "objective_description": wording,
+                    "story_bridge": wording,
                 }
             )
         }
@@ -1295,26 +1446,19 @@ def test_mission_text_must_express_the_selected_backend_rule(
 
     report = ProposalValidatorV2().validate(prepared, proposal)
 
-    assert "mission_rule_not_expressed" in {issue.code for issue in report.issues}
+    assert report.passed is True
+    assert "mission_rule_not_expressed" not in {issue.code for issue in report.issues}
 
 
-def test_mission_title_cannot_supply_a_rule_missing_from_the_mission_body() -> None:
+def test_title_and_story_bridge_are_separate_from_backend_compiled_requirements() -> None:
     prepared = TelemetryPreparerV2().prepare(parsed_batch())
     compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
-    candidate = next(
-        item
-        for item in prepared.mission_candidates
-        if item.verification.metric == "squad.matches_completed"
-        and item.window_id == compact.selected_window_id
-    )
     compact = compact.model_copy(
         update={
             "mission": compact.mission.model_copy(
                 update={
-                    "candidate_id": candidate.candidate_id,
                     "title": "Complete One Match Together",
-                    "mission": "Bring the squad back for another chapter.",
-                    "objective_description": "Complete one match together.",
+                    "story_bridge": "Bring the squad back for another chapter.",
                 }
             )
         }
@@ -1323,7 +1467,8 @@ def test_mission_title_cannot_supply_a_rule_missing_from_the_mission_body() -> N
 
     report = ProposalValidatorV2().validate(prepared, proposal)
 
-    assert any(
+    assert report.passed is True
+    assert not any(
         issue.code == "mission_rule_not_expressed" and issue.message.startswith("Section mission ")
         for issue in report.issues
     )
@@ -1608,7 +1753,7 @@ def test_live_interpreter_repairs_one_malformed_provider_output() -> None:
     ]
     correction_instruction = correction_payload["correction"]["instruction"]
     assert "emit every schema field" in correction_instruction
-    assert "CompactInterpretationDecisionV2" in correction_instruction
+    assert "ProviderInterpretationDecisionV2" in correction_instruction
 
 
 def test_grounding_correction_receives_section_specific_safe_feedback() -> None:
@@ -1636,6 +1781,125 @@ def test_grounding_correction_receives_section_specific_safe_feedback() -> None:
     correction_json = json.dumps(generator.requests[1]["payload"])
     assert rejected_phrase not in correction_json
     assert "claims a victory without a matching result" not in correction_json
+
+
+def test_role_and_category_failures_repair_once_with_unchanged_authoring_scopes() -> None:
+    batch = parsed_batch()
+    prepared = TelemetryPreparerV2().prepare(batch)
+    valid = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    rejected_phrase = "Amir revived Lee at Clock Tower, then the squad escaped in a helicopter."
+    invalid = valid.model_copy(
+        update={
+            "summary": valid.summary.model_copy(
+                update={
+                    "text": rejected_phrase,
+                    "evidence_ids": [
+                        "ffevt-03-ping-retreat",
+                        "ffevt-04-revive-lee",
+                        "ffevt-06-zone-exit",
+                    ],
+                }
+            )
+        }
+    )
+    generator = SequenceGenerator([invalid, valid])
+
+    result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
+
+    assert result.status == "pending_player_decision"
+    assert result.validation.correction_attempted is True
+    assert generator.calls == 2
+    feedback = generator.requests[1]["payload"]["correction"]["validation_issues"]
+    assert feedback == [
+        {"code": "unsupported_categorical_detail", "section": "summary"},
+        {"code": "action_role_mismatch", "section": "summary"},
+    ]
+    first_scopes = generator.requests[0]["payload"]["story_brief"]["authoring_constraints"]
+    correction_scopes = generator.requests[1]["payload"]["story_brief"]["authoring_constraints"]
+    assert correction_scopes == first_scopes
+    correction = generator.requests[1]["payload"]["correction"]
+    assert "remove all exact categorical and zone values" in correction["instruction"]
+    assert (
+        "Keep every perspective category-free" in correction["strict_section_rules"]["perspectives"]
+    )
+    assert rejected_phrase not in json.dumps(generator.requests[1]["payload"])
+
+
+def test_player_fixture_repairs_jo_category_detail_with_one_safe_correction() -> None:
+    batch = player_batch()
+    prepared = TelemetryPreparerV2().prepare(batch)
+    valid = MemoryInterpreterV2().demo_compact_proposal(prepared)
+
+    def jo_perspective(message: str, evidence_ids: list[str]):
+        return [
+            item.model_copy(update={"message": message, "evidence_ids": evidence_ids})
+            if item.player_id == "ff-player-7f3c"
+            else item
+            for item in valid.perspectives
+        ]
+
+    invalid = valid.model_copy(
+        update={
+            "perspectives": jo_perspective(
+                "We escaped in the pickup.",
+                ["ffevt-06-zone-exit"],
+            )
+        }
+    )
+    corrected = valid.model_copy(
+        update={
+            "perspectives": jo_perspective(
+                "We escaped the area together.",
+                ["ffevt-06-zone-exit"],
+            )
+        }
+    )
+    generator = SequenceGenerator([invalid, corrected])
+
+    result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
+
+    assert result.status == "pending_player_decision"
+    assert result.validation.correction_attempted is True
+    assert generator.calls == 2
+    assert generator.requests[1]["payload"]["correction"]["validation_issues"] == [
+        {
+            "code": "unsupported_categorical_detail",
+            "section": "perspective:ff-player-7f3c",
+        }
+    ]
+
+
+def test_role_and_category_failure_after_one_correction_withholds_all_artifacts() -> None:
+    batch = parsed_batch()
+    prepared = TelemetryPreparerV2().prepare(batch)
+    valid = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    invalid = valid.model_copy(
+        update={
+            "summary": valid.summary.model_copy(
+                update={
+                    "text": (
+                        "Amir revived Lee at Clock Tower, then the squad escaped in a helicopter."
+                    ),
+                    "evidence_ids": [
+                        "ffevt-03-ping-retreat",
+                        "ffevt-04-revive-lee",
+                        "ffevt-06-zone-exit",
+                    ],
+                }
+            )
+        }
+    )
+    generator = SequenceGenerator([invalid, invalid])
+
+    result = MemoryInterpretationPipelineV2(generator).interpret_delivery(batch)
+
+    assert result.status == "rejected"
+    assert result.validation.correction_attempted is True
+    assert generator.calls == 2
+    assert result.memory is None
+    assert result.player_perspectives == []
+    assert result.next_chapter is None
+    assert result.grounded_claims == []
 
 
 def test_correction_feedback_drops_unrecognized_generated_section_scope() -> None:
@@ -2180,6 +2444,138 @@ def test_provider_projection_is_stably_capped_to_offered_window_events() -> None
     assert payload_bytes <= MAX_PROVIDER_PAYLOAD_BYTES
 
 
+def test_provider_payload_contains_neutral_evidence_bound_authoring_constraints() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    constraints = MemoryInterpreterV2._provider_payload(prepared)["story_brief"][
+        "authoring_constraints"
+    ]
+
+    assert constraints["player_event_roles"] == {
+        "ff-player-lee": {
+            "actor": [],
+            "target": ["ffevt-02-knock-lee", "ffevt-04-revive-lee"],
+            "full_squad": ["ffevt-05-vehicle-enter", "ffevt-06-zone-exit"],
+        },
+        "ff-player-mei": {
+            "actor": ["ffevt-04-revive-lee"],
+            "target": [],
+            "full_squad": ["ffevt-05-vehicle-enter", "ffevt-06-zone-exit"],
+        },
+        "ff-player-amir": {
+            "actor": ["ffevt-03-ping-retreat"],
+            "target": [],
+            "full_squad": ["ffevt-05-vehicle-enter", "ffevt-06-zone-exit"],
+        },
+        "ff-player-7f3c": {
+            "actor": [],
+            "target": [],
+            "full_squad": ["ffevt-05-vehicle-enter", "ffevt-06-zone-exit"],
+        },
+    }
+    assert constraints["evidence_bound_terms"] == {
+        "ffevt-02-knock-lee": {"zone_phase": 4},
+        "ffevt-03-ping-retreat": {"ping_type": "retreat"},
+        "ffevt-04-revive-lee": {"zone_phase": 4},
+        "ffevt-05-vehicle-enter": {"vehicle_type": "pickup"},
+    }
+    assert not any("zone_state" in terms for terms in constraints["evidence_bound_terms"].values())
+    forbidden_keys = {
+        "title",
+        "summary",
+        "notification_teaser",
+        "memory_type",
+        "narrative_angle",
+        "mission",
+        "importance",
+        "emotion",
+    }
+
+    def all_keys(value: object) -> set[str]:
+        if isinstance(value, dict):
+            return set(value) | {key for item in value.values() for key in all_keys(item)}
+        if isinstance(value, list):
+            return {key for item in value for key in all_keys(item)}
+        return set()
+
+    assert all_keys(constraints).isdisjoint(forbidden_keys)
+
+
+def test_authoring_constraints_ignore_untrusted_story_steering() -> None:
+    baseline = raw_payload()
+    changed = raw_payload()
+    changed["social_context"]["player_caption"] = "Amir's heroic rescue"
+    changed["social_context"]["event_tags"] = ["Return the Favour"]
+    baseline_prepared = TelemetryPreparerV2().prepare(RawTelemetryBatchV2.model_validate(baseline))
+    changed_prepared = TelemetryPreparerV2().prepare(RawTelemetryBatchV2.model_validate(changed))
+
+    assert (
+        baseline_prepared.story_brief.authoring_constraints
+        == changed_prepared.story_brief.authoring_constraints
+    )
+
+
+def test_authoring_constraints_exclude_opted_out_identity() -> None:
+    payload = raw_payload()
+    private_player = payload["squad"]["players"][3]
+    private_player["player_id"] = "private-player-id"
+    private_player["display_name"] = "PrivatePanda"
+    private_player["consent"] = {
+        "memory_appearance": False,
+        "identity_display": False,
+        "media_use": False,
+        "mission_invitation": False,
+    }
+    for event in payload["matches"][0]["events"]:
+        if event.get("actor_id") == "ff-player-7f3c":
+            event["actor_id"] = "private-player-id"
+        if event.get("target_id") == "ff-player-7f3c":
+            event["target_id"] = "private-player-id"
+
+    prepared = TelemetryPreparerV2().prepare(RawTelemetryBatchV2.model_validate(payload))
+    serialized = prepared.story_brief.authoring_constraints.model_dump_json()
+
+    assert "private-player-id" not in serialized
+    assert "PrivatePanda" not in serialized
+    assert "private-player-id" not in prepared.story_brief.authoring_constraints.player_event_roles
+    assert "private-player-id" not in prepared.story_brief.invitation_player_ids
+
+
+def test_exact_authoring_constraint_wording_passes_existing_validator() -> None:
+    prepared = TelemetryPreparerV2().prepare(parsed_batch())
+    compact = MemoryInterpreterV2().demo_compact_proposal(prepared)
+    compact = compact.model_copy(
+        update={
+            "summary": compact.summary.model_copy(
+                update={
+                    "text": (
+                        "Lee was knocked at Clock Tower. Amir signalled retreat. Mei revived "
+                        "Lee. The squad boarded a pickup and escaped Clock Tower."
+                    ),
+                    "evidence_ids": [
+                        "ffevt-02-knock-lee",
+                        "ffevt-03-ping-retreat",
+                        "ffevt-04-revive-lee",
+                        "ffevt-05-vehicle-enter",
+                        "ffevt-06-zone-exit",
+                    ],
+                }
+            )
+        }
+    )
+    proposal = CompactProposalExpanderV2().expand(prepared, compact)
+
+    report = ProposalValidatorV2().validate(prepared, proposal)
+
+    assert report.passed is True
+    summary_details = {
+        (claim.value_key, claim.value)
+        for claim in proposal.claims
+        if claim.output_section == "summary" and claim.value_key is not None
+    }
+    assert ("ping_type", "retreat") in summary_details
+    assert ("vehicle_type", "pickup") in summary_details
+
+
 def test_provider_payload_preserves_structured_squad_history_signals() -> None:
     baseline = raw_payload()
     changed = raw_payload()
@@ -2221,9 +2617,8 @@ def test_provider_payload_omits_only_null_placeholders() -> None:
 
     assert contains_none(story_brief) is False
     assert story_brief["target_player_id"] == prepared.story_brief.target_player_id
-    assert story_brief["eligible_event_windows"]
-    assert story_brief["mission_candidates"]
-    assert story_brief["mission_affordances"]
+    assert story_brief["windows"]
+    assert story_brief["affordances"]
     assert any(
         player["media_eligible"] is False
         for player in story_brief["players_requiring_perspectives"]

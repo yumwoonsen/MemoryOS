@@ -49,16 +49,23 @@ complete raw-input-to-decision-to-projection contract, not only generated-prose 
 - Raw opted-out identities and opted-out-authored social prose are absent from provider payloads,
   player output, logs, and Studio. A request-scoped anonymous role may preserve factual continuity,
   but receives no perspective, media identity, invitation, or mission assignment.
-- Mission affordances are derived dynamically from evidence and feasibility and belong to exactly
+- Mission affordances are derived dynamically from evidence and deterministic feasibility and
+  verifiability checks, and belong to exactly
   three families: `reunion`, `role_reversal`, and `redemption`. Removing the supporting revive
   removes role reversal; repeated places four through six enable redemption; reunion remains only
   when its consent, target, mode, and context conditions hold.
 - Invitation eligibility is independent of `active_player_ids`. Inactive but memory- and
   invitation-consented players remain invitation-ready; `online`/`away` is presentation only.
-- AI returns `CompactInterpretationDecisionV2`: either `generate` with one offered window and one
-  ranked/selected offered affordance, or `abstain` with exactly `no_meaningful_episode` and no
-  proposal. A validated abstention becomes `not_generated` with
+- AI returns `ProviderInterpretationDecisionV2`: either `generate` with a complete ranking of
+  request-scoped `A#` affordances whose first choice determines the linked `W#` episode, or
+  `abstain` with exactly `no_meaningful_episode` and no proposal. A validated abstention becomes
+  `not_generated` with
   `ai_no_meaningful_episode` and no player artifacts.
+- AI compares the offered episode-and-mission combinations and should normally choose the strongest
+  direct evidence-linked continuation. `reunion` is the general fallback when no more coherent
+  specific continuation is supported. Serialized order, `A#` reference number, and nested `O#`
+  count are not preference signals. Deterministic validation has no family-priority rule; it checks
+  only that the chosen option is offered, grounded, consent-safe, feasible, and correctly expressed.
 - For generation, the backend resolves the selected window and affordance into authoritative
   match/event IDs and complete `GroundedClaim` records. It owns the selected objective set, recipe,
   assignments, required flags, verification metrics/operators/targets, and all source references.
@@ -94,7 +101,7 @@ The typed v2 offline evaluator reports:
 
 | Metric | Definition | Release expectation |
 |---|---|---:|
-| Compact-decision schema reliability | Live responses that parse `CompactInterpretationDecisionV2` without repair | Report generate/abstain/invalid rates by model and prompt |
+| Compact-decision schema reliability | Live responses that parse `ProviderInterpretationDecisionV2` without repair | Report generate/abstain/invalid rates by model and prompt |
 | Reference-resolution success | Compact references resolve inside the selected window and selected affordance; any conservative evidence addition survives complete validation | 100% for delivered results |
 | Deterministic enrichment completeness | Required public IDs, claims, roster, media, objective set, assignments, metrics/operators/targets, source references, delivery fields, and trace fields come from trusted state | 100% for delivered results |
 | Public-contract stability | Enriched public delivery and generated OpenAPI remain compatible with existing player/Studio consumers | 100%; no unreviewed breaking diff |
@@ -105,13 +112,16 @@ The typed v2 offline evaluator reports:
 | Perspective roster precision/coverage | Returned player IDs exactly equal the opted-in roster | 100% |
 | Perspective distinctness | Delivered player perspectives are pairwise distinct after normalization | Report baseline |
 | Consent leak count | Supplied forbidden raw identity terms found in the serialized safe result | 0 |
-| Mission affordance compliance | Ranking contains offered IDs only; the selected ID is first; family, reason codes, objective set, and backend controls match the selected affordance | 100% |
+| Mission affordance compliance | Provider ranking contains offered `A#` references only; the first reference resolves to the selected canonical affordance, whose family, reason codes, objective set, and backend controls all match | 100% |
+| Story-continuation selection | Across labelled and counterfactual fixtures, the first-ranked option is the strongest supported direct transformation; reunion is used when no coherent specific continuation exists | Report by prompt/model; compare with labels, not serialized position |
+| Candidate-order invariance | Permuting `A#` serialization/reference assignment or changing non-semantic objective count does not systematically change the selected family | No position- or count-driven preference in the labelled matrix |
+| Backend mission-copy compliance | Every selected `O#` resolves to the exact backend-compiled public objective description; the AI story bridge may omit rule restatement but cannot contradict targets/operators, add unoffered mechanics, assert unsupported facts, or violate privacy/safety | 100% |
 | Fail-closed artifact count | Generated artifact fields returned after provider or validation failure | 0 |
 | Media mapping validity | Selected media IDs whose represented `media.event_ids` are all contained in the selected episode | 100% |
 | Deliverability and abstention correctness | Delivered/rejected/not-generated outcome matches optional labels; abstention has only `no_meaningful_episode` and no artifacts | 100% for labelled cases |
 | Correction outcome | Attempted correction and successful corrected delivery are counted separately | Report baseline |
 | Provider usage | Safe observability totals for request count, latency, and input/output tokens | Report baseline |
-| Player-projection minimization | Player projection contains request-scoped refs and no raw player/event/backend-objective IDs, claims, verification controls, source references, or Studio trace | 100% |
+| Player-projection minimization | Player projection contains request-scoped refs and no raw player/event/backend-objective IDs, claims, verification controls, source references, or Studio trace; overlapping roster-participation and match-completion mechanics appear as one clear player step | 100% |
 | Feedback outcome | Accepted and declined decisions, reasons, and source-quality flags grouped by prompt/model version | Report baseline |
 
 `summarize_v2_evaluation` consumes typed `V2OfflineEvaluationCase` values. Expected labels and
@@ -134,52 +144,82 @@ matches the selected family, reason codes, and backend objective set.
 
 The deterministic Studio/test interpreter does not decide semantic abstention and currently
 generates for the ordinary case, so the default baseline intentionally reports typed-abstention
-accuracy `0`. That failed label is useful: only a labelled V2.6 live run can supply current evidence
+accuracy `0`. That failed label is useful: only a labelled V2.11 live run can supply current evidence
 that the model uses `no_meaningful_episode` appropriately.
 
 Live evaluation is deliberately double opt-in. Repeat `--model` for a controlled model matrix and
 use `--repeats` from 1 to 10:
 
 ```powershell
+python -m backend.evaluate_v2 --provider gemini --allow-live-api --repeats 3 `
+  --model gemini-3.6-flash
+
+# Groq comparison
 python -m backend.evaluate_v2 --provider groq --allow-live-api --repeats 3 `
   --model openai/gpt-oss-20b --model openai/gpt-oss-120b
 ```
 
-Without `--allow-live-api`, Groq/OpenAI evaluation stops with a configuration error before an API
-call. Deterministic evaluation rejects `--model` because it has no live model choice.
+Without `--allow-live-api`, Gemini, Groq, and OpenAI evaluation stops with a configuration error
+before an API call. Deterministic evaluation rejects `--model` because it has no live model choice.
+Gemini free-tier evaluation is restricted to the committed synthetic, non-sensitive fixtures; it
+does not approve production player telemetry for hosted processing.
 
 The compact decision schema must be tested against an evidence-based output ceiling. Worst-case
 eligible rosters, authored sections, and compact references must still fail closed rather than
 return a partial delivery. Backend-derived IDs, complete claims, media, mission controls, delivery,
 and trace do not consume provider output tokens, but they remain part of final validation. The
-prototype defaults to 2,500 output tokens on Groq and 4,000 on OpenAI. Groq's ceiling can be raised
-with `GROQ_V2_MAX_OUTPUT_TOKENS` after provider capacity increases; the backend must be restarted.
+prototype defaults to 4,000 output tokens on Gemini, 2,500 on Groq, and 4,000 on OpenAI. Gemini's
+ceiling is configured with `GEMINI_V2_MAX_OUTPUT_TOKENS`; Groq's ceiling can be raised with
+`GROQ_V2_MAX_OUTPUT_TOKENS` after provider capacity increases. The backend must be restarted after a
+configuration change. Gemini requests use low reasoning, no explicit temperature, and a 60-second
+per-attempt timeout with no hidden SDK transport retries. MemoryOS may make one explicit semantic
+correction, and the same-origin proxy permits 130 seconds for that bounded path; a malformed or
+terminally invalid result still fails closed after final Pydantic and deterministic validation.
 The provider Story Brief omits null placeholders only—concrete false consent/capability values and
 all actual evidence remain present.
 
-## V2.6 compact-decision verification gate
+## V2.11 backend-mission-copy verification gate
 
 The automated checks below cover the current contract. A configured historical smoke used the
 telemetry-only fixture, Groq `openai/gpt-oss-120b`, and
 `memory-interpreter-v2.4-grounded-controls`; it ended as a validated pending delivery without a
 correction. That result is retained only as V2.4 history. It is not evidence for the active
-`memory-interpreter-v2.6-mission-affordances` prompt, its generate/abstain behavior, or current model
-reliability. V2.6 requires a new labelled provider/model sample.
+`memory-interpreter-v2.11-backend-mission-copy` prompt, its generate/abstain behavior, mission
+selection behavior, or current model reliability. V2.11 requires a new labelled provider/model
+sample.
+
+Two controlled V2.10 smokes were recorded historically on 9 August 2026 with Gemini
+`gemini-3.6-flash`. The
+synthetic rescue selected `role_reversal` and completed in 4.74 seconds; the repeated-near-miss case
+selected `redemption` and completed in 4.81 seconds. Both passed deterministic validation without
+correction. These successful paths do not replace the labelled no-revive and ordinary-telemetry
+cases or repeated runs required for a provider reliability claim, and they are not evidence for the
+active V2.11 prompt.
 
 Automated verification must cover:
 
-- strict `CompactInterpretationDecisionV2` parsing, generate/abstain payload invariants, and
+- strict `ProviderInterpretationDecisionV2` parsing, generate/abstain payload invariants, and
   rejection of extra authoritative control fields;
-- exact selection of one of at most four neutral windows, ranking and selection of offered
-  affordances only, recognition of supplied fact/capability references, and fail-closed validation
-  of conservatively added literal candidate evidence;
+- exact request-scoped `W#`/`A#`/`O#` projection, complete ranking of offered affordance references,
+  first-ranked selection, deterministic canonical resolution, recognition of supplied
+  fact/capability references, and fail-closed validation of unknown, ambiguous, or cross-affordance
+  references and conservatively added literal candidate evidence;
+- deterministic objective-description compilation for participant, completed-match, first-revive,
+  and placement capabilities; public mission/objective shape stability; and rejection of story
+  bridges that contradict targets/operators, add unoffered mechanics, assert unsupported facts, or
+  violate privacy or safety, without requiring the bridge to restate every rule;
 - dynamic coverage of the `reunion`, `role_reversal`, and `redemption` families, including exact
   reason-code and objective-set compilation;
+- labelled rescue, repeated-near-miss, reunion-only, ordinary, and counterfactual cases that assess
+  whether AI selects the strongest direct evidence-linked continuation without treating serialized
+  `A#` order/reference number or `O#` count as preference; validator tests must separately prove
+  that there is no deterministic family-priority rule;
 - deterministic derivation of selected match/event IDs, complete claims, media, recipe, objective
   IDs, assignments, metrics/operators/targets, source references, ordered/exact-set perspectives,
   public delivery, and Studio trace;
 - `event_scope` semantics, full-squad collective membership proof, provider perspective
-  permissions, categorical detail allowlists, cue-bound detail claims, and selected-affordance
+  permissions, evidence-bound authoring constraints, categorical detail allowlists, cue-bound
+  detail claims, and selected-affordance
   objective/reason-code enforcement;
 - rejection of unknown, cross-window, wrong-player, and unsupported references, with scored
   candidate selection for non-unique literal matches still subject to complete validation;
@@ -188,11 +228,14 @@ Automated verification must cover:
 - preservation of inactive-but-consented invitation eligibility and separation of
   `online`/`away` presentation from invitation state;
 - proof that the player projection replaces raw player and backend-objective IDs with request-scoped
-  refs and omits raw event IDs, claims, rules, source references, and Studio trace;
+  refs, omits raw event IDs, claims, rules, source references, and Studio trace, and collapses
+  overlapping participant-plus-match-completion mechanics into one player-facing step;
 - Studio coverage for sanitized affordances, ranking/selection reasons, active versus
-  invitation-ready counts, validation/correction, and abstention;
-- privacy and secret-leak checks, one bounded correction, and zero generated artifacts after any
-  terminal failure, including absence of the raw compact provider response from Studio;
+  invitation-ready counts, the separate backend participant/completion rules,
+  validation/correction, and abstention;
+- privacy and secret-leak checks, provider-visible correction sections and request-scoped references
+  with no canonical candidate ID or rejected prose, one bounded correction, and zero generated artifacts
+  after any terminal failure, including absence of the raw compact provider response from Studio;
 - explicit frontend tests for the scripted post-accept sequence, without claiming new-match
   ingestion or actual objective verification; and
 - continued green v1.0/v1.1 compatibility, backend, frontend, evaluator, and production-build tests.
@@ -255,12 +298,14 @@ expected-to-abstain pack IDs; they are synthetic expectations, not collected pla
 live run is explicit:
 
 ```powershell
+python -m backend.evaluate --provider gemini
 python -m backend.evaluate --provider groq
 python -m backend.evaluate --provider openai
 ```
 
 The cost field uses configurable `OPENAI_INPUT_COST_PER_MILLION` and
-`OPENAI_OUTPUT_COST_PER_MILLION` assumptions, so the report records the rates alongside the result.
+`OPENAI_OUTPUT_COST_PER_MILLION` assumptions for every provider, so Gemini and Groq cost figures are
+comparison assumptions rather than provider pricing unless those values are set deliberately.
 
 ## Prompt and model evaluation workflow
 
@@ -268,8 +313,8 @@ For any prompt or model change:
 
 1. Run deterministic CI gates to protect schemas, normalization, consent filtering, window
    construction, mission controls, and validators.
-2. Run the complete labelled V2.1 manifest in explicit Groq mode with `--allow-live-api`; use other
-   providers only as a documented comparison.
+2. Run the complete labelled V2.1 manifest in explicit Gemini mode with `--allow-live-api`; use Groq
+   and OpenAI as documented comparisons.
 3. Save responses and aggregate metrics only in an approved offline evaluation location; remove
    secrets, opted-out content, raw prompts, chain-of-thought, and provider exception text.
 4. Compare proposal validity, factual-clause grounding, window compliance, roster coverage,

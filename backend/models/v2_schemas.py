@@ -353,6 +353,56 @@ class MissionAffordanceV2(StrictModel):
         return self
 
 
+class PlayerEventRoleScopeV2(StrictModel):
+    """Events a narrator may describe actively, passively, or collectively."""
+
+    actor: list[str] = Field(default_factory=list, max_length=20)
+    target: list[str] = Field(default_factory=list, max_length=20)
+    full_squad: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_event_references(self) -> PlayerEventRoleScopeV2:
+        for values in (
+            self.actor,
+            self.target,
+            self.full_squad,
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError("player event role scope IDs must be unique")
+        return self
+
+
+class EvidenceBoundFieldV2(StrEnum):
+    HEALTH_STATE = "health_state"
+    ZONE_STATE = "zone_state"
+    WEAPON_CLASS = "weapon_class"
+    VEHICLE_TYPE = "vehicle_type"
+    ITEM_TYPE = "item_type"
+    PING_TYPE = "ping_type"
+    ZONE_PHASE = "zone_phase"
+
+
+class AuthoringConstraintsV2(StrictModel):
+    """Neutral provider guidance; the evidence ledger remains authoritative."""
+
+    player_event_roles: dict[str, PlayerEventRoleScopeV2] = Field(
+        min_length=2,
+        max_length=4,
+    )
+    evidence_bound_terms: dict[str, dict[EvidenceBoundFieldV2, str | int]] = Field(
+        default_factory=dict,
+        max_length=40,
+    )
+
+    @model_validator(mode="after")
+    def bounded_constraints(self) -> AuthoringConstraintsV2:
+        if any(not event_id or len(event_id) > 180 for event_id in self.evidence_bound_terms):
+            raise ValueError("evidence-bound term IDs must contain 1 to 180 characters")
+        if any(len(terms) > 12 for terms in self.evidence_bound_terms.values()):
+            raise ValueError("evidence-bound term groups may contain at most twelve fields")
+        return self
+
+
 class StoryBriefV2(StrictModel):
     """Compact, consent-safe provider input assembled from authoritative evidence."""
 
@@ -365,9 +415,18 @@ class StoryBriefV2(StrictModel):
     eligible_event_windows: list[EligibleEventWindow] = Field(min_length=1, max_length=4)
     mission_candidates: list[MissionCapabilityCandidate] = Field(min_length=1, max_length=80)
     mission_affordances: list[MissionAffordanceV2] = Field(min_length=1, max_length=32)
+    authoring_constraints: AuthoringConstraintsV2
     squad_history: SquadHistoryV2
     current_context: CurrentContextV2
     media_references: list[MediaReferenceV2] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def authoring_scopes_match_perspective_roster(self) -> StoryBriefV2:
+        required_player_ids = {player.player_id for player in self.players_requiring_perspectives}
+        scoped_player_ids = set(self.authoring_constraints.player_event_roles)
+        if scoped_player_ids != required_player_ids:
+            raise ValueError("player event role scopes must match players requiring perspectives")
+        return self
 
 
 class MissionSelectionV2(StrictModel):
@@ -518,11 +577,6 @@ class CompactPerspectiveV2(StrictModel):
         return self
 
 
-class CompactMissionObjectiveDraftV2(StrictModel):
-    candidate_id: str = Field(min_length=1, max_length=128)
-    description: str = Field(min_length=1, max_length=400)
-
-
 class CompactMissionChoiceV2(StrictModel):
     ranked_affordance_ids: list[str] = Field(min_length=1, max_length=32)
     selected_affordance_id: str = Field(min_length=1, max_length=160)
@@ -531,39 +585,24 @@ class CompactMissionChoiceV2(StrictModel):
         max_length=8,
     )
     title: str = Field(min_length=1, max_length=120)
-    mission: str = Field(
+    story_bridge: str = Field(
         min_length=1,
         max_length=500,
-        description="Player-facing wording limited exactly to the selected candidate capability.",
-    )
-    objective_descriptions: list[CompactMissionObjectiveDraftV2] = Field(
-        min_length=1,
-        max_length=10,
-        description="One authored description for every backend-owned objective candidate.",
+        description=(
+            "AI-authored narrative connection for the selected affordance. Authoritative "
+            "objective wording is compiled from backend-owned candidates."
+        ),
     )
 
     @model_validator(mode="after")
-    def ranking_and_objectives_are_unique(self) -> CompactMissionChoiceV2:
+    def ranking_and_reasons_are_unique(self) -> CompactMissionChoiceV2:
         if len(self.ranked_affordance_ids) != len(set(self.ranked_affordance_ids)):
             raise ValueError("ranked_affordance_ids must be unique")
         if self.ranked_affordance_ids[0] != self.selected_affordance_id:
             raise ValueError("selected_affordance_id must rank first")
-        candidate_ids = [item.candidate_id for item in self.objective_descriptions]
-        if len(candidate_ids) != len(set(candidate_ids)):
-            raise ValueError("objective candidate IDs must be unique")
         if len(self.selection_reason_codes) != len(set(self.selection_reason_codes)):
             raise ValueError("selection_reason_codes must be unique")
         return self
-
-    @property
-    def candidate_id(self) -> str:
-        """First compiled objective, retained as a read-only v2.0 Python compatibility aid."""
-
-        return self.objective_descriptions[0].candidate_id
-
-    @property
-    def objective_description(self) -> str:
-        return self.objective_descriptions[0].description
 
 
 class CompactMemoryProposalV2(StrictModel):

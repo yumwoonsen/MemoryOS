@@ -47,6 +47,58 @@ def test_groq_health_requires_a_server_side_key(monkeypatch: pytest.MonkeyPatch)
     }
 
 
+def test_gemini_health_requires_a_server_side_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "stage": "configuration",
+        "code": "missing_api_key",
+        "retryable": False,
+        "message": "The live AI provider could not complete this generation stage.",
+    }
+
+
+def test_gemini_health_reports_configured_provider_without_spending_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-only-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.6-flash")
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "phase": "v1-compatibility+v2",
+        "provider": "gemini",
+        "model": "gemini-3.6-flash",
+        "mode": "live_ai",
+    }
+
+
+def test_gemini_health_rejects_an_invalid_v2_output_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-only-key")
+    monkeypatch.setenv("GEMINI_V2_MAX_OUTPUT_TOKENS", "not-a-number")
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "stage": "configuration",
+        "code": "invalid_output_token_limit",
+        "retryable": False,
+        "message": "The live AI provider could not complete this generation stage.",
+    }
+
+
 def test_invalid_provider_configuration_returns_safe_503(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -339,6 +391,21 @@ def test_review_gate_also_precedes_groq_provider_initialization(
     assert response.status_code == 200
     assert response.json()["status"] == "needs_source_verification"
     assert response.json()["metadata"]["provider"] == "groq"
+    assert response.json()["metadata"]["mode"] == "live_ai"
+
+
+def test_review_gate_also_precedes_gemini_provider_initialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MEMORYOS_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    request = {"schema_version": "1.1", "memory_pack": load_history_payload()[1]}
+
+    response = client.post("/v1/memories/generate", json=request)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "needs_source_verification"
+    assert response.json()["metadata"]["provider"] == "gemini"
     assert response.json()["metadata"]["mode"] == "live_ai"
 
 

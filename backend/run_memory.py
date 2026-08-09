@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("memory_pack", type=Path, help="Path to a Memory Pack JSON file")
     parser.add_argument(
         "--provider",
-        choices=("deterministic", "openai", "groq"),
+        choices=("deterministic", "openai", "groq", "gemini"),
         default=None,
         help="Override MEMORYOS_PROVIDER for this run",
     )

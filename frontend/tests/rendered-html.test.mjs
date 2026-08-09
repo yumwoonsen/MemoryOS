@@ -520,6 +520,17 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.match(proxySource, /x-memoryos-proxy-token/);
   assert.match(proxySource, /cache:\s*"no-store"/);
   assert.match(proxySource, /"cache-control":\s*"no-store"/);
+  assert.match(proxySource, /GENERATION_TIMEOUT_MS\s*=\s*130_000/);
+  assert.match(proxySource, /code:\s*"generation_timeout"/);
+  assert.match(memoryClient, /playerPreparationError\(payload\)/);
+  assert.match(memoryClient, /playerPreparationRetryable\(payload\)/);
+  assert.match(deliveryFlow, /code === "memory_withheld"/);
+  assert.match(deliveryFlow, /did not pass the grounding checks/);
+  assert.match(deliveryFlow, /code === "provider_rate_limited"/);
+  assert.match(deliveryFlow, /code === "provider_authentication_failed"/);
+  assert.match(deliveryFlow, /code === "provider_unavailable"/);
+  assert.match(memoryClient, /view\.retryable \? \(\) => void prepare\(\) : undefined/);
+  assert.doesNotMatch(deliveryFlow, /validation\.issues|reason_codes|rejected.*prose/is);
   assert.match(homePage, /raw_telemetry_v2\.json/);
   assert.match(homePage, /projectTelemetryForPlayerStart/);
   assert.match(historyPage, /backend\/data\/historical_memory_packs\.json/);
@@ -578,6 +589,25 @@ test("consumer decision and reunion paths stay explicit and privacy-safe", async
   assert.doesNotMatch(memoryClient, /resetFlow/);
   assert.doesNotMatch(flowProvider, /sessionStorage|localStorage/);
   assert.doesNotMatch(`${memoryClient}\n${missionClient}\n${historyClient}`, /127\.0\.0\.1:8000/);
+});
+
+test("Studio deduplicates rejected issue codes and renders only safe issue copy", async () => {
+  const studioClient = await readFile(
+    new URL("../app/studio/studio-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(studioClient, /studioIssueItems\(result\.reason_codes, result\.validation\.issues\)/);
+  assert.match(studioClient, /const sectionsByCode = new Map/);
+  assert.match(studioClient, /safeStudioIssueMessages\.get\(code\)/);
+  assert.match(studioClient, /safeIssueSection\(issue\.message\)/);
+  assert.match(studioClient, /Validation stopped this proposal before delivery/);
+  assert.match(studioClient, /No title, summary, perspective, or mission is available/);
+  assert.match(studioClient, /rejectedIssues\.map/);
+  assert.doesNotMatch(
+    studioClient,
+    /\.\.\.result\.reason_codes[\s\S]*result\.validation\.issues\.map/,
+  );
 });
 
 test("hosted v2 Studio exposes a grounded, privacy-safe responsibility trace", async () => {
@@ -721,7 +751,7 @@ test("player delivery boundary strips judge internals and refuses deterministic 
     provider: "groq",
     model: "openai/gpt-oss-120b",
     mode: "live_ai",
-    prompt_version: "memory-interpreter-v2.6-mission-affordances",
+    prompt_version: "memory-interpreter-v2.11-backend-mission-copy",
     content_origin: "live_ai_validated",
     grounded_render: false,
     narrative_fallback: false,
@@ -741,10 +771,45 @@ test("player delivery boundary strips judge internals and refuses deterministic 
   assert.equal(playerDelivery.invitation_roster.length, 4);
   assert.equal(playerDelivery.invitation_roster.filter((recipient) => recipient.activity === "away").length, 2);
   assert.ok(playerDelivery.invitation_roster.every((recipient) => /^recipient-\d+$/.test(recipient.recipient_ref)));
+  assert.equal(liveResult.next_chapter.objectives.length, 3);
+  assert.equal(playerDelivery.next_chapter.objectives.length, 2);
+  assert.equal(
+    playerDelivery.next_chapter.objectives[0].description,
+    "Play and complete one match with the invited squad.",
+  );
+  assert.match(playerDelivery.next_chapter.objectives[1].description, /Lee.*first revive/i);
+  assert.equal(playerDelivery.next_chapter.objectives[1].assigned_recipient_ref, "recipient-1");
   for (const internal of ["player_perspectives", "grounded_claims", "studio_trace", "validation", "reason_codes", "consent", "matches"]) {
     assert.equal(Object.hasOwn(playerDelivery, internal), false, `${internal} must remain server-side`);
   }
   assert.doesNotMatch(JSON.stringify(playerDelivery), /ff-player-|event_id|supporting_|verification/i);
+
+  const placementResult = structuredClone(liveResult);
+  placementResult.next_chapter.family = "redemption";
+  placementResult.next_chapter.objectives[2] = {
+    ...placementResult.next_chapter.objectives[2],
+    description: "Reach the top three in the new match.",
+    assigned_player_id: null,
+    verification: {
+      metric: "match.top_three_reached",
+      operator: "equals",
+      target: true,
+    },
+  };
+  const placement = await postWithBackendStub(
+    "/api/delivery/prepare",
+    JSON.stringify({ request_id: "req-ff-20260808-001" }),
+    placementResult,
+  );
+  assert.equal(placement.response.status, 200);
+  const placementDelivery = await placement.response.json();
+  assert.deepEqual(
+    placementDelivery.next_chapter.objectives.map((objective) => objective.description),
+    [
+      "Play and complete one match with the invited squad.",
+      "Reach the top three in the new match.",
+    ],
+  );
 
   const obsoleteOutput = structuredClone(liveResult);
   obsoleteOutput.schema_version = "2.0";
@@ -834,7 +899,7 @@ test("player route safely projects an identity-hidden target and invitee through
     provider: "groq",
     model: "openai/gpt-oss-20b",
     mode: "live_ai",
-    prompt_version: "memory-interpreter-v2.6-mission-affordances",
+    prompt_version: "memory-interpreter-v2.11-backend-mission-copy",
     content_origin: "live_ai_validated",
     grounded_render: false,
     narrative_fallback: false,

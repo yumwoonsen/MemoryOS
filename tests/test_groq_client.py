@@ -23,9 +23,11 @@ from backend.models.schemas import (
     PerspectiveSet,
     PipelineStatusV11,
 )
+from backend.models.v2_provider_schemas import (
+    ProviderInterpretationDecisionV2,
+    ProviderMemoryProposalV2,
+)
 from backend.models.v2_schemas import (
-    CompactInterpretationDecisionV2,
-    CompactMemoryProposalV2,
     MemoryProposalV2,
     RawTelemetryBatchV2,
 )
@@ -420,14 +422,14 @@ def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> No
     )
     prepared = TelemetryPreparerV2().prepare(batch)
     payload = MemoryInterpreterV2._provider_payload(prepared)
-    response_schema = to_strict_json_schema(CompactInterpretationDecisionV2)
+    response_schema = to_strict_json_schema(ProviderInterpretationDecisionV2)
     request_body = json.dumps(
         {
             "model": "openai/gpt-oss-20b",
             "messages": [
                 {
                     "role": "system",
-                    "content": load_prompt("memory_interpreter_v2_6.txt"),
+                    "content": load_prompt("memory_interpreter_v2_11.txt"),
                 },
                 {
                     "role": "user",
@@ -441,7 +443,7 @@ def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> No
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": CompactInterpretationDecisionV2.__name__,
+                    "name": ProviderInterpretationDecisionV2.__name__,
                     "strict": True,
                     "schema": response_schema,
                 },
@@ -462,7 +464,7 @@ def test_v2_interpretation_request_fits_prototype_eight_k_token_envelope() -> No
 
 
 @pytest.mark.parametrize(
-    "response_model", [MemoryRecord, PerspectiveSet, NextChapter, CompactMemoryProposalV2]
+    "response_model", [MemoryRecord, PerspectiveSet, NextChapter, ProviderInterpretationDecisionV2]
 )
 def test_all_agent_contracts_convert_to_groq_compatible_strict_schema(
     response_model: type[BaseModel],
@@ -501,12 +503,12 @@ def test_backend_derived_claim_schema_supports_integer_and_decimal_values() -> N
     assert value_types == {"string", "integer", "number", "boolean", "array", "null"}
 
 
-def test_compact_ai_schema_omits_backend_authoritative_fields() -> None:
-    schema = to_strict_json_schema(CompactMemoryProposalV2)
+def test_provider_ai_schema_omits_backend_authoritative_fields() -> None:
+    schema = to_strict_json_schema(ProviderMemoryProposalV2)
     properties = schema["properties"]
 
-    assert "selected_window_id" in properties
     assert {
+        "selected_window_id",
         "selected_match_id",
         "selected_event_ids",
         "recipe",
@@ -529,7 +531,7 @@ def test_compact_ai_schema_omits_backend_authoritative_fields() -> None:
 
 
 def test_v2_1_decision_schema_requires_generate_or_abstain_payload() -> None:
-    schema = to_strict_json_schema(CompactInterpretationDecisionV2)
+    schema = to_strict_json_schema(ProviderInterpretationDecisionV2)
 
     assert set(schema["properties"]) == {
         "decision",

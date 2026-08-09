@@ -25,6 +25,21 @@ type HealthState = {
   model: string;
   message: string;
 };
+type StudioValidationIssue = { code: string; message?: string };
+type StudioIssueDisplay = { code: string; message: string; sections: string[] };
+
+const safeStudioIssueMessages = new Map<string, string>([
+  ["action_role_mismatch", "A described player action did not match the consent-safe telemetry role."],
+  ["claim_evidence_outside_episode", "A claim referenced evidence outside the selected episode."],
+  ["invented_mission_affordance", "The selected mission option was not offered by the backend."],
+  ["mission_affordance_ranking_invalid", "The mission ranking did not match the offered options."],
+  ["mission_copy_compilation_failed", "The backend could not safely compile the selected mission requirements."],
+  ["privacy_identity_leak", "The proposal did not pass the privacy boundary."],
+  ["provider_input_too_large", "The consent-safe provider input exceeded its configured limit."],
+  ["secret_exposure", "The proposal did not pass the secret-safety boundary."],
+  ["unsafe_generated_content", "The proposal did not pass the content-safety boundary."],
+  ["unsupported_categorical_detail", "A described detail was not supported by the cited telemetry."],
+]);
 
 const stageDefinitions = [
   {
@@ -39,7 +54,7 @@ const stageDefinitions = [
     number: "02",
     label: "AI interpretation",
     owner: "Memory intelligence",
-    description: "Chooses one connected episode and proposes the memory, perspectives, and mission wording.",
+    description: "Chooses one connected episode and writes the memory, perspectives, mission title, and story bridge.",
   },
   {
     id: "deterministic_validation",
@@ -63,6 +78,41 @@ function formatWords(value: string) {
 
 function formatClock(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function safeIssueSection(message?: string) {
+  const rawSection = message?.match(/^Section ([A-Za-z0-9:_-]{1,128})\s/)?.[1]?.toLowerCase();
+  if (!rawSection) return null;
+  if (rawSection.startsWith("perspective:")) return "Player perspective";
+  if (rawSection.startsWith("objective:")) return "Mission objective";
+  return ({
+    title: "Title",
+    notification_teaser: "Notification teaser",
+    summary: "Summary",
+    why_this_matters_now: "Why this matters now",
+    mission: "Mission",
+  } as Record<string, string>)[rawSection] ?? null;
+}
+
+function studioIssueItems(reasonCodes: string[], validationIssues: StudioValidationIssue[]) {
+  const sectionsByCode = new Map<string, Set<string>>();
+  for (const issue of validationIssues) {
+    const code = issue.code.trim();
+    if (!code) continue;
+    const sections = sectionsByCode.get(code) ?? new Set<string>();
+    const section = safeIssueSection(issue.message);
+    if (section) sections.add(section);
+    sectionsByCode.set(code, sections);
+  }
+  for (const rawCode of reasonCodes) {
+    const code = rawCode.trim();
+    if (code && !sectionsByCode.has(code)) sectionsByCode.set(code, new Set());
+  }
+  return [...sectionsByCode].map<StudioIssueDisplay>(([code, sections]) => ({
+    code,
+    sections: [...sections],
+    message: safeStudioIssueMessages.get(code) ?? "Validation stopped this proposal before delivery.",
+  }));
 }
 
 function safeSubject(subjectId: string, telemetry: RawTelemetryBatchV2) {
@@ -124,6 +174,9 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
       : pending
         ? "deterministic_studio_sample"
         : null);
+  const rejectedIssues = result?.status === "rejected"
+    ? studioIssueItems(result.reason_codes, result.validation.issues)
+    : [];
   const connectionLabel = health.status === "checking"
     ? "Provider check"
     : health.status === "ok"
@@ -416,7 +469,12 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
                 <p>Fail-closed result</p><h3>Generated proposal withheld</h3>
                 <span>No title, summary, perspective, or mission is available to this interface.</span>
                 <ul className="studio-issue-list">
-                  {[...result.reason_codes, ...result.validation.issues.map((issue) => issue.code)].map((code, index) => <li key={`${code}-${index}`}>{formatWords(code)}</li>)}
+                  {rejectedIssues.map((issue) => (
+                    <li key={issue.code}>
+                      {issue.sections.length ? `${issue.sections.join(", ")} · ` : ""}
+                      {issue.message} ({formatWords(issue.code)})
+                    </li>
+                  ))}
                 </ul>
               </article>
             </div>
@@ -462,10 +520,15 @@ export function StudioDashboard({ telemetry }: { telemetry: RawTelemetryBatchV2 
                   <span>{affordance.objective_candidate_ids.length} compiled rules / {affordance.source_event_ids.length + affordance.source_match_ids.length + affordance.source_context_ids.length} source references</span>
                 </article>
               ))}
-              <article className="studio-result-card result-quest"><p>AI-authored Next Chapter</p><h3>{result.next_chapter.title}</h3><span>{result.next_chapter.mission}</span></article>
+              <article className="studio-result-card result-quest">
+                <p>AI-authored mission framing</p>
+                <h3>{result.next_chapter.title}</h3>
+                <span>{result.next_chapter.mission}</span>
+              </article>
               {result.next_chapter.objectives.map((objective) => (
                 <article className="studio-result-card" key={objective.objective_id}>
-                  <p>Backend-owned verification rule</p><h3>{objective.description}</h3>
+                  <p>Backend-compiled requirement</p>
+                  <h3>{objective.description}</h3>
                   <span>{formatWords(objective.verification.metric)} / {formatWords(objective.verification.operator)} / {safeRuleTarget(objective.verification.target, telemetry)}</span>
                 </article>
               ))}

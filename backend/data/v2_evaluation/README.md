@@ -20,9 +20,21 @@ Live calls are deliberately opt-in. They require the matching provider credentia
 flag below; repeating `--model` compares identical cases under each named model.
 
 ```powershell
+python -m backend.evaluate_v2 --provider gemini --allow-live-api --repeats 3 `
+  --model gemini-3.6-flash
+
+# Groq comparison
 python -m backend.evaluate_v2 --provider groq --allow-live-api --repeats 3 `
   --model openai/gpt-oss-20b --model openai/gpt-oss-120b
 ```
+
+Gemini is the preferred hosted prototype path. Its free-tier runs are limited to these committed
+synthetic, non-sensitive fixtures; they do not establish approval to process production player data.
+The adapter uses the official OpenAI-compatible endpoint with low reasoning, no explicit
+temperature, a 60-second per-attempt timeout, no hidden SDK retries, a strict sanitized schema, and
+a 4,000-token v2 ceiling. MemoryOS may make one explicit semantic correction. Returned
+JSON still must pass the original Pydantic model and deterministic validation, and failures return no
+partial delivery.
 
 The JSON report includes terminal status, offered and selected mission family, correction and
 validation outcomes, end-to-end latency, and aggregate provider token usage. It excludes API keys,

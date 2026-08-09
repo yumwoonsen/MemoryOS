@@ -3,10 +3,33 @@ import type { ProviderErrorBody } from "@/lib/history-types";
 const normalizedConfiguredApi = process.env.MEMORYOS_API_URL?.trim().replace(/\/+$/, "");
 const backendApi = normalizedConfiguredApi || "http://127.0.0.1:8000";
 const proxyToken = process.env.MEMORYOS_PROXY_TOKEN?.trim();
-const GENERATION_TIMEOUT_MS = 90_000;
+// One Gemini attempt can take up to 60 seconds and MemoryOS may make one
+// explicit semantic correction. Keep the trusted proxy alive for that bounded
+// path instead of aborting a valid correction at the old 90-second ceiling.
+const GENERATION_TIMEOUT_MS = 130_000;
 
 function proxyResponseHeaders() {
   return { "cache-control": "no-store", "x-memoryos-mode": "live" };
+}
+
+function proxyTransportFailure(error: unknown) {
+  const timedOut = error instanceof Error && error.name === "TimeoutError";
+  return Response.json(
+    timedOut
+      ? {
+          stage: "frontend_proxy",
+          code: "generation_timeout",
+          retryable: true,
+          message: "MemoryOS did not finish within the bounded generation window.",
+        }
+      : {
+          stage: "frontend_proxy",
+          code: "backend_unavailable",
+          retryable: true,
+          message: "The configured MemoryOS backend is unavailable. Start it and try again.",
+        },
+    { status: 503, headers: proxyResponseHeaders() },
+  );
 }
 
 export function backendUrl(path: string) {
@@ -69,8 +92,8 @@ export async function proxyMemoryOsPayload(body: unknown, path: string): Promise
     return response.ok
       ? Response.json(payload, { status: response.status, headers: proxyResponseHeaders() })
       : Response.json(errorResponse(payload, response.status), { status: response.status, headers: proxyResponseHeaders() });
-  } catch {
-    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "The configured MemoryOS backend is unavailable. Start it and try again." }, { status: 503, headers: proxyResponseHeaders() });
+  } catch (error) {
+    return proxyTransportFailure(error);
   }
 }
 
@@ -98,7 +121,7 @@ export async function proxyMemoryOsGet(path: string): Promise<Response> {
     return response.ok
       ? Response.json(payload, { status: response.status, headers: proxyResponseHeaders() })
       : Response.json(errorResponse(payload, response.status), { status: response.status, headers: proxyResponseHeaders() });
-  } catch {
-    return Response.json({ stage: "frontend_proxy", code: "backend_unavailable", retryable: true, message: "The configured MemoryOS backend is unavailable. Start it and try again." }, { status: 503, headers: proxyResponseHeaders() });
+  } catch (error) {
+    return proxyTransportFailure(error);
   }
 }

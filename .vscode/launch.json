@@ -17,6 +17,21 @@
       "justMyCode": true
     },
     {
+      "name": "MemoryOS: Run API (Live Gemini 3.6 Flash)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "backend.main:app",
+        "--reload"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "MEMORYOS_PROVIDER": "gemini"
+      },
+      "justMyCode": true
+    },
+    {
       "name": "MemoryOS: Run API (Live Groq GPT-OSS 20B)",
       "type": "debugpy",
       "request": "launch",

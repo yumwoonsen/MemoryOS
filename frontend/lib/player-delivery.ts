@@ -86,6 +86,7 @@ export type PlayerNotGeneratedV2 = {
 };
 
 export type PlayerDeliveryResultV2 = PlayerPendingDeliveryProjectionV2 | PlayerNotGeneratedV2;
+type PlayerMissionObjectiveV2 = PlayerPendingDeliveryProjectionV2["next_chapter"]["objectives"][number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -191,6 +192,46 @@ function inferMissionFamily(delivery: PendingDeliveryV2): MissionFamilyV2 {
   if (metrics.includes("match.first_squad_revive_actor_id")) return "role_reversal";
   if (metrics.includes("match.top_three_reached")) return "redemption";
   return "reunion";
+}
+
+function projectPlayerMissionObjectives(
+  delivery: PendingDeliveryV2,
+  refByPlayerId: Map<string, string>,
+): PlayerMissionObjectiveV2[] {
+  const projected = delivery.next_chapter.objectives.map((objective, index) => ({
+    objective_ref: `objective-${index + 1}`,
+    description: objective.description,
+    required: objective.required,
+    ...(objective.assigned_player_id && refByPlayerId.has(objective.assigned_player_id)
+      ? { assigned_recipient_ref: refByPlayerId.get(objective.assigned_player_id) }
+      : {}),
+  }));
+  const participantIndexes = delivery.next_chapter.objectives.flatMap((objective, index) =>
+    objective.required && objective.verification.metric === "squad.participant_ids" ? [index] : []);
+  const completedMatchIndexes = delivery.next_chapter.objectives.flatMap((objective, index) =>
+    objective.required && objective.verification.metric === "squad.matches_completed" ? [index] : []);
+  if (participantIndexes.length !== 1 || completedMatchIndexes.length !== 1) return projected;
+
+  const participantIndex = participantIndexes[0];
+  const completedMatchIndex = completedMatchIndexes[0];
+  if (participantIndex === completedMatchIndex) return projected;
+  const visibleIndex = Math.min(participantIndex, completedMatchIndex);
+  const hiddenIndex = Math.max(participantIndex, completedMatchIndex);
+  const completedTarget = delivery.next_chapter.objectives[completedMatchIndex].verification.target;
+  const matchCount = typeof completedTarget === "number" && completedTarget > 0
+    ? completedTarget
+    : 1;
+  const matchLabel = matchCount === 1 ? "one match" : `${matchCount} matches`;
+
+  return projected.flatMap((objective, index) => {
+    if (index === hiddenIndex) return [];
+    if (index !== visibleIndex) return [objective];
+    return [{
+      objective_ref: objective.objective_ref,
+      description: `Play and complete ${matchLabel} with the invited squad.`,
+      required: true,
+    }];
+  });
 }
 
 function escapeRegExp(value: string) {
@@ -315,14 +356,7 @@ export function projectPendingDeliveryForPlayer(
       title: delivery.next_chapter.title,
       mission: delivery.next_chapter.mission,
       family: inferMissionFamily(delivery),
-      objectives: delivery.next_chapter.objectives.map((objective, index) => ({
-        objective_ref: `objective-${index + 1}`,
-        description: objective.description,
-        required: objective.required,
-        ...(objective.assigned_player_id && refByPlayerId.has(objective.assigned_player_id)
-          ? { assigned_recipient_ref: refByPlayerId.get(objective.assigned_player_id) }
-          : {}),
-      })),
+      objectives: projectPlayerMissionObjectives(delivery, refByPlayerId),
     },
     invitation_roster: invitationRoster,
     metadata: {

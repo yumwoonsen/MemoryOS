@@ -1,6 +1,6 @@
 """Opt-in v2.1 mission-affordance and abstention benchmark.
 
-Deterministic evaluation is the default. Live Groq or OpenAI calls require both an explicit
+Deterministic evaluation is the default. Live provider calls require both an explicit
 provider and ``--allow-live-api`` so importing this module or running the test suite cannot incur
 API usage. Reports contain aggregate provider counters only; credentials, prompts, payloads, and
 generated prose are never emitted.
@@ -31,7 +31,7 @@ from backend.v2_pipeline import build_v2_pipeline
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_MANIFEST = DATA_DIR / "v2_evaluation" / "manifest.json"
-ProviderName = Literal["deterministic", "groq", "openai"]
+ProviderName = Literal["deterministic", "groq", "openai", "gemini"]
 
 
 class V2BenchmarkManifestCase(StrictModel):
@@ -81,7 +81,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate the MemoryOS v2.1 pipeline.")
     parser.add_argument(
         "--provider",
-        choices=("deterministic", "groq", "openai"),
+        choices=("deterministic", "groq", "openai", "gemini"),
         default="deterministic",
         help="Live providers are disabled unless --allow-live-api is also supplied.",
     )
@@ -106,7 +106,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--allow-live-api",
         action="store_true",
-        help="Explicitly permit Groq/OpenAI calls, which may incur usage.",
+        help="Explicitly permit live provider calls, which may incur usage.",
     )
     return parser.parse_args(argv)
 
@@ -130,6 +130,14 @@ def run_benchmark(
     if provider != "deterministic" and not allow_live_api:
         raise BenchmarkConfigurationError(
             "live providers require the explicit --allow-live-api flag"
+        )
+    if (
+        provider == "gemini"
+        and allow_live_api
+        and manifest_path.resolve() != DEFAULT_MANIFEST.resolve()
+    ):
+        raise BenchmarkConfigurationError(
+            "Gemini live evaluation is restricted to the committed synthetic demo manifest"
         )
     requested_models = list(models or [None])
     if provider == "deterministic" and any(model is not None for model in requested_models):
@@ -343,7 +351,11 @@ def _safe_error_code(error: Exception) -> str:
 
 @contextmanager
 def _temporary_model(provider: ProviderName, model: str | None) -> Iterator[None]:
-    environment_key = {"groq": "GROQ_MODEL", "openai": "OPENAI_MODEL"}.get(provider)
+    environment_key = {
+        "groq": "GROQ_MODEL",
+        "openai": "OPENAI_MODEL",
+        "gemini": "GEMINI_MODEL",
+    }.get(provider)
     if environment_key is None or model is None:
         yield
         return

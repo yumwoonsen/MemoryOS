@@ -30,10 +30,12 @@ The canonical `/` route uses the AI-first v2 adapter and proxies:
   delivery; and
 - `POST /v2/deliveries/{delivery_id}/decision` for acceptance or one structured decline reason.
 
-The live provider's compact decision is internal to the backend. AI selects one offered window,
-authors memory and perspective language, ranks feasible mission affordances, and writes one
-selected continuation with bounded fact/capability references. The backend derives the selected
-match/event IDs, complete grounded claims, eligible media, mission family, objective assignments/rules,
+The live provider's compact decision is internal to the backend. AI authors memory and perspective
+language, ranks feasible mission affordances through request-scoped `A#` references, and writes the
+selected mission title and short story bridge against nested typed `O#` capabilities. The first ranked affordance resolves
+to its linked `W#` episode. The backend derives the selected
+match/event IDs, complete grounded claims, eligible media, mission family, exact objective
+descriptions, objective assignments/rules,
 and the ordered proposal perspectives before validation. It validates that the provider-supplied
 perspective IDs equal the exact eligible set; it does not restore a missing perspective. Only after
 the complete proposal passes does the pipeline create the delivery record, safe Studio trace, and
@@ -43,8 +45,22 @@ returns only the current player's perspective, verified moment summaries, one Ne
 safe invitation roster. Raw telemetry, teammate perspective prose, consent records, compact output,
 and Studio internals do not cross into the player UI.
 
+The backend offers only evidence-supported, feasible, and verifiable `reunion`, `role_reversal`, and
+`redemption` options. AI compares those episode-and-mission combinations and normally selects the
+strongest direct evidence-linked continuation, then writes its title and story bridge naturally.
+The backend supplies the exact player-facing steps. Reunion is the general
+fallback when no more coherent specific continuation is supported. Serialized `A#` order/reference
+number and nested `O#` count are not preference signals, and deterministic validation does not
+impose a family priority. It checks the selected option's grounding and consent, and rejects a story
+bridge that contradicts its target/operator, introduces an unoffered mechanic, asserts an unsupported
+fact, or violates privacy or safety. The story bridge does not need to repeat every objective rule.
+
+For readability, the player projection combines overlapping roster-participation and
+completed-match requirements into one clear step, such as **Complete one match with the invited
+squad**. The separate backend rules are unchanged and remain visible in Developer Studio.
+
 This preserves the compact player sequence: one memory, its grounded explanation,
-the current player's perspective, a clear reunion mission, and one decision. `/history` remains a
+the current player's perspective, one clear Next Chapter, and one decision. `/history` remains a
 read-only timeline rather than a second delivery or feedback surface.
 
 ## Developer Studio
@@ -56,8 +72,8 @@ deterministic validation.
 
 The Studio deliberately separates three runtime states:
 
-- **Live AI** — the configured Groq or OpenAI provider generated one compact typed draft that the
-  backend enriched and validated into the public delivery.
+- **Live AI** — the configured Gemini, Groq, or OpenAI provider generated one compact typed draft
+  that the backend enriched and validated into the public delivery.
 - **Deterministic run** — the rules provider completed the pipeline without model calls.
 - **Sample replay** — the hosted frontend replayed the bundled canonical result because no backend
   is configured or reachable.
@@ -77,17 +93,19 @@ whose allowlisted membership telemetry proves full-roster participation. Categor
 are allowlisted. Categorical and ordinary numeric detail claims require the typed value plus an
 associated field/action cue; survival wording may use positive squad-alive telemetry without
 restating its numeric count. Conservative lexical enrichment adds candidate evidence rather than claiming a unique semantic
-mapping; the complete tuple and prose validators still run. Mission wording is bounded by the
+mapping; the complete tuple and prose validators still run. Mission story wording is bounded by the
 selected candidate's deterministic `authoring_scope` plus conservative checks for tested conflicting
 actions, quantities, operators, names, and known extra-condition terms; this is not unrestricted
-semantic proof.
+semantic proof. Exact objective descriptions are backend-compiled from the selected capability.
 
 The smaller provider schema is expected to improve structured-output reliability because the model
 no longer repeats identifiers and control values already owned by the backend. This does not weaken
 the player boundary or validation. The updated backend/frontend suites and one telemetry-only live
 interpretation passed historically on 8 August 2026 with Groq `openai/gpt-oss-120b` and the former
-v2.4 prompt. The current v2.1 mission-affordance path uses the v2.6 prompt; the saved Studio sample
-remains an offline demonstration, and the historical run is not a comparative reliability result.
+v2.4 prompt. The current v2.1 mission-affordance path uses
+`memory-interpreter-v2.11-backend-mission-copy` from `memory_interpreter_v2_11.txt`; the saved Studio
+sample remains an offline demonstration, and historical V2.4 and V2.10 runs are not comparative
+reliability results for the active prompt.
 
 ## Run locally
 
@@ -162,10 +180,17 @@ $env:MEMORYOS_PROVIDER = "deterministic"
 python -m uvicorn backend.main:app --reload
 ```
 
-The canonical player route intentionally refuses deterministic narrative. To test the player flow,
-start the backend with `MEMORYOS_PROVIDER=groq`, a server-side `GROQ_API_KEY`, and the prototype
-`GROQ_V2_MAX_OUTPUT_TOKENS=2500` budget. Raise that budget only after provider capacity increases,
-or use the OpenAI provider configuration described in the root README.
+The canonical player route intentionally refuses deterministic narrative. To test the player flow
+through the preferred hosted prototype provider, start the backend with
+`MEMORYOS_PROVIDER=gemini`, a server-side `GEMINI_API_KEY`,
+`GEMINI_MODEL=gemini-3.6-flash`, and `GEMINI_V2_MAX_OUTPUT_TOKENS=4000`. Gemini uses Google's
+official OpenAI-compatible endpoint with low reasoning, no explicit temperature, a 60-second
+per-attempt timeout, no hidden SDK retries, and a strict schema with provider-unsupported hints
+removed. The frontend proxy waits up to 130 seconds for the initial request plus at most one
+explicit semantic correction. Returned JSON still must pass
+the original Pydantic and deterministic validators, and failures return no partial player delivery.
+Use only synthetic, non-sensitive telemetry for free-tier testing. Groq and OpenAI remain available
+through the configurations in the root README.
 
 ## Quality checks
 

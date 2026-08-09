@@ -3,36 +3,70 @@
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import dataclass
 from typing import Any
 
 from backend.models.schemas import MemoryType, QuestRecipe
+from backend.models.v2_provider_schemas import (
+    MissionObjectiveKindV2,
+    ProviderInterpretationDecisionV2,
+    ProviderMemoryProposalV2,
+    ProviderMissionAffordanceV2,
+    ProviderMissionChoiceV2,
+    ProviderMissionObjectiveV2,
+    ProviderSourceRoleBindingV2,
+    ProviderStoryBriefV2,
+    ProviderWindowV2,
+)
 from backend.models.v2_schemas import (
     CanonicalEventType,
     ClaimPredicate,
     CompactInterpretationDecisionV2,
     CompactMemoryProposalV2,
     CompactMissionChoiceV2,
-    CompactMissionObjectiveDraftV2,
     CompactPerspectiveV2,
     CompactSectionDraftV2,
     GroundedClaim,
     InterpretationAbstentionReasonV2,
     InterpretationDecisionKindV2,
     MemoryProposalV2,
+    MissionAffordanceV2,
+    MissionCapabilityCandidate,
     MissionFamilyV2,
     ProposedMissionObjectiveV2,
     ProposedMissionV2,
     ProposedPerspectiveV2,
 )
 from backend.services.structured_generator import StructuredGenerator
+from backend.services.v2_mission_copy_compiler import (
+    compile_mission_objective_descriptions,
+)
 from backend.services.v2_preparation import PreparedInterpretationV2
-from backend.services.v2_proposal_expander import CompactProposalExpanderV2
+from backend.services.v2_proposal_expander import (
+    CompactProposalExpanderV2,
+    CompactProposalExpansionError,
+)
 
 MAX_PROVIDER_PAYLOAD_BYTES = 96_000
+PROVIDER_REFERENCE_PATTERN = re.compile(r"^[WAO][1-9][0-9]*$")
 
 
 class ProviderInputLimitError(ValueError):
     """The sanitized prompt projection exceeded a deterministic provider boundary."""
+
+
+@dataclass(frozen=True)
+class _ProviderCatalogV2:
+    """Request-scoped aliases used only across the external model boundary."""
+
+    brief: ProviderStoryBriefV2
+    window_id_by_ref: dict[str, str]
+    affordance_id_by_ref: dict[str, str]
+    objective_id_by_ref: dict[str, str]
+    window_ref_by_id: dict[str, str]
+    affordance_ref_by_id: dict[str, str]
+    objective_ref_by_id: dict[str, str]
 
 
 EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
@@ -61,7 +95,7 @@ EVENT_LANGUAGE: dict[CanonicalEventType, tuple[ClaimPredicate, str]] = {
 class MemoryInterpreterV2:
     """Ask one live provider for a complete proposal, or run an explicit demo interpreter."""
 
-    prompt_version = "memory-interpreter-v2.6-mission-affordances"
+    prompt_version = "memory-interpreter-v2.11-backend-mission-copy"
 
     def __init__(self, generator: StructuredGenerator | None = None) -> None:
         self._generator = generator
@@ -107,30 +141,60 @@ class MemoryInterpreterV2:
             payload["correction"] = {
                 "validation_issues": validation_feedback,
                 "instruction": (
-                    "Return one complete corrected CompactInterpretationDecisionV2 and emit "
+                    "Return one complete corrected ProviderInterpretationDecisionV2 and emit "
                     "every schema field. Resolve each issue in its allowlisted section when "
                     "supplied. This is a strict rewrite, not an edit: do not carry over any "
-                    "unsupported context from a prior draft. Rank only offered affordances, put "
-                    "the selection first, use only its reason codes, and describe every compiled "
-                    "objective. When text mentions a player, action, location, match value, "
-                    "category, or number, cite exact support or remove that wording."
+                    "unsupported context from a prior draft. Copy only offered request-scoped "
+                    "A references, rank every offered A reference once with the selection first, "
+                    "and use only its reason codes. Write a fresh mission title and short story "
+                    "bridge; the backend renders the objective requirements. When "
+                    "text mentions a player, action, location, match value, category, or number, "
+                    "cite exact support or remove that wording. For every section flagged with "
+                    "unsupported_categorical_detail, remove all exact categorical and zone values "
+                    "from that section instead of trying to preserve decorative detail."
                 ),
                 "strict_section_rules": {
                     "story": (
                         "Use only literal facts from the selected evidence IDs. Do not use a "
+                        "source match outside the selected affordance's linked window as evidence "
+                        "for player-story sections; additional source_match_ids are mission-"
+                        "selection context only. Do not use a "
                         "category word such as a vehicle, zone, weapon, item, or ping type unless "
-                        "the cited event carries that exact typed value."
+                        "the unchanged evidence_bound_terms contains that exact field and value "
+                        "for evidence cited in the section. A zone phase is not a zone state."
                     ),
                     "perspectives": (
-                        "Write one short first-person sentence per narrator. It may describe only "
-                        "that narrator's direct actor or target event, or a cited full-squad event "
-                        "using we/the squad. Do not mention any other player's action, including "
-                        "as before/after context."
+                        "Write one short first-person sentence per narrator. Use that narrator's "
+                        "unchanged player_event_roles map literally: actor allows active wording, "
+                        "target allows only passive or affected wording, and full_squad allows "
+                        "only we/the squad. Every message must be distinct. Narrators sharing only "
+                        "full_squad evidence may vary concise grammar without gaining individual "
+                        "roles. Every perspective must cite at least one permitted event from the "
+                        "selected linked window; match or context IDs alone are insufficient. Do "
+                        "not mention another player's action as before/after context. Keep every "
+                        "perspective category-free: do not copy vehicle types, weapon classes, "
+                        "item types, ping types, health states, zone states, or zone phases from "
+                        "evidence_bound_terms. Use the supported action and location instead. A "
+                        "narrator with only full_squad evidence must use one short collective "
+                        "sentence beginning with 'We' or 'The squad', such as 'We escaped the "
+                        "area together.'"
+                    ),
+                    "action_roles": (
+                        "Use one gameplay action per sentence. Put the supported actor directly "
+                        "before the action and its supported target directly after it, or use "
+                        "'<target> was <action> by <actor>'. Do not use action clauses introduced "
+                        "by after, before, while, when, or as."
                     ),
                     "mission": (
-                        "Use only the selected affordance and its referenced objective candidates. "
-                        "Do not mention a past event, location, outcome, or player unless that "
-                        "affordance explicitly allows it."
+                        "Use only the first-ranked A affordance and its nested O capabilities. "
+                        "Treat A order, reference number, objective count, and wording ease as "
+                        "non-preference signals. Recompare how directly each offered A continues "
+                        "its source evidence, using reunion as the general fallback rather than "
+                        "the automatic first choice. Write only a short story_bridge explaining "
+                        "why the selected continuation follows from the episode. It may paraphrase "
+                        "the selected mechanic, but it must not add another mechanic, target, "
+                        "threshold, player assignment, or condition. Objective requirements are "
+                        "backend-owned and must not be rewritten."
                     ),
                 },
             }
@@ -140,9 +204,9 @@ class MemoryInterpreterV2:
         if encoded_size > MAX_PROVIDER_PAYLOAD_BYTES:
             raise ProviderInputLimitError("sanitized provider payload exceeds its byte limit")
         decision = self._generator.generate(
-            prompt_name="memory_interpreter_v2_6.txt",
+            prompt_name="memory_interpreter_v2_11.txt",
             payload=payload,
-            response_model=CompactInterpretationDecisionV2,
+            response_model=ProviderInterpretationDecisionV2,
             stage=stage,
         )
         # Compatibility for test generators and v2.0 provider fixtures during migration.
@@ -152,27 +216,296 @@ class MemoryInterpreterV2:
                 abstention_reason_code=None,
                 proposal=decision,
             )
+        if isinstance(decision, CompactInterpretationDecisionV2):
+            if decision.decision == InterpretationDecisionKindV2.ABSTAIN:
+                assert decision.abstention_reason_code is not None
+                return decision.abstention_reason_code
+            assert decision.proposal is not None
+            return self._expander.expand(prepared, decision.proposal)
         if decision.decision == InterpretationDecisionKindV2.ABSTAIN:
             assert decision.abstention_reason_code is not None
             return decision.abstention_reason_code
         assert decision.proposal is not None
-        return self._expander.expand(prepared, decision.proposal)
+        compact = self._resolve_provider_proposal(prepared, decision.proposal)
+        return self._expander.expand(prepared, compact)
 
-    @staticmethod
-    def _provider_payload(prepared: PreparedInterpretationV2) -> dict[str, Any]:
+    @classmethod
+    def _provider_payload(cls, prepared: PreparedInterpretationV2) -> dict[str, Any]:
         assert prepared.normalized is not None
         assert prepared.ledger is not None
         assert prepared.story_brief is not None
+        catalog = cls._provider_catalog(prepared)
         return {
-            "contract": "CompactInterpretationDecisionV2",
+            "contract": "ProviderInterpretationDecisionV2",
             # Empty optional placeholders add tokens but carry no evidence. Keep every
             # concrete value—including false privacy/capability signals—while omitting
             # only nulls from the provider projection.
-            "story_brief": prepared.story_brief.model_dump(
+            "story_brief": catalog.brief.model_dump(
                 mode="json",
                 exclude_none=True,
             ),
         }
+
+    @classmethod
+    def _provider_catalog(cls, prepared: PreparedInterpretationV2) -> _ProviderCatalogV2:
+        """Project canonical preparation into compact, request-scoped provider handles."""
+
+        assert prepared.normalized is not None
+        assert prepared.story_brief is not None
+
+        window_ref_by_id = {
+            window.window_id: f"W{index}" for index, window in enumerate(prepared.windows, start=1)
+        }
+        affordance_ref_by_id = {
+            affordance.affordance_id: f"A{index}"
+            for index, affordance in enumerate(prepared.mission_affordances, start=1)
+        }
+        objective_ref_by_id = {
+            objective.candidate_id: f"O{index}"
+            for index, objective in enumerate(prepared.mission_candidates, start=1)
+        }
+        if len(window_ref_by_id) != len(prepared.windows):
+            raise ValueError("eligible event window IDs must be unique")
+        if len(affordance_ref_by_id) != len(prepared.mission_affordances):
+            raise ValueError("mission affordance IDs must be unique")
+        if len(objective_ref_by_id) != len(prepared.mission_candidates):
+            raise ValueError("mission objective candidate IDs must be unique")
+
+        provider_windows = [
+            ProviderWindowV2(
+                window_ref=window_ref_by_id[window.window_id],
+                match_id=window.match_id,
+                event_ids=window.event_ids,
+                participant_ids=window.participant_ids,
+                start_seconds=window.start_seconds,
+                end_seconds=window.end_seconds,
+            )
+            for window in prepared.windows
+        ]
+        candidate_by_id = {
+            candidate.candidate_id: candidate for candidate in prepared.mission_candidates
+        }
+        display_name_by_id = {
+            player.player_id: player.display_name for player in prepared.normalized.players
+        }
+        event_by_id = {
+            event.event_id: event for match in prepared.normalized.matches for event in match.events
+        }
+        provider_affordances: list[ProviderMissionAffordanceV2] = []
+        for affordance in prepared.mission_affordances:
+            objectives = [
+                cls._provider_objective(
+                    candidate_by_id[candidate_id],
+                    affordance,
+                    objective_ref_by_id[candidate_id],
+                    prepared.story_brief.invitation_player_ids,
+                    display_name_by_id,
+                )
+                for candidate_id in affordance.objective_candidate_ids
+            ]
+            role_binding = cls._provider_role_binding(
+                affordance,
+                objectives,
+                event_by_id,
+            )
+            provider_affordances.append(
+                ProviderMissionAffordanceV2(
+                    affordance_ref=affordance_ref_by_id[affordance.affordance_id],
+                    family=affordance.family,
+                    window_ref=window_ref_by_id[affordance.window_id],
+                    source_event_ids=affordance.source_event_ids,
+                    source_match_ids=affordance.source_match_ids,
+                    source_context_ids=affordance.source_context_ids,
+                    allowed_reason_codes=affordance.allowed_reason_codes,
+                    objectives=objectives,
+                    source_role_binding=role_binding,
+                )
+            )
+
+        story = prepared.story_brief
+        brief = ProviderStoryBriefV2(
+            request_id=story.request_id,
+            target_player_id=story.target_player_id,
+            players_requiring_perspectives=story.players_requiring_perspectives,
+            invitation_player_ids=story.invitation_player_ids,
+            active_player_ids=story.active_player_ids,
+            evidence_ledger=story.evidence_ledger,
+            windows=provider_windows,
+            affordances=provider_affordances,
+            authoring_constraints=story.authoring_constraints,
+            squad_history=story.squad_history,
+            current_context=story.current_context,
+            media_references=story.media_references,
+        )
+        return _ProviderCatalogV2(
+            brief=brief,
+            window_id_by_ref={value: key for key, value in window_ref_by_id.items()},
+            affordance_id_by_ref={value: key for key, value in affordance_ref_by_id.items()},
+            objective_id_by_ref={value: key for key, value in objective_ref_by_id.items()},
+            window_ref_by_id=window_ref_by_id,
+            affordance_ref_by_id=affordance_ref_by_id,
+            objective_ref_by_id=objective_ref_by_id,
+        )
+
+    @staticmethod
+    def _provider_objective(
+        candidate: MissionCapabilityCandidate,
+        affordance: MissionAffordanceV2,
+        objective_ref: str,
+        invitation_player_ids: list[str],
+        display_name_by_id: dict[str, str],
+    ) -> ProviderMissionObjectiveV2:
+        metric = candidate.verification.metric
+        target = candidate.verification.target
+        if metric == "squad.participant_ids":
+            if target != invitation_player_ids:
+                raise ValueError(
+                    "participant capability must use the consent-safe invitation roster"
+                )
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.REQUIRED_PARTICIPANTS,
+                required_terms=["invited squad", "play", "match"],
+                roster_ref="invitation_player_ids",
+            )
+        if metric == "squad.matches_completed":
+            if type(target) is not int:
+                raise ValueError("match completion capability requires an integer target")
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.COMPLETED_MATCHES,
+                required_terms=["complete", f"at least {target}", "match"],
+                minimum_count=target,
+            )
+        if metric == "match.first_squad_revive_actor_id":
+            if (
+                not isinstance(target, str)
+                or candidate.assigned_player_id != target
+                or target not in invitation_player_ids
+            ):
+                raise ValueError("event actor capability requires one invitation-safe assignee")
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.EVENT_ACTOR,
+                required_terms=[display_name_by_id[target], "completes", "first", "revive"],
+                assigned_player_id=target,
+                event_type=CanonicalEventType.REVIVE,
+                ordinal="first",
+            )
+        if metric == "match.top_three_reached":
+            placement = affordance.parameters.get("target_placement_max")
+            if target is not True or type(placement) is not int:
+                raise ValueError("placement capability requires an authoritative placement limit")
+            return ProviderMissionObjectiveV2(
+                objective_ref=objective_ref,
+                kind=MissionObjectiveKindV2.PLACEMENT_AT_MOST,
+                required_terms=[f"top {placement}"],
+                placement_at_most=placement,
+            )
+        raise ValueError(f"unsupported mission capability metric: {metric}")
+
+    @staticmethod
+    def _provider_role_binding(
+        affordance: MissionAffordanceV2,
+        objectives: list[ProviderMissionObjectiveV2],
+        event_by_id: dict[str, Any],
+    ) -> ProviderSourceRoleBindingV2 | None:
+        if affordance.family != MissionFamilyV2.ROLE_REVERSAL:
+            return None
+        source_event = next(
+            (
+                event_by_id[event_id]
+                for event_id in affordance.source_event_ids
+                if event_id in event_by_id
+                and event_by_id[event_id].event_type == CanonicalEventType.REVIVE
+            ),
+            None,
+        )
+        actor_objective = next(
+            (
+                objective
+                for objective in objectives
+                if objective.kind == MissionObjectiveKindV2.EVENT_ACTOR
+            ),
+            None,
+        )
+        if (
+            source_event is None
+            or source_event.actor_id is None
+            or source_event.target_id is None
+            or actor_objective is None
+            or actor_objective.assigned_player_id is None
+        ):
+            raise ValueError("role reversal capability requires source and future actor roles")
+        return ProviderSourceRoleBindingV2(
+            source_event_id=source_event.event_id,
+            event_type=source_event.event_type,
+            source_actor_id=source_event.actor_id,
+            source_target_id=source_event.target_id,
+            future_actor_id=actor_objective.assigned_player_id,
+        )
+
+    @classmethod
+    def _resolve_provider_proposal(
+        cls,
+        prepared: PreparedInterpretationV2,
+        proposal: ProviderMemoryProposalV2,
+    ) -> CompactMemoryProposalV2:
+        """Normalize harmless handle formatting, then restore canonical backend IDs."""
+
+        catalog = cls._provider_catalog(prepared)
+        canonical_ranking: list[str] = []
+        seen_affordances: set[str] = set()
+        for index, raw_ref in enumerate(proposal.mission.ranked_affordance_refs):
+            reference = cls._normalize_provider_ref(raw_ref, "A")
+            affordance_id = (
+                catalog.affordance_id_by_ref.get(reference) if reference is not None else None
+            )
+            if affordance_id is None:
+                code = (
+                    "invented_mission_affordance"
+                    if index == 0
+                    else "mission_affordance_ranking_invalid"
+                )
+                raise CompactProposalExpansionError(code)
+            if affordance_id not in seen_affordances:
+                canonical_ranking.append(affordance_id)
+                seen_affordances.add(affordance_id)
+        if set(canonical_ranking) != set(catalog.affordance_ref_by_id):
+            raise CompactProposalExpansionError("mission_affordance_ranking_invalid")
+
+        selected_affordance_id = canonical_ranking[0]
+        selected_affordance = next(
+            item
+            for item in prepared.mission_affordances
+            if item.affordance_id == selected_affordance_id
+        )
+        return CompactMemoryProposalV2(
+            selected_window_id=selected_affordance.window_id,
+            memory_type=proposal.memory_type,
+            narrative_angle=proposal.narrative_angle,
+            title=proposal.title,
+            notification_teaser=proposal.notification_teaser,
+            summary=proposal.summary,
+            why_this_matters_now=proposal.why_this_matters_now,
+            perspectives=proposal.perspectives,
+            mission=CompactMissionChoiceV2(
+                ranked_affordance_ids=canonical_ranking,
+                selected_affordance_id=selected_affordance_id,
+                selection_reason_codes=proposal.mission.selection_reason_codes,
+                title=proposal.mission.title,
+                story_bridge=proposal.mission.story_bridge,
+            ),
+        )
+
+    @staticmethod
+    def _normalize_provider_ref(value: str, prefix: str) -> str | None:
+        normalized = value.strip().upper()
+        if not PROVIDER_REFERENCE_PATTERN.fullmatch(normalized):
+            return None
+        if not normalized.startswith(prefix):
+            return None
+        return normalized
 
     def demo_compact_proposal(
         self,
@@ -181,7 +514,6 @@ class MemoryInterpreterV2:
         """Return a compact deterministic fixture for provider-boundary tests."""
 
         canonical = self._deterministic_demo(prepared)
-        objectives = canonical.mission.objectives
         return CompactMemoryProposalV2(
             selected_window_id=canonical.selected_window_id,
             memory_type=canonical.memory_type,
@@ -211,15 +543,40 @@ class MemoryInterpreterV2:
                 selected_affordance_id=canonical.mission.affordance_id,
                 selection_reason_codes=canonical.mission.selection_reason_codes,
                 title=canonical.mission.title,
-                mission=canonical.mission.mission,
-                objective_descriptions=[
-                    CompactMissionObjectiveDraftV2(
-                        candidate_id=objective.candidate_id,
-                        description=objective.description,
-                    )
-                    for objective in objectives
-                ],
+                story_bridge=canonical.mission.mission,
             ),
+        )
+
+    def demo_provider_decision(
+        self,
+        prepared: PreparedInterpretationV2,
+    ) -> ProviderInterpretationDecisionV2:
+        """Return the deterministic fixture expressed through provider-only handles."""
+
+        compact = self.demo_compact_proposal(prepared)
+        catalog = self._provider_catalog(prepared)
+        provider_proposal = ProviderMemoryProposalV2(
+            memory_type=compact.memory_type,
+            narrative_angle=compact.narrative_angle,
+            title=compact.title,
+            notification_teaser=compact.notification_teaser,
+            summary=compact.summary,
+            why_this_matters_now=compact.why_this_matters_now,
+            perspectives=compact.perspectives,
+            mission=ProviderMissionChoiceV2(
+                ranked_affordance_refs=[
+                    catalog.affordance_ref_by_id[affordance_id]
+                    for affordance_id in compact.mission.ranked_affordance_ids
+                ],
+                selection_reason_codes=compact.mission.selection_reason_codes,
+                title=compact.mission.title,
+                story_bridge=compact.mission.story_bridge,
+            ),
+        )
+        return ProviderInterpretationDecisionV2(
+            decision=InterpretationDecisionKindV2.GENERATE,
+            abstention_reason_code=None,
+            proposal=provider_proposal,
         )
 
     @classmethod
@@ -420,23 +777,19 @@ class MemoryInterpreterV2:
             for candidate_id in selected_affordance.objective_candidate_ids
         ]
         recipe = chosen[0].recipe if chosen else QuestRecipe.RECREATE
-        objectives: list[ProposedMissionObjectiveV2] = []
-        for candidate in chosen:
-            if candidate.verification.metric == "squad.participant_ids":
-                description = "Play a new match with the invited squad members."
-            elif candidate.verification.metric == "squad.matches_completed":
-                description = "Complete one new match together."
-            elif candidate.verification.metric == "match.first_squad_revive_actor_id":
-                assigned = people[str(candidate.verification.target)].display_name
-                description = f"Have {assigned} complete the squad's first revival."
-            else:
-                description = "Reach the top three in the new match."
-            objectives.append(
-                ProposedMissionObjectiveV2(
-                    candidate_id=candidate.candidate_id,
-                    description=description,
-                )
+        compiled_descriptions = compile_mission_objective_descriptions(
+            selected_affordance,
+            chosen,
+            {player_id: player.display_name for player_id, player in people.items()},
+        )
+        objectives = [
+            ProposedMissionObjectiveV2(
+                candidate_id=candidate.candidate_id,
+                description=compiled_descriptions[candidate.candidate_id],
             )
+            for candidate in chosen
+        ]
+        for candidate in chosen:
             base_claims.append(
                 GroundedClaim(
                     claim_id=f"claim:objective:{candidate.candidate_id}",
@@ -464,27 +817,14 @@ class MemoryInterpreterV2:
             None,
         )
         if selected_affordance.family == MissionFamilyV2.ROLE_REVERSAL:
-            assigned_id = str(
-                next(
-                    candidate.verification.target
-                    for candidate in chosen
-                    if candidate.verification.metric == "match.first_squad_revive_actor_id"
-                )
-            )
-            assigned_name = people[assigned_id].display_name
             mission_title = "Return the Favour"
-            mission_text = (
-                "Play one new match with the invited squad and have "
-                f"{assigned_name} complete the squad's first revival."
-            )
+            mission_text = "Turn the original rescue into a role reversal for the next match."
         elif selected_affordance.family == MissionFamilyV2.REDEMPTION:
             mission_title = "Finish the Final Circle"
-            mission_text = (
-                "Play one new match with the invited squad and reach the top three together."
-            )
+            mission_text = "Turn those near misses into a top-three comeback."
         else:
             mission_title = "Return Together"
-            mission_text = "Play one new match with the invited squad members."
+            mission_text = "Bring the original squad back together for the next chapter."
         ranked_affordance_ids = [
             selected_affordance.affordance_id,
             *sorted(

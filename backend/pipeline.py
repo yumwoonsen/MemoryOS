@@ -59,11 +59,13 @@ class LazyOpenAIStructuredGenerator:
     @property
     def observability(self) -> dict[str, object]:
         if self._delegate is None:
+            from backend.services.openai_client import SDK_MAX_RETRIES
+
             return empty_observability(
                 provider=self.provider_name,
                 model=self.model_name,
                 mode="live_ai",
-                configured_max_retries=2,
+                configured_max_retries=SDK_MAX_RETRIES,
             )
         return dict(getattr(self._delegate, "observability", {}))
 
@@ -107,11 +109,13 @@ class LazyGroqStructuredGenerator:
     @property
     def observability(self) -> dict[str, object]:
         if self._delegate is None:
+            from backend.services.groq_client import SDK_MAX_RETRIES
+
             return empty_observability(
                 provider=self.provider_name,
                 model=self.model_name,
                 mode="live_ai",
-                configured_max_retries=2,
+                configured_max_retries=SDK_MAX_RETRIES,
             )
         return dict(getattr(self._delegate, "observability", {}))
 
@@ -131,6 +135,55 @@ class LazyGroqStructuredGenerator:
             from backend.services.groq_client import GroqStructuredGenerator
 
             self._delegate = GroqStructuredGenerator(self.model_name)
+        return self._delegate.generate(**kwargs)
+
+
+class LazyGeminiStructuredGenerator:
+    """Expose Gemini metadata while deferring key validation until generation."""
+
+    provider_name = "gemini"
+    semantic_retry_limit = 1
+    narrative_fallback_enabled = True
+
+    def __init__(self) -> None:
+        from backend.services.gemini_client import DEFAULT_MODEL
+
+        self.model_name = os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
+        self._delegate: StructuredGenerator | None = None
+
+    @property
+    def usage_totals(self) -> dict[str, int]:
+        if self._delegate is None:
+            return {"input_tokens": 0, "output_tokens": 0}
+        return dict(getattr(self._delegate, "usage_totals", {}))
+
+    @property
+    def observability(self) -> dict[str, object]:
+        if self._delegate is None:
+            from backend.services.gemini_client import SDK_MAX_RETRIES
+
+            return empty_observability(
+                provider=self.provider_name,
+                model=self.model_name,
+                mode="live_ai",
+                configured_max_retries=SDK_MAX_RETRIES,
+            )
+        return dict(getattr(self._delegate, "observability", {}))
+
+    def validate_configuration(self) -> None:
+        if self._delegate is None:
+            from backend.services.gemini_client import GeminiStructuredGenerator
+
+            # Constructing the adapter performs local-only validation of the
+            # API key and bounded v2 output-token setting. It does not make a
+            # provider request, so /health remains free of token usage.
+            self._delegate = GeminiStructuredGenerator(self.model_name)
+
+    def generate(self, **kwargs: Any) -> Any:
+        if self._delegate is None:
+            from backend.services.gemini_client import GeminiStructuredGenerator
+
+            self._delegate = GeminiStructuredGenerator(self.model_name)
         return self._delegate.generate(**kwargs)
 
 
@@ -863,4 +916,6 @@ def build_pipeline(provider: str | None = None) -> MemoryPipeline:
         return MemoryPipeline(LazyOpenAIStructuredGenerator())
     if selected_provider == "groq":
         return MemoryPipeline(LazyGroqStructuredGenerator())
-    raise ValueError("MEMORYOS_PROVIDER must be 'deterministic', 'openai', or 'groq'")
+    if selected_provider == "gemini":
+        return MemoryPipeline(LazyGeminiStructuredGenerator())
+    raise ValueError("MEMORYOS_PROVIDER must be 'deterministic', 'openai', 'groq', or 'gemini'")

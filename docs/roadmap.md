@@ -39,12 +39,17 @@ rewrite match facts.
 
 ### 3.1 — Test and select a no-cost/open-source model
 
-**Prototype status: integrated, with broader model comparison still open.** Groq GPT-OSS is
-available behind the provider boundary for structured live interpretation. The offline evaluator
-captures grounding, abstention, consent, mission, latency, token, correction, and feedback metrics
-by prompt/model version. Malformed, unavailable, or ungrounded output fails closed. A wider
-comparison of hosting cost, hardware needs, latency, and model quality remains production research;
-it does not change deterministic consent, evidence, or validation ownership.
+**Prototype status: integrated, with broader model comparison still open.** Gemini
+`gemini-3.6-flash` is the preferred hosted prototype provider; Groq GPT-OSS and OpenAI remain
+available for comparison. Gemini uses the official OpenAI-compatible endpoint with a strict
+sanitized schema, low reasoning, no explicit temperature, a 60-second per-attempt timeout, no hidden
+SDK retries, and a 4,000-token v2 ceiling. MemoryOS may make one explicit semantic correction. The
+original Pydantic and deterministic validators remain authoritative, and failures close
+without partial delivery. Free-tier trials are limited to synthetic, non-sensitive telemetry. The
+offline evaluator captures grounding, abstention, consent, mission, latency, token, correction, and
+feedback metrics by prompt/model version. A wider comparison of hosting cost, hardware needs,
+latency, and model quality remains production research; it does not change deterministic consent,
+evidence, or validation ownership.
 
 ### 3.2 — Collaborator dashboard and backend visibility
 
@@ -109,9 +114,10 @@ authentication, persistence, and rollout telemetry are ready.
 
 ### 4.2 — One compact AI decision, deterministic expansion, and validation — complete
 
-- Requests one typed internal interpretation decision from the preferred live Groq GPT-OSS
-  provider: either a grounded abstention or one offered event window, memory framing, notification
-  teaser, player perspectives, current relevance, and one selected mission affordance.
+- Requests one typed internal interpretation decision from the preferred hosted Gemini provider:
+  either a grounded abstention or one offered event window, memory framing, notification teaser,
+  player perspectives, current relevance, and one selected mission affordance. Groq GPT-OSS and
+  OpenAI remain alternative implementations behind the same boundary.
 - Requires evidence references for every factual clause and provider-supplied perspective IDs for
   every opted-in squad member. The backend orders those perspectives and validates the exact roster;
   it does not restore a missing perspective.
@@ -127,9 +133,11 @@ authentication, persistence, and rollout telemetry are ready.
   tuple, prose, privacy, value, and grounding validators still decide delivery.
 - Supplies deterministic reunion, role-reversal, and redemption affordances, each composed from
   backend-owned objective capabilities and an `authoring_scope` of allowed intent, players, and targets;
-  conservative lexical checks reject tested conflicting mission actions, quantities, operators,
-  names, and known extra-condition terms. Assignments, required flags, source event IDs, media
-  eligibility, and machine-verification rules remain deterministic.
+  AI selects one and writes its mission title and short story bridge, while the backend compiles the
+  exact objective descriptions. Conservative checks reject contradictory targets/operators,
+  unoffered mechanics, unsupported facts, privacy violations, and unsafe content without requiring
+  the bridge to repeat every rule. Assignments, required flags, source event IDs, media eligibility,
+  and machine-verification rules remain deterministic.
 - Permits at most one correction call using stable validator issue codes and allowlisted section
   IDs, never rejected provider prose or validator messages. Provider failure,
   refusal, malformed output, or a second validation failure returns no generated artifacts.
@@ -141,7 +149,8 @@ authentication, persistence, and rollout telemetry are ready.
 - Builds a typed, consent-safe Story Brief containing neutral windows and feasible mission
   affordances rather than one hard-coded objective space.
 - Lets AI rank and select one offered affordance while deterministic validation owns its family,
-  assignments, objectives, and rules.
+  assignments, objective copy, and rules. The public mission field carries the AI story bridge; the
+  public objectives carry backend-compiled steps.
 - Treats current activity as context rather than invitation authority, allowing inactive original
   squadmates with valid consent to join the scripted reunion lobby.
 - Returns `not_generated` with no player artifacts when AI makes a valid abstention.

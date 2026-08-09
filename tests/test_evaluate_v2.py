@@ -24,6 +24,19 @@ def test_default_cli_is_deterministic_and_live_calls_require_opt_in() -> None:
     assert args.allow_live_api is False
     with pytest.raises(BenchmarkConfigurationError, match="explicit --allow-live-api"):
         run_benchmark(provider="groq", manifest_path=DEFAULT_MANIFEST)
+    with pytest.raises(BenchmarkConfigurationError, match="explicit --allow-live-api"):
+        run_benchmark(provider="gemini", manifest_path=DEFAULT_MANIFEST)
+
+
+def test_gemini_live_benchmark_rejects_a_non_demo_manifest(tmp_path: Path) -> None:
+    external_manifest = tmp_path / "manifest.json"
+
+    with pytest.raises(BenchmarkConfigurationError, match="committed synthetic demo manifest"):
+        run_benchmark(
+            provider="gemini",
+            manifest_path=external_manifest,
+            allow_live_api=True,
+        )
 
 
 def test_manifest_contains_labelled_counterfactual_and_abstention() -> None:
@@ -107,3 +120,30 @@ def test_repeated_model_matrix_can_be_exercised_without_network(monkeypatch) -> 
 
     assert [item["model"] for item in report["models"]] == ["model-a", "model-b"]
     assert all(len(item["runs"]) == 8 for item in report["models"])
+
+
+def test_gemini_model_override_is_scoped_without_network(monkeypatch) -> None:
+    class NoNetworkPipeline(MemoryInterpretationPipelineV2):
+        @property
+        def model_name(self) -> str:
+            return evaluate_v2_module.os.environ["GEMINI_MODEL"]
+
+        def validate_provider_configuration(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        evaluate_v2_module,
+        "build_v2_pipeline",
+        lambda _provider: NoNetworkPipeline(),
+    )
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+
+    report = run_benchmark(
+        provider="gemini",
+        manifest_path=DEFAULT_MANIFEST,
+        models=["gemini-test-model"],
+        allow_live_api=True,
+    )
+
+    assert report["models"][0]["model"] == "gemini-test-model"
+    assert "GEMINI_MODEL" not in evaluate_v2_module.os.environ

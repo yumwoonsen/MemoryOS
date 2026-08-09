@@ -200,14 +200,14 @@ export function createStudioDemoResult(): StudioInterpretDeliveryResultV2 | null
     }),
     next_chapter: {
       title: "Return the Favour",
-      mission: "Bring the squad back and let Lee complete the squad's first revival.",
+      mission: "Turn the original rescue into a role reversal for the next match.",
       recipe: "remix",
       family: "role_reversal",
       invitation_player_ids: invitationPlayers.map((player) => player.player_id),
       objectives: [
         {
           objective_id: reversalParticipantCandidateId,
-          description: "Bring the invitation-eligible squad into one lobby.",
+          description: "Play a match with the invited squad.",
           required: true,
           verification: {
             metric: "squad.participant_ids",
@@ -218,7 +218,7 @@ export function createStudioDemoResult(): StudioInterpretDeliveryResultV2 | null
         },
         {
           objective_id: reversalMatchCandidateId,
-          description: "Complete one match together.",
+          description: "Complete at least 1 match.",
           required: true,
           verification: {
             metric: "squad.matches_completed",
@@ -229,7 +229,7 @@ export function createStudioDemoResult(): StudioInterpretDeliveryResultV2 | null
         },
         {
           objective_id: reversalCandidateId,
-          description: "Lee completes the squad's first revival.",
+          description: "Lee completes the squad's first revive.",
           assigned_player_id: "ff-player-lee",
           required: true,
           verification: {

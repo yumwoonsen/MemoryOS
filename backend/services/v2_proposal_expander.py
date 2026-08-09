@@ -24,6 +24,10 @@ from backend.services.content_safety import (
     contains_unsafe_player_content,
 )
 from backend.services.identity import contains_identity
+from backend.services.v2_mission_copy_compiler import (
+    MissionCopyCompilationError,
+    compile_mission_objective_descriptions,
+)
 from backend.services.v2_preparation import (
     PreparedInterpretationV2,
     collective_event_includes_full_squad,
@@ -98,6 +102,14 @@ CATEGORICAL_DETAIL_CUES = {
     "weapon_class": ("weapon", "gun", "with", "using"),
     "vehicle_type": (
         "vehicle",
+        "entered",
+        "enters",
+        "entering",
+        "boarded",
+        "boards",
+        "boarding",
+        "hopped into",
+        "piled into",
         "drove",
         "driving",
         "rode",
@@ -123,8 +135,8 @@ EXPANSION_MESSAGES = {
     ),
     "mission_affordance_not_linked": "The selected affordance is not linked to the episode.",
     "mission_selection_reason_invalid": "Mission selection uses a reason code not offered.",
-    "mission_objective_set_mismatch": (
-        "Mission descriptions must exactly match the selected affordance objectives."
+    "mission_copy_compilation_failed": (
+        "Backend-owned mission requirements could not be compiled safely."
     ),
     "claim_evidence_outside_episode": "A section cites unknown or unrelated evidence.",
     "perspective_claim_evidence_mismatch": (
@@ -169,6 +181,8 @@ class CompactProposalExpanderV2:
             return self._expand_authoritative(prepared, compact)
         except CompactProposalExpansionError:
             raise
+        except MissionCopyCompilationError:
+            raise CompactProposalExpansionError("mission_copy_compilation_failed") from None
         except (ValidationError, ValueError, TypeError, StopIteration):
             raise CompactProposalExpansionError("compact_expansion_invalid") from None
 
@@ -213,12 +227,12 @@ class CompactProposalExpanderV2:
             affordance.allowed_reason_codes
         ):
             raise CompactProposalExpansionError("mission_selection_reason_invalid")
-        objective_drafts = {
-            item.candidate_id: item for item in compact.mission.objective_descriptions
-        }
-        if set(objective_drafts) != set(affordance.objective_candidate_ids):
-            raise CompactProposalExpansionError("mission_objective_set_mismatch")
         candidates = [candidate_map[item] for item in affordance.objective_candidate_ids]
+        objective_descriptions = compile_mission_objective_descriptions(
+            affordance,
+            candidates,
+            {player.player_id: player.display_name for player in prepared.normalized.players},
+        )
 
         claims: list[GroundedClaim] = []
         sections = (
@@ -352,12 +366,33 @@ class CompactProposalExpanderV2:
                 )
             )
 
-        if len(claims) + len(candidates) + 1 > 50:
-            raise CompactProposalExpansionError("compact_claim_expansion_too_large")
+        mission_source_events = {
+            event_id: selected_events[event_id]
+            for event_id in affordance.source_event_ids
+            if event_id in selected_events
+        }
+        mission_framing = f"{compact.mission.title}. {compact.mission.story_bridge}"
+        mission_source_ids = self._infer_literal_evidence_ids(
+            mission_framing,
+            selected_events=mission_source_events,
+            match=match,
+            prepared=prepared,
+        )
+        for event_index, event_id in enumerate(mission_source_ids, start=1):
+            if event_id not in mission_source_events:
+                continue
+            claims.extend(
+                self._event_claims(
+                    mission_source_events[event_id],
+                    text=mission_framing,
+                    output_section="mission",
+                    claim_prefix=f"claim:mission:source:{event_index}",
+                )
+            )
         objectives = [
             ProposedMissionObjectiveV2(
                 candidate_id=candidate.candidate_id,
-                description=objective_drafts[candidate.candidate_id].description,
+                description=objective_descriptions[candidate.candidate_id],
             )
             for candidate in candidates
         ]
@@ -380,6 +415,8 @@ class CompactProposalExpanderV2:
             )
             for index, candidate in enumerate(candidates, start=1)
         )
+        if len(claims) > 50:
+            raise CompactProposalExpansionError("compact_claim_expansion_too_large")
         selected_media = next(
             (
                 media
@@ -405,7 +442,7 @@ class CompactProposalExpanderV2:
                 ranked_affordance_ids=compact.mission.ranked_affordance_ids,
                 selection_reason_codes=compact.mission.selection_reason_codes,
                 title=compact.mission.title,
-                mission=compact.mission.mission,
+                mission=compact.mission.story_bridge,
                 recipe=candidates[0].recipe,
                 objectives=objectives,
             ),
@@ -848,8 +885,7 @@ class CompactProposalExpanderV2:
         mission_text = " ".join(
             (
                 compact.mission.title,
-                compact.mission.mission,
-                *(item.description for item in compact.mission.objective_descriptions),
+                compact.mission.story_bridge,
             )
         )
         if UNSAFE_MISSION_PATTERN.search(mission_text):
@@ -904,11 +940,7 @@ class CompactProposalExpanderV2:
                 "mission": compact.mission.model_copy(
                     update={
                         "title": clean(compact.mission.title),
-                        "mission": clean(compact.mission.mission),
-                        "objective_descriptions": [
-                            item.model_copy(update={"description": clean(item.description)})
-                            for item in compact.mission.objective_descriptions
-                        ],
+                        "story_bridge": clean(compact.mission.story_bridge),
                     }
                 ),
             }

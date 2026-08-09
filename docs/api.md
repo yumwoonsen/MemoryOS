@@ -125,10 +125,11 @@ an unrelated event.
 ### Internal compact decision and enrichment boundary
 
 The public request and response do not expose the provider's internal schema. Deterministic
-preparation builds a consent-safe `StoryBriefV2` with no more than four narratively neutral
-`eligible_event_windows`, plus runtime `mission_affordances`. The current affordance catalogue has
-exactly three families: `reunion`, `role_reversal`, and `redemption`; only families supported by
-the submitted evidence and current feasibility are offered.
+preparation builds an authoritative consent-safe `StoryBriefV2` with no more than four narratively
+neutral `eligible_event_windows`, plus runtime `mission_affordances`. A provider-only projection
+replaces its canonical selection IDs with request-scoped short references. The current affordance
+catalogue has exactly three families: `reunion`, `role_reversal`, and `redemption`; only families
+supported by the submitted evidence and current feasibility are offered.
 
 Each `MissionAffordanceV2` carries backend-owned `affordance_id`, `family`, `window_id`,
 `source_event_ids`, `source_match_ids`, `source_context_ids`, `parameters`,
@@ -136,24 +137,34 @@ Each `MissionAffordanceV2` carries backend-owned `affordance_id`, `family`, `win
 `MissionCapabilityCandidate` records own `recipe`, `assigned_player_id`, `source_event_ids`, and
 `verification` (`metric`, `operator`, and `target`).
 
-For one eligible request, AI returns `CompactInterpretationDecisionV2` as exactly one of:
+For one eligible request, AI returns the provider-only typed interpretation decision as exactly one
+of:
 
 - `decision: "abstain"`, `abstention_reason_code: "no_meaningful_episode"`, and `proposal: null`; or
 - `decision: "generate"`, a null abstention reason, and one compact proposal that:
-  - selects exactly one offered window;
-  - puts every offered ID exactly once in `ranked_affordance_ids` and places
-    `selected_affordance_id` first;
-  - supplies only the selected affordance's allowlisted `selection_reason_codes`;
+  - puts every offered request-scoped `A#` exactly once in `ranked_affordance_refs`; each `A#` is an
+    episode-and-mission pair, so the first reference selects both the continuation and its linked
+    `W#` episode without a redundant selected-window output field;
+  - supplies only the first affordance's allowlisted `selection_reason_codes`;
   - authors the title, teaser, summary, current-relevance explanation, player perspectives, mission
-    title/text, and an `objective_descriptions` entry for every objective candidate of the selected
-    affordance; and
+    title, and a short story bridge for the selected continuation; and
   - attaches bounded evidence and capability references to those authored sections.
+
+The provider Story Brief does not expose canonical window, affordance, or objective-candidate IDs.
+Its `W#`, `A#`, and `O#` references are generated for one request and expire at the interpreter
+boundary. Typed objective capabilities neutrally describe only supported roster, match-count,
+event-actor, or placement mechanics. The provider uses those capabilities to compare continuations;
+the backend resolves the selected `O#` values and compiles their exact player-facing objective
+descriptions from authoritative rules. The capabilities are not a title, narrative angle, emotional
+interpretation, or finished memory, and they do not grant factual authority.
 
 The generated compact proposal does not author authoritative match or event ID lists, complete `GroundedClaim` objects,
 media mappings, mission recipe, objective IDs, assignments, required flags, verification metrics,
 operators, targets, source event/match/context references, the consent-safe roster, a delivery
-ID/status, or Studio trace records. The backend resolves the selected window, selected affordance,
-and compact references against the prepared evidence ledger and affordance catalogue. A literal
+ID/status, or Studio trace records. The backend resolves the first ranked `A#`, its linked `W#`, and
+every selected `O#` against request-local maps, then reconstructs canonical IDs from the prepared
+evidence ledger and affordance catalogue. Unknown, missing, cross-affordance, or ambiguous
+references fail closed. A literal
 player name, canonical action, location, or selected-match value may
 add conservative candidate evidence from the selected window when a reference was omitted. This is
 not a unique semantic mapping and does not infer emotion, meaning, or causality; the expanded claims
@@ -175,8 +186,13 @@ control plane. Player, action, and target terms are checked as one supported rol
 citing separate events that contain each word is insufficient. That expected reliability benefit
 is not inferred from schema size alone. Automated suites cover the current contract. A historical
 telemetry-only Groq 120B request passed on 8 August 2026 with the older V2.4 prompt, but it is not
-evidence for the active `memory-interpreter-v2.6-mission-affordances` prompt. Current live
+evidence for the active `memory-interpreter-v2.11-backend-mission-copy` prompt. Current live
 reliability remains an evaluation task.
+
+The internal Story Brief includes neutral `authoring_constraints`: per-player
+active/passive/full-squad event scopes and evidence-bound categorical or zone terms. Exact event
+attribution remains in the same consent-safe ledger. These maps guide the provider only; they
+neither pre-author a memory nor weaken authoritative expansion and validation.
 
 A successful response has `status: "pending_player_decision"` and only validated delivery fields.
 This abridged example omits additional required section claims and trace details:
@@ -213,7 +229,7 @@ This abridged example omits additional required section claims and trace details
   ],
   "next_chapter": {
     "title": "Return the Favour",
-    "mission": "Bring the squad back, complete one match, and let Lee make the first squad revive.",
+    "mission": "Mei brought Lee back during the escape. Now Lee gets the chance to return the favour.",
     "recipe": "remix",
     "family": "role_reversal",
     "invitation_player_ids": ["player-lee", "player-mei"],
@@ -242,7 +258,7 @@ This abridged example omits additional required section claims and trace details
       },
       {
         "objective_id": "objective:role_reversal:first_revive:window_match-001_1:1",
-        "description": "Lee makes the squad's first revive.",
+        "description": "Lee completes the first revive.",
         "assigned_player_id": "player-lee",
         "required": true,
         "source_event_ids": ["event-17"],
@@ -268,10 +284,10 @@ This abridged example omits additional required section claims and trace details
   "validation": {"passed": true, "correction_attempted": false, "issues": []},
   "studio_trace": {"trace_id": "trace-redacted", "stages": []},
   "metadata": {
-    "provider": "groq",
-    "model": "configured-live-model",
+    "provider": "gemini",
+    "model": "gemini-3.6-flash",
     "mode": "live_ai",
-    "prompt_version": "memory-interpreter-v2.6-mission-affordances",
+    "prompt_version": "memory-interpreter-v2.11-backend-mission-copy",
     "content_origin": "live_ai_validated",
     "grounded_render": false,
     "narrative_fallback": false
@@ -299,15 +315,15 @@ Every factual clause or constrained factual field must have a complete backend-d
 public schema. The provider must return every consent-safe eligible perspective ID exactly once;
 the backend orders those supplied perspectives by the trusted roster and validates the exact set. It
 does not restore or synthesize a missing perspective.
-The selected **Next Chapter** may contain AI-authored descriptions, but its `family`, recipe,
-objective IDs, player assignments, required flags, verification metrics/operators/targets, and
-source event/match/context references are backend controls. The compact proposal ranks only the
-runtime affordances, selects exactly one, uses only that affordance's allowed reason codes, and
-authors a description for every compiled objective. Conservative lexical validation rejects tested
-conflicting metric actions, operators, metric-associated counts, player names, and known unoffered
-gameplay condition terms. Counts attached to participants or other nouns are evaluated in context
-rather than compared with the wrong target. Mission and objective wording must express the selected
-backend requirements. This is not a universal semantic proof for arbitrary mission prose.
+The selected **Next Chapter** contains an AI-authored mission title and short story bridge, but its
+`family`, recipe, objective descriptions, objective IDs, player assignments, required flags,
+verification metrics/operators/targets, and source event/match/context references are backend
+controls. The compact proposal ranks only the runtime affordances, selects exactly one, and uses only
+that affordance's allowed reason codes. Conservative validation rejects contradictory targets or
+operators, unoffered mechanics, unsupported facts, privacy violations, and unsafe content in the
+story bridge. The bridge does not need to restate every objective rule; backend compilation places
+those exact requirements in `next_chapter.objectives`. This is not a universal semantic proof for
+arbitrary mission prose.
 
 Every normalized event fact declares `event_scope` as `player`, `squad`, or `match`. A player-scoped
 event keeps its actor/target semantics; squad- and match-scoped facts are collective rather than an
@@ -335,14 +351,18 @@ submitted roster; sparse actor/target fields are not treated as proof that nobod
 
 Provider transport failure, timeout, or refusal returns a safe HTTP `503`. A repairable malformed
 schema, expansion error, or validation failure may receive exactly one correction call containing
-stable issue codes and allowlisted section IDs, never rejected generated prose or free-form
-validator messages. A terminal correction failure fails closed. Eligibility or terminal proposal
-validation failure returns `rejected` with no memory, perspectives, mission, claims, or media
-selection. Rejected proposal prose must not be returned to the player or Developer Studio.
+stable issue codes and allowlisted provider-visible section references. Canonical objective
+candidate IDs remain hidden behind request-local `O#` references. The unchanged Story Brief supplies
+the same `W#`/`A#`/`O#` catalogue so a corrected selection or story bridge cannot escape the original
+capability boundary. Rejected generated prose and free-form validator messages are never returned. A
+terminal correction failure fails closed. Eligibility or terminal proposal validation failure
+returns `rejected` with no memory, perspectives, mission, claims, or media selection. Rejected
+proposal prose must not be returned to the player or Developer Studio.
 
-Groq GPT-OSS is the preferred live v2 provider. Deterministic mode remains available for tests and
-explicitly labelled offline Studio demonstrations; deterministic narrative must never be labelled as
-a live AI delivery.
+Gemini `gemini-3.6-flash` is the preferred hosted prototype v2 provider. Groq GPT-OSS and OpenAI
+remain available as alternatives. Deterministic mode remains available for tests and explicitly
+labelled offline Studio demonstrations; deterministic narrative must never be labelled as a live AI
+delivery.
 
 ## `POST /v2/deliveries/{delivery_id}/decision`
 
@@ -667,11 +687,12 @@ evidence, action, objective-alignment, and lexical checks above.
 ## Provider configuration
 
 The deterministic provider is appropriate for repeatable tests and offline Studio demos. The v2
-player route requires an explicitly configured Groq or OpenAI provider and fails closed; it never
-silently uses deterministic narrative when a live provider is unavailable.
+player route requires an explicitly configured Gemini, Groq, or OpenAI provider and fails closed; it
+never silently uses deterministic narrative when a live provider is unavailable.
 
-The active v2 prompt contract is `memory-interpreter-v2.6-mission-affordances`. Any V2.4/120B smoke
-record is historical only and cannot be cited as validation of this prompt.
+The active v2 prompt contract is `memory-interpreter-v2.11-backend-mission-copy`, loaded from
+`memory_interpreter_v2_11.txt`. Any V2.4/120B or V2.10 Gemini smoke record is historical only and
+cannot be cited as validation of this prompt.
 
 The default needs no credentials:
 
@@ -679,7 +700,16 @@ The default needs no credentials:
 MEMORYOS_PROVIDER=deterministic
 ```
 
-To opt into the recommended Groq live generation path, copy `.env.example` to `.env` and set:
+To opt into the preferred hosted prototype path, copy `.env.example` to `.env` and set:
+
+```dotenv
+MEMORYOS_PROVIDER=gemini
+GEMINI_API_KEY=your_server_side_key
+GEMINI_MODEL=gemini-3.6-flash
+GEMINI_V2_MAX_OUTPUT_TOKENS=4000
+```
+
+The Groq alternative remains available:
 
 ```dotenv
 MEMORYOS_PROVIDER=groq
@@ -688,7 +718,7 @@ GROQ_MODEL=openai/gpt-oss-20b
 GROQ_V2_MAX_OUTPUT_TOKENS=2500
 ```
 
-The existing OpenAI path remains available:
+The OpenAI alternative remains available:
 
 ```dotenv
 MEMORYOS_PROVIDER=openai
@@ -703,11 +733,15 @@ Start each mode explicitly in PowerShell:
 $env:MEMORYOS_PROVIDER = "deterministic"
 uvicorn backend.main:app --reload
 
+# Preferred hosted prototype mode; reads GEMINI_API_KEY from .env
+$env:MEMORYOS_PROVIDER = "gemini"
+uvicorn backend.main:app --reload
+
 # Opt-in live mode; reads OPENAI_API_KEY from .env
 $env:MEMORYOS_PROVIDER = "openai"
 uvicorn backend.main:app --reload
 
-# Recommended free-tier live mode; reads GROQ_API_KEY from .env
+# Groq alternative; reads GROQ_API_KEY from .env
 $env:MEMORYOS_PROVIDER = "groq"
 uvicorn backend.main:app --reload
 ```
@@ -721,12 +755,19 @@ non-empty, protected data-bearing routes require the same value in the
 Keep this value in server environment variables only—never bundle it into browser JavaScript.
 Local development remains unchanged while the variable is unset.
 
-Each current v1.1 model request uses low reasoning effort, a 30-second timeout, at most two SDK
-retries, and a 2,000-token output ceiling. V2 compact interpretation uses a 2,500-token Groq
-ceiling so the synthetic Story Brief, strict schema, and completion budget fit the prototype
-account's 8K envelope. The OpenAI adapter retains its 4,000-token ceiling. Either provider fails
-closed rather than returning a partial delivery. OpenAI responses use `store=False`; Groq requests
-omit the unsupported `store` field. See the official
+Gemini uses Google's official OpenAI-compatible endpoint. It requests low reasoning, omits an
+explicit temperature, uses a 60-second per-attempt timeout with no hidden SDK retries, and caps
+v1.1 output at 2,000 tokens and compact v2 interpretation at 4,000 tokens by default. MemoryOS may
+make one explicit semantic correction, and the same-origin proxy waits up to 130 seconds for that
+bounded path. Before sending the strict
+JSON Schema it removes provider-unsupported schema hints; returned JSON must still pass the complete
+Pydantic model and deterministic validators. A provider refusal, malformed response, transport
+failure, or terminal validation failure returns no partial delivery. Free-tier Gemini prototype
+runs must use synthetic, non-sensitive telemetry; the key remains server-side.
+
+Groq compact v2 interpretation retains its configurable 2,500-token default for the prototype's 8K
+envelope, and OpenAI retains a 4,000-token ceiling. OpenAI responses use `store=False`; Groq and
+Gemini requests omit the unsupported `store` field. See the official
 [gpt-5.6-luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna) for the
 configured model's current capabilities and pricing.
 
